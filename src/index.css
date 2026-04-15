@@ -1,4 +1,6 @@
 :root {
+  --native-top-inset: 0px;
+  --safe-top-inset: max(env(safe-area-inset-top), var(--native-top-inset));
   --text-primary: #e2e8f0;
   --text-secondary: #94a3b8;
   --border-color: rgba(148, 163, 184, 0.34);
@@ -6,6 +8,14 @@
   --btn-bg: rgba(30, 41, 59, 0.7);
   --accent-2: rgba(56, 189, 248, 0.85);
   --shadow-soft: 0 16px 30px rgba(2, 6, 23, 0.28);
+  --radius-card: 20px;
+  --radius-pill: 999px;
+  --size-pill-tag: 20px;
+  --size-pill-control: 40px;
+  --ui-radius: var(--radius-card);
+  --stats-pill-height: var(--size-pill-tag);
+  --stats-pill-radius: var(--radius-pill);
+  --control-height: var(--size-pill-control);
 
   font-family:
     Inter,
@@ -26,6 +36,7 @@
 *::before,
 *::after {
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 
 html,
@@ -50,6 +61,7 @@ select,
 textarea {
   font: inherit;
   color: inherit;
+  outline: none;
 }
 
 a {

@@ -1,12 +1,18 @@
 import {
   useCallback,
+  type CSSProperties,
   type ChangeEvent,
-  type KeyboardEvent,
+  type PointerEvent,
+  type UIEvent,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from 'react'
+import { App as CapacitorApp } from '@capacitor/app'
+import { Capacitor } from '@capacitor/core'
+import { Haptics, ImpactStyle } from '@capacitor/haptics'
 import ReactMarkdown from 'react-markdown'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
@@ -55,6 +61,12 @@ interface Conversation {
   updatedAt: number
 }
 
+interface ConversationGroup {
+  id: string
+  labelTime: number
+  conversations: Conversation[]
+}
+
 interface AppSettings {
   apiBaseUrl: string
   apiKey: string
@@ -65,14 +77,59 @@ interface AppSettings {
   presencePenalty: number
   frequencyPenalty: number
   showReasoning: boolean
+  deleteModeHapticsEnabled: boolean
+  firstTokenHapticsEnabled: boolean
   models: string[]
   currentModel: string
+  deleteConfirmGraceSeconds: number
+  conversationGroupGapMinutes: number
+  defaultExpandedConversationGroups: number
+  emptyStateStatsMinConversations: number
 }
 
 interface Notice {
   type: 'success' | 'error' | 'info'
   text: string
 }
+
+interface RectSnapshot {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
+type TitleTransitionPhase = 'opening' | 'closing'
+
+interface PendingTitleTransition {
+  phase: TitleTransitionPhase
+  titleText: string
+  sourceTitleRect: RectSnapshot
+  sourceTriggerRect: RectSnapshot
+}
+
+interface TitleTransitionState {
+  phase: TitleTransitionPhase
+  titleText: string
+  titleStartRect: RectSnapshot
+  titleEndRect: RectSnapshot
+  penStartRect: RectSnapshot
+  penEndRect: RectSnapshot
+  actionsStartRect: RectSnapshot
+  actionsEndRect: RectSnapshot
+  playing: boolean
+}
+
+type NumericSettingKey =
+  | 'temperature'
+  | 'topP'
+  | 'maxTokens'
+  | 'presencePenalty'
+  | 'frequencyPenalty'
+  | 'deleteConfirmGraceSeconds'
+  | 'conversationGroupGapMinutes'
+  | 'defaultExpandedConversationGroups'
+  | 'emptyStateStatsMinConversations'
 
 type ApiRole = 'system' | 'user' | 'assistant'
 type ApiContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
@@ -98,15 +155,31 @@ interface StreamCallbacks {
 interface LoadedChatState {
   conversations: Conversation[]
   activeConversationId: string
+  draftsByConversation: Record<string, string>
 }
 
 const SETTINGS_STORAGE_KEY = 'chatroom.settings.v1'
 const LEGACY_MESSAGES_STORAGE_KEY = 'chatroom.messages.v1'
 const CONVERSATIONS_STORAGE_KEY = 'chatroom.conversations.v2'
+const DRAFTS_STORAGE_KEY = 'chatroom.drafts.v1'
 const ACTIVE_CONVERSATION_STORAGE_KEY = 'chatroom.active-conversation.v2'
 
 const MAX_STORED_MESSAGES = 100
 const MAX_STORED_CONVERSATIONS = 40
+const DEFAULT_DELETE_CONFIRM_GRACE_SECONDS = 30
+const DEFAULT_CONVERSATION_GROUP_GAP_MINUTES = 30
+const DEFAULT_EXPANDED_CONVERSATION_GROUPS = 3
+const DEFAULT_EMPTY_STATE_STATS_MIN_CONVERSATIONS = 3
+const SWIPE_DELETE_TOGGLE_THRESHOLD_PX = 72
+const SWIPE_DELETE_MAX_OFFSET_PX = 96
+const LONG_PRESS_DELETE_MODE_MS = 520
+const LONG_PRESS_MOVE_TOLERANCE_PX = 10
+const TITLE_EDIT_TRANSITION_MS = 220
+const TITLE_EDIT_TRANSITION_TRAVEL_FACTOR = 0.18
+const TITLE_EDIT_TRANSITION_TRAVEL_MIN_PX = 12
+const TITLE_EDIT_TRANSITION_TRAVEL_MAX_PX = 26
+const MESSAGE_LIST_BOTTOM_THRESHOLD_PX = 28
+const MESSAGE_LIST_INTERACTION_IDLE_MS = 140
 
 const REMARK_PLUGINS = [remarkGfm, remarkMath]
 const REHYPE_PLUGINS = [rehypeKatex]
@@ -117,13 +190,61 @@ const DEFAULT_SETTINGS: AppSettings = {
   systemPrompt: '',
   temperature: 0.7,
   topP: 1,
-  maxTokens: 2048,
+  maxTokens: 8192,
   presencePenalty: 0,
   frequencyPenalty: 0,
   showReasoning: true,
+  deleteModeHapticsEnabled: true,
+  firstTokenHapticsEnabled: true,
   models: [],
   currentModel: '',
+  deleteConfirmGraceSeconds: DEFAULT_DELETE_CONFIRM_GRACE_SECONDS,
+  conversationGroupGapMinutes: DEFAULT_CONVERSATION_GROUP_GAP_MINUTES,
+  defaultExpandedConversationGroups: DEFAULT_EXPANDED_CONVERSATION_GROUPS,
+  emptyStateStatsMinConversations: DEFAULT_EMPTY_STATE_STATS_MIN_CONVERSATIONS,
 }
+
+const NUMERIC_SETTING_DEFAULTS: Record<NumericSettingKey, number> = {
+  temperature: DEFAULT_SETTINGS.temperature,
+  topP: DEFAULT_SETTINGS.topP,
+  maxTokens: DEFAULT_SETTINGS.maxTokens,
+  presencePenalty: DEFAULT_SETTINGS.presencePenalty,
+  frequencyPenalty: DEFAULT_SETTINGS.frequencyPenalty,
+  deleteConfirmGraceSeconds: DEFAULT_SETTINGS.deleteConfirmGraceSeconds,
+  conversationGroupGapMinutes: DEFAULT_SETTINGS.conversationGroupGapMinutes,
+  defaultExpandedConversationGroups: DEFAULT_SETTINGS.defaultExpandedConversationGroups,
+  emptyStateStatsMinConversations: DEFAULT_SETTINGS.emptyStateStatsMinConversations,
+}
+
+type NumericSettingDrafts = Record<NumericSettingKey, string>
+type ConversationDrafts = Record<string, string>
+
+const normalizeNumericSettingDraft = (key: NumericSettingKey, value: number): string =>
+  value === NUMERIC_SETTING_DEFAULTS[key] ? '' : String(value)
+
+const createNumericSettingDrafts = (settings: AppSettings): NumericSettingDrafts => ({
+  temperature: normalizeNumericSettingDraft('temperature', settings.temperature),
+  topP: normalizeNumericSettingDraft('topP', settings.topP),
+  maxTokens: normalizeNumericSettingDraft('maxTokens', settings.maxTokens),
+  presencePenalty: normalizeNumericSettingDraft('presencePenalty', settings.presencePenalty),
+  frequencyPenalty: normalizeNumericSettingDraft('frequencyPenalty', settings.frequencyPenalty),
+  deleteConfirmGraceSeconds: normalizeNumericSettingDraft(
+    'deleteConfirmGraceSeconds',
+    settings.deleteConfirmGraceSeconds,
+  ),
+  conversationGroupGapMinutes: normalizeNumericSettingDraft(
+    'conversationGroupGapMinutes',
+    settings.conversationGroupGapMinutes,
+  ),
+  defaultExpandedConversationGroups: normalizeNumericSettingDraft(
+    'defaultExpandedConversationGroups',
+    settings.defaultExpandedConversationGroups,
+  ),
+  emptyStateStatsMinConversations: normalizeNumericSettingDraft(
+    'emptyStateStatsMinConversations',
+    settings.emptyStateStatsMinConversations,
+  ),
+})
 
 const numberFormatter = new Intl.NumberFormat('zh-CN')
 const dateFormatter = new Intl.DateTimeFormat('zh-CN', {
@@ -132,6 +253,8 @@ const dateFormatter = new Intl.DateTimeFormat('zh-CN', {
   hour: '2-digit',
   minute: '2-digit',
 })
+const CHAT_DAY_START_HOUR = 6
+const CHAT_DAY_MS_OFFSET = CHAT_DAY_START_HOUR * 60 * 60 * 1000
 
 const createId = (): string => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -158,6 +281,110 @@ const toFiniteNumber = (value: unknown): number | undefined => {
 
 const clamp = (value: number, minimum: number, maximum: number): number =>
   Math.min(Math.max(value, minimum), maximum)
+
+const padTwoDigits = (value: number): string => String(value).padStart(2, '0')
+
+const formatClockTime = (timestamp: number): string => {
+  const date = new Date(timestamp)
+  return `${padTwoDigits(date.getHours())}:${padTwoDigits(date.getMinutes())}`
+}
+
+const getChatDayReferenceDate = (timestamp: number): Date => new Date(timestamp - CHAT_DAY_MS_OFFSET)
+
+const getChatDayStartTimestamp = (timestamp: number): number => {
+  const date = getChatDayReferenceDate(timestamp)
+  date.setHours(0, 0, 0, 0)
+  return date.getTime()
+}
+
+const getCalendarDayKey = (timestamp: number): string => {
+  const date = new Date(timestamp)
+  return `${date.getFullYear()}-${padTwoDigits(date.getMonth() + 1)}-${padTwoDigits(date.getDate())}`
+}
+
+const getChatDayTimeRank = (timestamp: number): number => {
+  const date = new Date(timestamp)
+  return (date.getHours() * 60 + date.getMinutes() - CHAT_DAY_START_HOUR * 60 + 1440) % 1440
+}
+
+const formatChatDayMonthDay = (timestamp: number, prefixThisYear = false): string => {
+  const date = getChatDayReferenceDate(timestamp)
+  const prefix = prefixThisYear ? '今年的' : ''
+  return `${prefix}${date.getMonth() + 1}月${date.getDate()}日`
+}
+
+const formatCalendarMonthDay = (timestamp: number, prefixThisYear = false): string => {
+  const date = new Date(timestamp)
+  const prefix = prefixThisYear ? '今年的' : ''
+  return `${prefix}${date.getMonth() + 1}月${date.getDate()}日`
+}
+
+const formatCompactCount = (value: number): string => {
+  const absolute = Math.abs(value)
+  if (absolute < 1000) {
+    return numberFormatter.format(Math.round(value))
+  }
+
+  const units = [
+    { value: 1_000_000_000, suffix: 'b' },
+    { value: 1_000_000, suffix: 'm' },
+    { value: 1_000, suffix: 'k' },
+  ] as const
+
+  const unit = units.find((item) => absolute >= item.value) ?? units[units.length - 1]
+  const scaled = value / unit.value
+  const digits = Math.abs(scaled) >= 10 ? 1 : 1
+  return `${scaled.toFixed(digits).replace(/\.0$/, '')}${unit.suffix}`
+}
+
+const formatTokenLabel = (value: number): string => {
+  const compact = formatCompactCount(value)
+  return /[a-z]$/i.test(compact) ? `${compact} Token` : `${compact}Token`
+}
+
+const snapshotRect = (element: Element | null): RectSnapshot | null => {
+  if (!element) {
+    return null
+  }
+
+  const { left, top, width, height } = element.getBoundingClientRect()
+  return { left, top, width, height }
+}
+
+const shiftRect = (rect: RectSnapshot, x: number, y: number): RectSnapshot => ({
+  left: rect.left + x,
+  top: rect.top + y,
+  width: rect.width,
+  height: rect.height,
+})
+
+const getTravelOffset = (
+  fromRect: RectSnapshot,
+  toRect: RectSnapshot,
+): { x: number; y: number } => {
+  const fromCenterX = fromRect.left + fromRect.width / 2
+  const fromCenterY = fromRect.top + fromRect.height / 2
+  const toCenterX = toRect.left + toRect.width / 2
+  const toCenterY = toRect.top + toRect.height / 2
+  const deltaX = toCenterX - fromCenterX
+  const deltaY = toCenterY - fromCenterY
+  const distance = Math.hypot(deltaX, deltaY)
+
+  if (distance < 0.001) {
+    return { x: 0, y: 0 }
+  }
+
+  const travel = clamp(
+    distance * TITLE_EDIT_TRANSITION_TRAVEL_FACTOR,
+    TITLE_EDIT_TRANSITION_TRAVEL_MIN_PX,
+    TITLE_EDIT_TRANSITION_TRAVEL_MAX_PX,
+  )
+
+  return {
+    x: (deltaX / distance) * travel,
+    y: (deltaY / distance) * travel,
+  }
+}
 
 const normalizeBaseUrl = (value: string): string => value.trim().replace(/\/+$/, '')
 
@@ -306,7 +533,7 @@ const modelHealthLabel = (state: ModelHealth | undefined): string => {
     case 'error':
       return '失败'
     default:
-      return '未检测'
+      return '检测'
   }
 }
 
@@ -318,6 +545,16 @@ const formatMs = (value: number | undefined): string => {
     return `${Math.round(value)}ms`
   }
   return `${(value / 1000).toFixed(2)}s`
+}
+
+const vibrateInteraction = (): void => {
+  void Haptics.vibrate({ duration: 10 }).catch(() => {
+    void Haptics.impact({ style: ImpactStyle.Heavy }).catch(() => {
+      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        navigator.vibrate(10)
+      }
+    })
+  })
 }
 
 const readErrorMessage = async (response: Response): Promise<string> => {
@@ -648,6 +885,20 @@ const normalizeStoredMessages = (value: unknown): ChatMessage[] => {
   return messages.slice(-MAX_STORED_MESSAGES)
 }
 
+const normalizeStoredDrafts = (value: unknown): ConversationDrafts => {
+  if (!isRecord(value)) {
+    return {}
+  }
+
+  const drafts: ConversationDrafts = {}
+  for (const [conversationId, draft] of Object.entries(value)) {
+    if (typeof draft === 'string' && draft.length > 0) {
+      drafts[conversationId] = draft
+    }
+  }
+  return drafts
+}
+
 const sanitizeTitleText = (text: string): string =>
   text
     .replace(/[#[\]>*`_~()]/g, ' ')
@@ -675,44 +926,82 @@ const deriveConversationTitle = (messages: ChatMessage[]): string | undefined =>
   return candidate.length > 20 ? `${candidate.slice(0, 20)}…` : candidate
 }
 
+const inferConversationCreatedAt = (messages: ChatMessage[]): number => {
+  const firstUser = messages.find((message) => message.role === 'user')
+  return firstUser?.createdAt ?? messages[0]?.createdAt ?? Date.now()
+}
+
+const isConversationPlaceholder = (conversation: Conversation): boolean =>
+  conversation.messages.length === 0
+
 const withConversationMessages = (
   conversation: Conversation,
   messages: ChatMessage[],
+  options?: {
+    keepUpdatedAt?: boolean
+  },
 ): Conversation => {
   const trimmedMessages = messages.slice(-MAX_STORED_MESSAGES)
   const nextTitle = conversation.titleManuallyEdited
     ? conversation.title
     : deriveConversationTitle(trimmedMessages) ?? '新对话'
+  const nextCreatedAt =
+    isConversationPlaceholder(conversation) && trimmedMessages.length > 0
+      ? inferConversationCreatedAt(trimmedMessages)
+      : conversation.createdAt > 0 || trimmedMessages.length === 0
+      ? conversation.createdAt
+      : inferConversationCreatedAt(trimmedMessages)
   return {
     ...conversation,
     title: nextTitle,
     messages: trimmedMessages,
-    updatedAt: Date.now(),
+    createdAt: nextCreatedAt,
+    updatedAt:
+      nextCreatedAt <= 0
+        ? 0
+        : options?.keepUpdatedAt
+          ? Math.max(conversation.updatedAt, nextCreatedAt)
+          : Date.now(),
   }
 }
 
 const createConversation = (messages: ChatMessage[] = []): Conversation => {
-  const now = Date.now()
   const trimmedMessages = messages.slice(-MAX_STORED_MESSAGES)
+  const createdAt = trimmedMessages.length > 0 ? inferConversationCreatedAt(trimmedMessages) : 0
+  const updatedAt =
+    trimmedMessages.length > 0
+      ? Math.max(trimmedMessages[trimmedMessages.length - 1]?.createdAt ?? createdAt, createdAt)
+      : 0
   return {
     id: createId(),
     title: deriveConversationTitle(trimmedMessages) ?? '新对话',
     titleManuallyEdited: false,
     messages: trimmedMessages,
-    createdAt: now,
-    updatedAt: now,
+    createdAt,
+    updatedAt,
   }
 }
 
 const serializeConversationsForStorage = (conversations: Conversation[]): Conversation[] =>
   conversations.slice(0, MAX_STORED_CONVERSATIONS).map((conversation) => ({
     ...conversation,
-    // Base64 image data can easily exceed localStorage quota on mobile.
-    messages: conversation.messages.slice(-MAX_STORED_MESSAGES).map((message) => ({
-      ...message,
-      images: undefined,
-    })),
+    messages: conversation.messages.slice(-MAX_STORED_MESSAGES),
   }))
+
+const serializeConversationDraftsForStorage = (
+  conversations: Conversation[],
+  draftsByConversation: ConversationDrafts,
+): ConversationDrafts => {
+  const validConversationIds = new Set(conversations.map((conversation) => conversation.id))
+
+  const drafts: ConversationDrafts = {}
+  for (const [conversationId, draft] of Object.entries(draftsByConversation)) {
+    if (validConversationIds.has(conversationId) && draft.length > 0) {
+      drafts[conversationId] = draft
+    }
+  }
+  return drafts
+}
 
 const normalizeLatexDelimiters = (text: string): string =>
   text
@@ -787,6 +1076,12 @@ const loadSettings = (): AppSettings => {
     const rawMaxTokens = toFiniteNumber(parsed.maxTokens)
     const rawPresencePenalty = toFiniteNumber(parsed.presencePenalty)
     const rawFrequencyPenalty = toFiniteNumber(parsed.frequencyPenalty)
+    const rawDeleteConfirmGraceSeconds = toFiniteNumber(parsed.deleteConfirmGraceSeconds)
+    const rawConversationGroupGapMinutes = toFiniteNumber(parsed.conversationGroupGapMinutes)
+    const rawDefaultExpandedConversationGroups = toFiniteNumber(
+      parsed.defaultExpandedConversationGroups,
+    )
+    const rawEmptyStateStatsMinConversations = toFiniteNumber(parsed.emptyStateStatsMinConversations)
 
     return {
       apiBaseUrl: typeof parsed.apiBaseUrl === 'string' ? parsed.apiBaseUrl : DEFAULT_SETTINGS.apiBaseUrl,
@@ -812,8 +1107,32 @@ const loadSettings = (): AppSettings => {
         typeof parsed.showReasoning === 'boolean'
           ? parsed.showReasoning
           : DEFAULT_SETTINGS.showReasoning,
+      deleteModeHapticsEnabled:
+        typeof parsed.deleteModeHapticsEnabled === 'boolean'
+          ? parsed.deleteModeHapticsEnabled
+          : DEFAULT_SETTINGS.deleteModeHapticsEnabled,
+      firstTokenHapticsEnabled:
+        typeof parsed.firstTokenHapticsEnabled === 'boolean'
+          ? parsed.firstTokenHapticsEnabled
+          : DEFAULT_SETTINGS.firstTokenHapticsEnabled,
       models,
       currentModel,
+      deleteConfirmGraceSeconds:
+        rawDeleteConfirmGraceSeconds !== undefined
+          ? Math.round(clamp(rawDeleteConfirmGraceSeconds, 0, 600))
+          : DEFAULT_SETTINGS.deleteConfirmGraceSeconds,
+      conversationGroupGapMinutes:
+        rawConversationGroupGapMinutes !== undefined
+          ? Math.round(clamp(rawConversationGroupGapMinutes, 0, 120))
+          : DEFAULT_SETTINGS.conversationGroupGapMinutes,
+      defaultExpandedConversationGroups:
+        rawDefaultExpandedConversationGroups !== undefined
+          ? Math.round(clamp(rawDefaultExpandedConversationGroups, 0, 20))
+          : DEFAULT_SETTINGS.defaultExpandedConversationGroups,
+      emptyStateStatsMinConversations:
+        rawEmptyStateStatsMinConversations !== undefined
+          ? Math.round(clamp(rawEmptyStateStatsMinConversations, 0, MAX_STORED_CONVERSATIONS))
+          : DEFAULT_SETTINGS.emptyStateStatsMinConversations,
     }
   } catch {
     return DEFAULT_SETTINGS
@@ -821,18 +1140,28 @@ const loadSettings = (): AppSettings => {
 }
 
 const loadChatState = (): LoadedChatState => {
-  const emptyConversation = createConversation()
+  const fallbackConversation = createConversation()
 
   if (typeof localStorage === 'undefined') {
     return {
-      conversations: [emptyConversation],
-      activeConversationId: emptyConversation.id,
+      conversations: [fallbackConversation],
+      activeConversationId: fallbackConversation.id,
+      draftsByConversation: {},
     }
   }
 
   try {
     const raw = localStorage.getItem(CONVERSATIONS_STORAGE_KEY)
     const parsed = raw ? (JSON.parse(raw) as unknown) : undefined
+    const rawDrafts = localStorage.getItem(DRAFTS_STORAGE_KEY)
+    let draftsByConversation: ConversationDrafts = {}
+    if (rawDrafts) {
+      try {
+        draftsByConversation = normalizeStoredDrafts(JSON.parse(rawDrafts) as unknown)
+      } catch {
+        draftsByConversation = {}
+      }
+    }
     const conversations: Conversation[] = []
 
     if (Array.isArray(parsed)) {
@@ -853,19 +1182,29 @@ const loadChatState = (): LoadedChatState => {
           updatedAt: Math.round(toFiniteNumber(item.updatedAt) ?? Date.now()),
         }
 
-        conversations.push(withConversationMessages(nextConversation, messages))
+        conversations.push(withConversationMessages(nextConversation, messages, { keepUpdatedAt: true }))
       }
     }
 
     if (conversations.length > 0) {
-      const activeConversationId = localStorage.getItem(ACTIVE_CONVERSATION_STORAGE_KEY)
-      const activeId =
-        activeConversationId && conversations.some((conversation) => conversation.id === activeConversationId)
-          ? activeConversationId
-          : conversations[0].id
+      const placeholderCandidates = conversations.filter((conversation) => isConversationPlaceholder(conversation))
+      const startupConversation =
+        placeholderCandidates.find((conversation) => (draftsByConversation[conversation.id] ?? '').length > 0) ??
+        placeholderCandidates[0] ??
+        fallbackConversation
+      const persistedConversations = conversations.filter(
+        (conversation) =>
+          conversation.id !== startupConversation.id && !isConversationPlaceholder(conversation),
+      )
+      const nextConversations = [startupConversation, ...persistedConversations].slice(
+        0,
+        MAX_STORED_CONVERSATIONS,
+      )
+      const nextDrafts = serializeConversationDraftsForStorage(nextConversations, draftsByConversation)
       return {
-        conversations: conversations.slice(0, MAX_STORED_CONVERSATIONS),
-        activeConversationId: activeId,
+        conversations: nextConversations,
+        activeConversationId: startupConversation.id,
+        draftsByConversation: nextDrafts,
       }
     }
 
@@ -873,13 +1212,21 @@ const loadChatState = (): LoadedChatState => {
     const legacyMessages = legacyRaw ? normalizeStoredMessages(JSON.parse(legacyRaw) as unknown) : []
     if (legacyMessages.length > 0) {
       const conversation = createConversation(legacyMessages)
-      return { conversations: [conversation], activeConversationId: conversation.id }
+      return {
+        conversations: [fallbackConversation, conversation].slice(0, MAX_STORED_CONVERSATIONS),
+        activeConversationId: fallbackConversation.id,
+        draftsByConversation: {},
+      }
     }
   } catch {
     // Fallback to default state below.
   }
 
-  return { conversations: [emptyConversation], activeConversationId: emptyConversation.id }
+  return {
+    conversations: [fallbackConversation],
+    activeConversationId: fallbackConversation.id,
+    draftsByConversation: {},
+  }
 }
 
 const MarkdownMessage = ({ text }: { text: string }) => {
@@ -898,15 +1245,25 @@ function App() {
     initialStateRef.current = loadChatState()
   }
 
-  const [settings, setSettings] = useState<AppSettings>(() => loadSettings())
+  const initialSettingsRef = useRef<AppSettings | null>(null)
+  if (!initialSettingsRef.current) {
+    initialSettingsRef.current = loadSettings()
+  }
+
+  const [settings, setSettings] = useState<AppSettings>(initialSettingsRef.current)
+  const [numericSettingDrafts, setNumericSettingDrafts] = useState<NumericSettingDrafts>(() =>
+    createNumericSettingDrafts(initialSettingsRef.current as AppSettings),
+  )
+  const settingsRef = useRef<AppSettings>(initialSettingsRef.current as AppSettings)
   const [conversations, setConversations] = useState<Conversation[]>(
     initialStateRef.current.conversations,
   )
   const [activeConversationId, setActiveConversationId] = useState<string>(
     initialStateRef.current.activeConversationId,
   )
-
-  const [draft, setDraft] = useState('')
+  const [draftsByConversation, setDraftsByConversation] = useState<ConversationDrafts>(
+    initialStateRef.current.draftsByConversation,
+  )
   const [pendingImages, setPendingImages] = useState<ImageAttachment[]>([])
   const {
     mounted: settingsMounted,
@@ -931,18 +1288,53 @@ function App() {
   const [notice, setNotice] = useState<Notice | null>(null)
   const [isSending, setIsSending] = useState(false)
   const [isFetchingModels, setIsFetchingModels] = useState(false)
+  const [deleteModeEnabled, setDeleteModeEnabled] = useState(false)
+  const [deleteDialogConversationId, setDeleteDialogConversationId] = useState<string | null>(null)
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editingText, setEditingText] = useState('')
   const [openReasoningByMessage, setOpenReasoningByMessage] = useState<Record<string, boolean>>({})
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
+  const [titleTransition, setTitleTransition] = useState<TitleTransitionState | null>(null)
+  const [composerIsMultiline, setComposerIsMultiline] = useState(false)
   const [abortController, setAbortController] = useState<AbortController | null>(null)
+  const [collapsedConversationGroups, setCollapsedConversationGroups] = useState<Record<string, boolean>>({})
+  const [swipingConversationId, setSwipingConversationId] = useState<string | null>(null)
+  const [swipeOffsetX, setSwipeOffsetX] = useState(0)
+  const [isAutoFollowEnabled, setIsAutoFollowEnabled] = useState(true)
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const cameraInputRef = useRef<HTMLInputElement | null>(null)
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const titleTextRef = useRef<HTMLSpanElement | null>(null)
+  const titleRenameButtonRef = useRef<HTMLButtonElement | null>(null)
+  const titleInputRef = useRef<HTMLInputElement | null>(null)
+  const titleActionsRef = useRef<HTMLDivElement | null>(null)
+  const messageListRef = useRef<HTMLElement | null>(null)
   const messageEndRef = useRef<HTMLDivElement | null>(null)
   const modelMenuRef = useRef<HTMLDivElement | null>(null)
   const storageWarningShownRef = useRef(false)
+  const composerResizeAnimationFrameRef = useRef<number | null>(null)
+  const titleTransitionPrepRef = useRef<PendingTitleTransition | null>(null)
+  const titleTransitionAnimationFrameRef = useRef<number | null>(null)
+  const titleTransitionTimerRef = useRef<number | null>(null)
+  const messageListInteractionTimerRef = useRef<number | null>(null)
+  const messageListUserInteractingRef = useRef(false)
+  const messageListProgrammaticScrollRef = useRef(false)
+  const pendingMessageListBottomResetRef = useRef(true)
+  const previousConversationGroupCountRef = useRef<number | null>(null)
+  const previousExpandedConversationGroupsRef = useRef<number | null>(null)
+  const deleteConfirmBypassUntilRef = useRef(0)
+  const conversationSwipeStartRef = useRef<{
+    conversationId: string
+    pointerId: number
+    x: number
+    y: number
+    thresholdReached: boolean
+    longPressTriggered: boolean
+    longPressTimerId: number | null
+  } | null>(null)
+  const ignoreNextConversationClickRef = useRef<string | null>(null)
 
   const activeConversation = useMemo(
     () =>
@@ -951,12 +1343,53 @@ function App() {
       null,
     [conversations, activeConversationId],
   )
+  const deleteDialogConversation = useMemo(
+    () =>
+      deleteDialogConversationId
+        ? conversations.find((conversation) => conversation.id === deleteDialogConversationId) ?? null
+        : null,
+    [conversations, deleteDialogConversationId],
+  )
   const activeMessages = useMemo(() => activeConversation?.messages ?? [], [activeConversation])
-
-  const sortedConversations = useMemo(
-    () => [...conversations].sort((left, right) => right.updatedAt - left.updatedAt),
+  const draft = activeConversation ? draftsByConversation[activeConversation.id] ?? '' : ''
+  const visibleConversations = useMemo(
+    () => conversations.filter((conversation) => !isConversationPlaceholder(conversation)),
     [conversations],
   )
+
+  const sortedConversations = useMemo(
+    () => [...visibleConversations].sort((left, right) => right.updatedAt - left.updatedAt),
+    [visibleConversations],
+  )
+  const conversationGroups = useMemo<ConversationGroup[]>(() => {
+    const conversationGroupGapMs = Math.max(0, settings.conversationGroupGapMinutes) * 60 * 1000
+    const groups: ConversationGroup[] = []
+
+    for (const conversation of sortedConversations) {
+      const previousGroup = groups[groups.length - 1]
+      const previousConversation = previousGroup?.conversations[previousGroup.conversations.length - 1]
+      const shouldCreateGroup =
+        !previousGroup ||
+        !previousConversation ||
+        previousConversation.updatedAt - conversation.updatedAt > conversationGroupGapMs
+
+      if (shouldCreateGroup) {
+        groups.push({
+          id: conversation.id,
+          labelTime: conversation.updatedAt,
+          conversations: [conversation],
+        })
+        continue
+      }
+
+      previousGroup.conversations.push(conversation)
+    }
+
+    return groups.map((group) => ({
+      ...group,
+      id: group.conversations.map((conversation) => conversation.id).join('|'),
+    }))
+  }, [sortedConversations, settings.conversationGroupGapMinutes])
 
   const models = useMemo(() => {
     const merged = new Set(
@@ -994,16 +1427,258 @@ function App() {
     [activeMessages],
   )
 
+  const emptyStateStats = useMemo(() => {
+    const totalConversationCount = visibleConversations.length
+    const allMessages = visibleConversations.flatMap((conversation) => conversation.messages)
+    const userMessages = allMessages.filter((message) => message.role === 'user')
+    const assistantMessages = allMessages.filter((message) => message.role === 'assistant')
+    const totalPhotoCount = userMessages.reduce(
+      (sum, message) => sum + (message.images?.length ?? 0),
+      0,
+    )
+    const totalTokenCount = assistantMessages.reduce(
+      (sum, message) => sum + (message.usage?.totalTokens ?? 0),
+      0,
+    )
+
+    const earliestHistoryTimestamp = allMessages.reduce(
+      (minimum, message) => Math.min(minimum, message.createdAt),
+      Number.POSITIVE_INFINITY,
+    )
+    const daysSinceFirstConversation =
+      Number.isFinite(earliestHistoryTimestamp) && totalConversationCount > 0
+        ? Math.max(
+            1,
+            Math.round(
+              (getChatDayStartTimestamp(Date.now()) - getChatDayStartTimestamp(earliestHistoryTimestamp)) /
+                (24 * 60 * 60 * 1000),
+            ) + 1,
+          )
+        : 0
+
+    const currentYear = new Date().getFullYear()
+    const currentYearUserMessages = userMessages.filter(
+      (message) => getChatDayReferenceDate(message.createdAt).getFullYear() === currentYear,
+    )
+    const currentYearMessagesByChatDay = allMessages.filter(
+      (message) => getChatDayReferenceDate(message.createdAt).getFullYear() === currentYear,
+    )
+    const currentYearMessagesByCalendarDay = allMessages.filter(
+      (message) => new Date(message.createdAt).getFullYear() === currentYear,
+    )
+
+    const earliestTimeRecordCandidate = currentYearUserMessages.reduce<{
+      timestamp: number
+      rank: number
+    } | null>((best, message) => {
+      const rank = getChatDayTimeRank(message.createdAt)
+      if (!best || rank < best.rank || (rank === best.rank && message.createdAt < best.timestamp)) {
+        return { timestamp: message.createdAt, rank }
+      }
+      return best
+    }, null)
+
+    const latestTimeRecordCandidate = currentYearUserMessages.reduce<{
+      timestamp: number
+      rank: number
+    } | null>((best, message) => {
+      const rank = getChatDayTimeRank(message.createdAt)
+      if (!best || rank > best.rank || (rank === best.rank && message.createdAt < best.timestamp)) {
+        return { timestamp: message.createdAt, rank }
+      }
+      return best
+    }, null)
+
+    const earliestTimeRecord =
+      earliestTimeRecordCandidate && earliestTimeRecordCandidate.rank < 3 * 60
+        ? earliestTimeRecordCandidate
+        : null
+    const latestTimeRecord =
+      latestTimeRecordCandidate && latestTimeRecordCandidate.rank > 18 * 60
+        ? latestTimeRecordCandidate
+        : null
+
+    const activityByDay = new Map<
+      string,
+      {
+        timestamp: number
+        rounds: number
+        tokens: number
+      }
+    >()
+
+    for (const message of currentYearMessagesByCalendarDay) {
+      const key = getCalendarDayKey(message.createdAt)
+      const current =
+        activityByDay.get(key) ??
+        ({
+          timestamp: message.createdAt,
+          rounds: 0,
+          tokens: 0,
+        } as const)
+
+      activityByDay.set(key, {
+        timestamp: current.timestamp,
+        rounds: current.rounds + (message.role === 'user' ? 1 : 0),
+        tokens: current.tokens + (message.role === 'assistant' ? message.usage?.totalTokens ?? 0 : 0),
+      })
+    }
+
+    const busiestDay = Array.from(activityByDay.values())
+      .filter((day) => day.rounds > 0)
+      .sort((left, right) => {
+        if (right.rounds !== left.rounds) {
+          return right.rounds - left.rounds
+        }
+        if (right.tokens !== left.tokens) {
+          return right.tokens - left.tokens
+        }
+        return left.timestamp - right.timestamp
+      })[0] ?? null
+
+    const shouldShowMiddleSection =
+      totalConversationCount > 0 &&
+      totalConversationCount >= settings.emptyStateStatsMinConversations
+
+    return {
+      totalConversationCount,
+      daysSinceFirstConversation,
+      totalPhotoCount,
+      totalTokenCount,
+      earliestTimeRecord,
+      latestTimeRecord,
+      busiestDay: currentYearMessagesByChatDay.length > 0 ? busiestDay : null,
+      shouldShowMiddleSection,
+    }
+  }, [settings.emptyStateStatsMinConversations, visibleConversations])
+
   const hasDraftText = draft.trim().length > 0
   const canSend = activeConversation !== null && (hasDraftText || pendingImages.length > 0) && !isSending
-  const showExpandedComposer = hasDraftText || pendingImages.length > 0 || isSending
+  const showExpandedComposer = composerIsMultiline
+
+  const syncComposerInputLayout = useCallback((): void => {
+    const textarea = composerInputRef.current
+    if (!textarea) {
+      setComposerIsMultiline(false)
+      return
+    }
+
+    const currentHeight = textarea.getBoundingClientRect().height
+    textarea.style.height = 'auto'
+
+    const computedStyle = window.getComputedStyle(textarea)
+    const lineHeight = Number.parseFloat(computedStyle.lineHeight) || 22
+    const paddingTop = Number.parseFloat(computedStyle.paddingTop) || 0
+    const paddingBottom = Number.parseFloat(computedStyle.paddingBottom) || 0
+    const borderTopWidth = Number.parseFloat(computedStyle.borderTopWidth) || 0
+    const borderBottomWidth = Number.parseFloat(computedStyle.borderBottomWidth) || 0
+    const singleLineHeight =
+      lineHeight + paddingTop + paddingBottom + borderTopWidth + borderBottomWidth
+    const minimumHeight = Number.parseFloat(computedStyle.minHeight) || singleLineHeight
+    const contentHeight = textarea.scrollHeight
+    const nextHeight = Math.max(minimumHeight, Math.min(contentHeight, 188))
+
+    if (composerResizeAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(composerResizeAnimationFrameRef.current)
+      composerResizeAnimationFrameRef.current = null
+    }
+
+    textarea.style.overflowY = contentHeight > 188 ? 'auto' : 'hidden'
+
+    if (Math.abs(currentHeight - nextHeight) > 0.5 && currentHeight > 0) {
+      textarea.style.height = `${currentHeight}px`
+      composerResizeAnimationFrameRef.current = window.requestAnimationFrame(() => {
+        textarea.style.height = `${nextHeight}px`
+        composerResizeAnimationFrameRef.current = null
+      })
+    } else {
+      textarea.style.height = `${nextHeight}px`
+    }
+
+    setComposerIsMultiline(contentHeight > minimumHeight + 1)
+  }, [])
 
   const pushNotice = (text: string, type: Notice['type'] = 'info'): void => {
     setNotice({ text, type })
   }
 
   const updateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]): void => {
+    settingsRef.current = { ...settingsRef.current, [key]: value }
     setSettings((previous) => ({ ...previous, [key]: value }))
+  }
+
+  const handleNumericSettingChange = (
+    key: NumericSettingKey,
+    rawValue: string,
+    minimum: number,
+    maximum: number,
+    integer = false,
+  ): void => {
+    setNumericSettingDrafts((previous) => ({
+      ...previous,
+      [key]: rawValue,
+    }))
+
+    if (rawValue.trim() === '') {
+      updateSetting(key, NUMERIC_SETTING_DEFAULTS[key] as AppSettings[typeof key])
+      return
+    }
+
+    const parsed = Number(rawValue)
+    if (!Number.isFinite(parsed)) {
+      return
+    }
+
+    const nextValue = integer ? Math.round(clamp(parsed, minimum, maximum)) : clamp(parsed, minimum, maximum)
+    updateSetting(key, nextValue as AppSettings[typeof key])
+  }
+
+  const finalizeNumericSettingDraft = (key: NumericSettingKey): void => {
+    setNumericSettingDrafts((previous) => ({
+      ...previous,
+      [key]: normalizeNumericSettingDraft(key, settingsRef.current[key]),
+    }))
+  }
+
+  const updateConversationDraft = (conversationId: string, nextDraft: string): void => {
+    const timestamp = Date.now()
+
+    setConversations((previous) =>
+      previous.map((conversation) => {
+        if (conversation.id !== conversationId) {
+          return conversation
+        }
+
+        if (!isConversationPlaceholder(conversation)) {
+          return {
+            ...conversation,
+            updatedAt: timestamp,
+          }
+        }
+
+        return conversation
+      }),
+    )
+
+    setDraftsByConversation((previous) => {
+      if (nextDraft.length === 0) {
+        if (!Object.prototype.hasOwnProperty.call(previous, conversationId)) {
+          return previous
+        }
+        const next = { ...previous }
+        delete next[conversationId]
+        return next
+      }
+
+      if (previous[conversationId] === nextDraft) {
+        return previous
+      }
+
+      return {
+        ...previous,
+        [conversationId]: nextDraft,
+      }
+    })
   }
 
   const updateConversationMessages = (conversationId: string, messages: ChatMessage[]): void => {
@@ -1112,6 +1787,7 @@ function App() {
     setAbortController(controller)
 
     const promptMessages = buildApiMessages(history, settingsSnapshot.systemPrompt)
+    let hasTriggeredFirstTokenHaptic = false
 
     try {
       let completion: CompletionResult
@@ -1123,6 +1799,14 @@ function App() {
           controller.signal,
           {
             onContent: (chunk) => {
+              if (
+                settingsSnapshot.firstTokenHapticsEnabled &&
+                !hasTriggeredFirstTokenHaptic &&
+                chunk.length > 0
+              ) {
+                hasTriggeredFirstTokenHaptic = true
+                vibrateInteraction()
+              }
               setConversations((previous) =>
                 previous.map((conversation) => {
                   if (conversation.id !== conversationId) {
@@ -1216,7 +1900,14 @@ function App() {
     }
 
     const history = [...activeConversation.messages, nextMessage]
-    setDraft('')
+    setDraftsByConversation((previous) => {
+      if (!Object.prototype.hasOwnProperty.call(previous, activeConversation.id)) {
+        return previous
+      }
+      const next = { ...previous }
+      delete next[activeConversation.id]
+      return next
+    })
     setPendingImages([])
     setEditingMessageId(null)
     closeModelMenu()
@@ -1466,39 +2157,387 @@ function App() {
     }
   }
 
-  const handleDraftKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault()
-      void handleSend()
+  const clearTitleTransitionTimers = useCallback((): void => {
+    if (titleTransitionAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(titleTransitionAnimationFrameRef.current)
+      titleTransitionAnimationFrameRef.current = null
     }
-  }
+    if (titleTransitionTimerRef.current !== null) {
+      window.clearTimeout(titleTransitionTimerRef.current)
+      titleTransitionTimerRef.current = null
+    }
+  }, [])
 
-  const handleCompactDraftKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
-    if (event.key === 'Enter') {
-      event.preventDefault()
-      void handleSend()
+  const playTitleTransition = useCallback((nextTransition: TitleTransitionState): void => {
+    clearTitleTransitionTimers()
+    setTitleTransition(nextTransition)
+    titleTransitionAnimationFrameRef.current = window.requestAnimationFrame(() => {
+      titleTransitionAnimationFrameRef.current = null
+      setTitleTransition((previous) => (previous ? { ...previous, playing: true } : previous))
+      titleTransitionTimerRef.current = window.setTimeout(() => {
+        setTitleTransition(null)
+        titleTransitionTimerRef.current = null
+      }, TITLE_EDIT_TRANSITION_MS)
+    })
+  }, [clearTitleTransitionTimers])
+
+  const stopRenameConversationImmediately = useCallback((): void => {
+    titleTransitionPrepRef.current = null
+    clearTitleTransitionTimers()
+    setTitleTransition(null)
+    setIsEditingTitle(false)
+    setTitleDraft('')
+  }, [clearTitleTransitionTimers])
+
+  const clearMessageListInteractionTimer = useCallback((): void => {
+    if (messageListInteractionTimerRef.current !== null) {
+      window.clearTimeout(messageListInteractionTimerRef.current)
+      messageListInteractionTimerRef.current = null
     }
-  }
+  }, [])
+
+  const isMessageListAtBottom = useCallback((): boolean => {
+    const messageList = messageListRef.current
+    if (!messageList) {
+      return true
+    }
+
+    return (
+      messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight <=
+      MESSAGE_LIST_BOTTOM_THRESHOLD_PX
+    )
+  }, [])
+
+  const scrollMessageListToBottom = useCallback((): void => {
+    const messageList = messageListRef.current
+    if (!messageList) {
+      return
+    }
+
+    messageListProgrammaticScrollRef.current = true
+    messageList.scrollTop = messageList.scrollHeight
+    window.requestAnimationFrame(() => {
+      messageListProgrammaticScrollRef.current = false
+    })
+  }, [])
+
+  const beginMessageListInteraction = useCallback((): void => {
+    clearMessageListInteractionTimer()
+    messageListUserInteractingRef.current = true
+  }, [clearMessageListInteractionTimer])
+
+  const scheduleMessageListInteractionEnd = useCallback((): void => {
+    clearMessageListInteractionTimer()
+    messageListInteractionTimerRef.current = window.setTimeout(() => {
+      messageListInteractionTimerRef.current = null
+      messageListUserInteractingRef.current = false
+
+      if (isMessageListAtBottom()) {
+        setIsAutoFollowEnabled(true)
+        scrollMessageListToBottom()
+      }
+    }, MESSAGE_LIST_INTERACTION_IDLE_MS)
+  }, [clearMessageListInteractionTimer, isMessageListAtBottom, scrollMessageListToBottom])
+
+  const handleMessageListScroll = useCallback(
+    (event: UIEvent<HTMLElement>): void => {
+      if (messageListProgrammaticScrollRef.current) {
+        return
+      }
+
+      const messageList = event.currentTarget
+      const atBottom =
+        messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight <=
+        MESSAGE_LIST_BOTTOM_THRESHOLD_PX
+
+      beginMessageListInteraction()
+      setIsAutoFollowEnabled((previous) => (previous === atBottom ? previous : atBottom))
+      scheduleMessageListInteractionEnd()
+    },
+    [beginMessageListInteraction, scheduleMessageListInteractionEnd],
+  )
+
+  const handleMessageListPointerDownCapture = useCallback((): void => {
+    beginMessageListInteraction()
+  }, [beginMessageListInteraction])
+
+  const handleMessageListPointerUpCapture = useCallback((): void => {
+    scheduleMessageListInteractionEnd()
+  }, [scheduleMessageListInteractionEnd])
+
+  const handleMessageListPointerCancelCapture = useCallback((): void => {
+    scheduleMessageListInteractionEnd()
+  }, [scheduleMessageListInteractionEnd])
+
+  const handleMessageListWheelCapture = useCallback(
+    (): void => {
+      beginMessageListInteraction()
+      scheduleMessageListInteractionEnd()
+    },
+    [beginMessageListInteraction, scheduleMessageListInteractionEnd],
+  )
 
   const switchConversation = (conversationId: string): void => {
     setActiveConversationId(conversationId)
     closeDrawer()
     closeModelMenu()
+    setDeleteModeEnabled(false)
+    setDeleteDialogConversationId(null)
     setPendingImages([])
     cancelEdit()
-    setIsEditingTitle(false)
+    stopRenameConversationImmediately()
+  }
+
+  const clearConversationGestureTimer = (): void => {
+    const gesture = conversationSwipeStartRef.current
+    const longPressTimerId = gesture?.longPressTimerId ?? null
+    if (longPressTimerId !== null && gesture) {
+      window.clearTimeout(longPressTimerId)
+      gesture.longPressTimerId = null
+    }
+  }
+
+  const resetConversationSwipe = (): void => {
+    clearConversationGestureTimer()
+    conversationSwipeStartRef.current = null
+    setSwipingConversationId(null)
+    setSwipeOffsetX(0)
+  }
+
+  const toggleDeleteMode = (): void => {
+    setDeleteModeEnabled((previous) => !previous)
+  }
+
+  const extendDeleteConfirmGrace = (): void => {
+    const deleteConfirmGraceMs = Math.max(0, settings.deleteConfirmGraceSeconds) * 1000
+    deleteConfirmBypassUntilRef.current =
+      deleteConfirmGraceMs > 0 ? Date.now() + deleteConfirmGraceMs : 0
+  }
+
+  const deleteConversation = (conversationId: string): void => {
+    let deletedActiveConversation = false
+    let nextActiveConversationId: string | null = null
+
+    setDeleteDialogConversationId((previous) => (previous === conversationId ? null : previous))
+    setDraftsByConversation((previous) => {
+      if (!Object.prototype.hasOwnProperty.call(previous, conversationId)) {
+        return previous
+      }
+      const next = { ...previous }
+      delete next[conversationId]
+      return next
+    })
+
+    setConversations((previous) => {
+      const exists = previous.some((conversation) => conversation.id === conversationId)
+      if (!exists) {
+        return previous
+      }
+
+      deletedActiveConversation = previous.some(
+        (conversation) => conversation.id === conversationId && conversation.id === activeConversationId,
+      )
+      const remaining = previous.filter((conversation) => conversation.id !== conversationId)
+      if (remaining.some((conversation) => conversation.id === activeConversationId)) {
+        return remaining
+      }
+
+      const fallbackConversation =
+        [...remaining].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? createConversation()
+      nextActiveConversationId = fallbackConversation.id
+      return remaining.length > 0 ? remaining : [fallbackConversation]
+    })
+
+    if (nextActiveConversationId) {
+      setActiveConversationId(nextActiveConversationId)
+    }
+    if (deletedActiveConversation) {
+      setPendingImages([])
+      cancelEdit()
+      stopRenameConversationImmediately()
+    }
+    pushNotice('对话已删除。', 'success')
+  }
+
+  const closeDeleteDialog = (): void => {
+    setDeleteDialogConversationId(null)
+  }
+
+  const confirmDeleteConversation = (): void => {
+    if (!deleteDialogConversationId) {
+      return
+    }
+
+    extendDeleteConfirmGrace()
+    const conversationId = deleteDialogConversationId
+    closeDeleteDialog()
+    deleteConversation(conversationId)
+  }
+
+  const requestDeleteConversation = (conversationId: string): void => {
+    const now = Date.now()
+    if (now <= deleteConfirmBypassUntilRef.current) {
+      extendDeleteConfirmGrace()
+      deleteConversation(conversationId)
+      return
+    }
+
+    setDeleteDialogConversationId(conversationId)
+  }
+
+  const handleConversationPointerDown = (
+    conversationId: string,
+    event: PointerEvent<HTMLButtonElement>,
+  ): void => {
+    if (event.pointerType === 'mouse' && event.button !== 0) {
+      return
+    }
+
+    resetConversationSwipe()
+    event.currentTarget.setPointerCapture(event.pointerId)
+
+    const pointerId = event.pointerId
+    const longPressTimerId = window.setTimeout(() => {
+      const gesture = conversationSwipeStartRef.current
+      if (!gesture || gesture.conversationId !== conversationId || gesture.pointerId !== pointerId) {
+        return
+      }
+
+      gesture.longPressTriggered = true
+      gesture.thresholdReached = false
+      clearConversationGestureTimer()
+      ignoreNextConversationClickRef.current = conversationId
+      setSwipingConversationId(null)
+      setSwipeOffsetX(0)
+      if (settings.deleteModeHapticsEnabled) {
+        vibrateInteraction()
+      }
+      toggleDeleteMode()
+    }, LONG_PRESS_DELETE_MODE_MS)
+
+    conversationSwipeStartRef.current = {
+      conversationId,
+      pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      thresholdReached: false,
+      longPressTriggered: false,
+      longPressTimerId,
+    }
+  }
+
+  const handleConversationPointerMove = (
+    conversationId: string,
+    event: PointerEvent<HTMLButtonElement>,
+  ): void => {
+    const started = conversationSwipeStartRef.current
+    if (!started || started.conversationId !== conversationId || started.pointerId !== event.pointerId) {
+      return
+    }
+
+    if (started.longPressTriggered) {
+      return
+    }
+
+    const deltaX = event.clientX - started.x
+    const deltaY = event.clientY - started.y
+    const movedBeyondLongPressTolerance =
+      Math.abs(deltaX) > LONG_PRESS_MOVE_TOLERANCE_PX || Math.abs(deltaY) > LONG_PRESS_MOVE_TOLERANCE_PX
+
+    if (movedBeyondLongPressTolerance) {
+      clearConversationGestureTimer()
+    }
+
+    const horizontalDominant = Math.abs(deltaX) > Math.abs(deltaY) * 1.1
+    if (!horizontalDominant) {
+      if (swipingConversationId === conversationId) {
+        setSwipeOffsetX(0)
+      }
+      return
+    }
+
+    event.preventDefault()
+    const nextOffset = clamp(deltaX, -SWIPE_DELETE_MAX_OFFSET_PX, SWIPE_DELETE_MAX_OFFSET_PX)
+    const reachedThreshold = Math.abs(deltaX) >= SWIPE_DELETE_TOGGLE_THRESHOLD_PX
+
+    if (settings.deleteModeHapticsEnabled && reachedThreshold && !started.thresholdReached) {
+      vibrateInteraction()
+    }
+
+    started.thresholdReached = reachedThreshold
+    setSwipingConversationId(conversationId)
+    setSwipeOffsetX(nextOffset)
+  }
+
+  const handleConversationPointerUp = (
+    conversationId: string,
+    event: PointerEvent<HTMLButtonElement>,
+  ): void => {
+    const started = conversationSwipeStartRef.current
+    if (!started || started.conversationId !== conversationId || started.pointerId !== event.pointerId) {
+      return
+    }
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+
+    clearConversationGestureTimer()
+
+    if (started.longPressTriggered) {
+      ignoreNextConversationClickRef.current = conversationId
+      resetConversationSwipe()
+      return
+    }
+
+    const deltaX = event.clientX - started.x
+    const deltaY = event.clientY - started.y
+    const isSwipeDelete =
+      Math.abs(deltaX) >= SWIPE_DELETE_TOGGLE_THRESHOLD_PX && Math.abs(deltaX) > Math.abs(deltaY) * 1.1
+
+    if (isSwipeDelete) {
+      ignoreNextConversationClickRef.current = conversationId
+      toggleDeleteMode()
+    }
+
+    resetConversationSwipe()
+  }
+
+  const handleConversationPointerCancel = (): void => {
+    resetConversationSwipe()
+  }
+
+  const handleConversationClick = (conversationId: string): void => {
+    if (ignoreNextConversationClickRef.current === conversationId) {
+      ignoreNextConversationClickRef.current = null
+      return
+    }
+    switchConversation(conversationId)
+  }
+
+  const toggleConversationGroup = (groupId: string): void => {
+    setCollapsedConversationGroups((previous) => ({
+      ...previous,
+      [groupId]: !previous[groupId],
+    }))
   }
 
   const createNewConversation = (): void => {
-    const nextConversation = createConversation()
-    setConversations((previous) => [nextConversation, ...previous].slice(0, MAX_STORED_CONVERSATIONS))
+    const existingPlaceholder = conversations.find((conversation) => isConversationPlaceholder(conversation))
+    const nextConversation = existingPlaceholder ?? createConversation()
+
+    if (!existingPlaceholder) {
+      setConversations((previous) => [nextConversation, ...previous].slice(0, MAX_STORED_CONVERSATIONS))
+    }
+
     setActiveConversationId(nextConversation.id)
     closeDrawer()
     closeModelMenu()
+    setDeleteModeEnabled(false)
+    setDeleteDialogConversationId(null)
     setPendingImages([])
-    setDraft('')
     cancelEdit()
-    setIsEditingTitle(false)
+    stopRenameConversationImmediately()
   }
 
   const toggleReasoning = (messageId: string): void => {
@@ -1508,21 +2547,59 @@ function App() {
     }))
   }
 
-  const beginRenameConversation = (): void => {
-    if (!activeConversation) {
+  const focusTitleInput = useCallback((): void => {
+    const input = titleInputRef.current
+    if (!input) {
       return
     }
-    setIsEditingTitle(true)
+
+    input.focus()
+    const selectionEnd = input.value.length
+    input.setSelectionRange(selectionEnd, selectionEnd)
+  }, [])
+
+  const beginRenameConversation = (): void => {
+    if (!activeConversation || titleTransition || titleTransitionPrepRef.current) {
+      return
+    }
+
+    const sourceTitleRect = snapshotRect(titleTextRef.current)
+    const sourceTriggerRect = snapshotRect(titleRenameButtonRef.current)
+    if (sourceTitleRect && sourceTriggerRect) {
+      titleTransitionPrepRef.current = {
+        phase: 'opening',
+        titleText: activeConversation.title,
+        sourceTitleRect,
+        sourceTriggerRect,
+      }
+    }
+
     setTitleDraft(activeConversation.title)
+    setIsEditingTitle(true)
   }
 
   const cancelRenameConversation = (): void => {
+    if (!isEditingTitle || titleTransition || titleTransitionPrepRef.current) {
+      return
+    }
+
+    const sourceTitleRect = snapshotRect(titleInputRef.current)
+    const sourceTriggerRect = snapshotRect(titleActionsRef.current)
+    if (sourceTitleRect && sourceTriggerRect) {
+      titleTransitionPrepRef.current = {
+        phase: 'closing',
+        titleText: activeConversation?.title ?? titleDraft,
+        sourceTitleRect,
+        sourceTriggerRect,
+      }
+    }
+
     setIsEditingTitle(false)
     setTitleDraft('')
   }
 
   const saveRenameConversation = (): void => {
-    if (!activeConversation) {
+    if (!activeConversation || titleTransition || titleTransitionPrepRef.current) {
       return
     }
     const nextTitle = titleDraft.trim()
@@ -1530,10 +2607,26 @@ function App() {
       pushNotice('对话标题不能为空。', 'error')
       return
     }
+
+    const sourceTitleRect = snapshotRect(titleInputRef.current)
+    const sourceTriggerRect = snapshotRect(titleActionsRef.current)
+    if (sourceTitleRect && sourceTriggerRect) {
+      titleTransitionPrepRef.current = {
+        phase: 'closing',
+        titleText: nextTitle,
+        sourceTitleRect,
+        sourceTriggerRect,
+      }
+    }
+
     updateConversationTitle(activeConversation.id, nextTitle, true)
     setIsEditingTitle(false)
     setTitleDraft('')
   }
+
+  useEffect(() => {
+    settingsRef.current = settings
+  }, [settings])
 
   useEffect(() => {
     try {
@@ -1561,6 +2654,19 @@ function App() {
   }, [conversations])
 
   useEffect(() => {
+    try {
+      const serializableDrafts = serializeConversationDraftsForStorage(conversations, draftsByConversation)
+      localStorage.setItem(DRAFTS_STORAGE_KEY, JSON.stringify(serializableDrafts))
+    } catch (error) {
+      if (!storageWarningShownRef.current) {
+        storageWarningShownRef.current = true
+        setNotice({ text: '草稿保存失败，未发送内容可能无法完整恢复。', type: 'error' })
+      }
+      console.warn('Failed to persist drafts', error)
+    }
+  }, [conversations, draftsByConversation])
+
+  useEffect(() => {
     if (activeConversationId) {
       try {
         localStorage.setItem(ACTIVE_CONVERSATION_STORAGE_KEY, activeConversationId)
@@ -1571,6 +2677,19 @@ function App() {
   }, [activeConversationId])
 
   useEffect(() => {
+    if (!Capacitor.isNativePlatform()) {
+      return undefined
+    }
+
+    const root = document.documentElement
+    root.style.setProperty('--native-top-inset', Capacitor.getPlatform() === 'android' ? '28px' : '0px')
+
+    return () => {
+      root.style.removeProperty('--native-top-inset')
+    }
+  }, [])
+
+  useEffect(() => {
     if (!notice) {
       return undefined
     }
@@ -1579,8 +2698,167 @@ function App() {
   }, [notice])
 
   useEffect(() => {
-    messageEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [activeMessages, isSending])
+    let isDisposed = false
+    let listenerHandle: { remove: () => Promise<void> } | null = null
+
+    void CapacitorApp.addListener('backButton', ({ canGoBack }) => {
+      if (deleteDialogConversationId) {
+        setDeleteDialogConversationId(null)
+        return
+      }
+      if (modelMenuMounted) {
+        closeModelMenu()
+        return
+      }
+      if (settingsMounted) {
+        closeSettings()
+        return
+      }
+      if (drawerMounted) {
+        closeDrawer()
+        return
+      }
+      if (canGoBack) {
+        window.history.back()
+        return
+      }
+      void CapacitorApp.exitApp()
+    }).then((handle) => {
+      if (isDisposed) {
+        void handle.remove()
+        return
+      }
+      listenerHandle = handle
+    })
+
+    return () => {
+      isDisposed = true
+      if (listenerHandle) {
+        void listenerHandle.remove()
+      }
+    }
+  }, [
+    closeDrawer,
+    closeModelMenu,
+    closeSettings,
+    deleteDialogConversationId,
+    drawerMounted,
+    modelMenuMounted,
+    settingsMounted,
+  ])
+
+  useLayoutEffect(() => {
+    const prepared = titleTransitionPrepRef.current
+    if (!prepared) {
+      return
+    }
+
+    if (prepared.phase === 'opening') {
+      const titleEndRect = snapshotRect(titleInputRef.current)
+      const actionsEndRect = snapshotRect(titleActionsRef.current)
+
+      if (!titleEndRect || !actionsEndRect) {
+        titleTransitionPrepRef.current = null
+        return
+      }
+
+      const offset = getTravelOffset(prepared.sourceTriggerRect, actionsEndRect)
+      playTitleTransition({
+        phase: 'opening',
+        titleText: prepared.titleText,
+        titleStartRect: prepared.sourceTitleRect,
+        titleEndRect,
+        penStartRect: prepared.sourceTriggerRect,
+        penEndRect: shiftRect(prepared.sourceTriggerRect, offset.x, offset.y),
+        actionsStartRect: shiftRect(actionsEndRect, -offset.x, -offset.y),
+        actionsEndRect,
+        playing: false,
+      })
+      titleTransitionPrepRef.current = null
+      return
+    }
+
+    const titleEndRect = snapshotRect(titleTextRef.current)
+    const penEndRect = snapshotRect(titleRenameButtonRef.current)
+    if (!titleEndRect || !penEndRect) {
+      titleTransitionPrepRef.current = null
+      return
+    }
+
+    const offset = getTravelOffset(penEndRect, prepared.sourceTriggerRect)
+    playTitleTransition({
+      phase: 'closing',
+      titleText: prepared.titleText,
+      titleStartRect: prepared.sourceTitleRect,
+      titleEndRect,
+      penStartRect: shiftRect(penEndRect, offset.x, offset.y),
+      penEndRect,
+      actionsStartRect: prepared.sourceTriggerRect,
+      actionsEndRect: shiftRect(prepared.sourceTriggerRect, -offset.x, -offset.y),
+      playing: false,
+    })
+    titleTransitionPrepRef.current = null
+  }, [isEditingTitle, activeConversation?.id, activeConversation?.title, playTitleTransition])
+
+  useEffect(() => {
+    if (!isEditingTitle || titleTransition || titleTransitionPrepRef.current) {
+      return
+    }
+    focusTitleInput()
+  }, [focusTitleInput, isEditingTitle, titleTransition, activeConversationId])
+
+  useLayoutEffect(() => {
+    syncComposerInputLayout()
+  }, [draft, activeConversationId, showExpandedComposer, syncComposerInputLayout])
+
+  useEffect(() => {
+    window.addEventListener('resize', syncComposerInputLayout)
+    return () => {
+      window.removeEventListener('resize', syncComposerInputLayout)
+      if (composerResizeAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(composerResizeAnimationFrameRef.current)
+      }
+    }
+  }, [syncComposerInputLayout])
+
+  useEffect(
+    () => () => {
+      clearTitleTransitionTimers()
+    },
+    [clearTitleTransitionTimers],
+  )
+
+  useEffect(
+    () => () => {
+      clearMessageListInteractionTimer()
+    },
+    [clearMessageListInteractionTimer],
+  )
+
+  useEffect(() => {
+    pendingMessageListBottomResetRef.current = true
+    clearMessageListInteractionTimer()
+    messageListUserInteractingRef.current = false
+    setIsAutoFollowEnabled(true)
+  }, [activeConversationId, clearMessageListInteractionTimer])
+
+  useLayoutEffect(() => {
+    if (messageListUserInteractingRef.current) {
+      return
+    }
+
+    if (pendingMessageListBottomResetRef.current) {
+      scrollMessageListToBottom()
+      pendingMessageListBottomResetRef.current = false
+      return
+    }
+
+    if (!isAutoFollowEnabled) {
+      return
+    }
+
+    scrollMessageListToBottom()
+  }, [activeConversationId, activeMessages, isAutoFollowEnabled, isSending, scrollMessageListToBottom])
 
   useEffect(() => {
     if (conversations.length === 0) {
@@ -1596,11 +2874,38 @@ function App() {
   }, [conversations, activeConversationId])
 
   useEffect(() => {
+    if (!deleteDialogConversationId) {
+      return
+    }
+
+    if (!conversations.some((conversation) => conversation.id === deleteDialogConversationId)) {
+      setDeleteDialogConversationId(null)
+    }
+  }, [conversations, deleteDialogConversationId])
+
+  useEffect(() => {
     setPendingImages([])
     cancelEdit()
-    cancelRenameConversation()
+    stopRenameConversationImmediately()
     closeModelMenu()
-  }, [activeConversationId, closeModelMenu])
+  }, [activeConversationId, closeModelMenu, stopRenameConversationImmediately])
+
+  useEffect(() => {
+    if (drawerMounted) {
+      return
+    }
+
+    const gesture = conversationSwipeStartRef.current
+    const longPressTimerId = gesture?.longPressTimerId ?? null
+    if (longPressTimerId !== null) {
+      window.clearTimeout(longPressTimerId)
+    }
+    conversationSwipeStartRef.current = null
+    setSwipingConversationId(null)
+    setSwipeOffsetX(0)
+    setDeleteModeEnabled(false)
+    setDeleteDialogConversationId(null)
+  }, [drawerMounted])
 
   useEffect(() => {
     const handler = (event: MouseEvent): void => {
@@ -1615,6 +2920,60 @@ function App() {
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [closeModelMenu])
+
+  useEffect(() => {
+    const currentGroupCount = conversationGroups.length
+    const previousGroupCount = previousConversationGroupCountRef.current
+    const previousExpandedConversationGroups = previousExpandedConversationGroupsRef.current
+    const shouldResetCollapsedState =
+      previousGroupCount === null ||
+      currentGroupCount > previousGroupCount ||
+      previousExpandedConversationGroups === null ||
+      previousExpandedConversationGroups !== settings.defaultExpandedConversationGroups
+
+    setCollapsedConversationGroups((previous) => {
+      const defaultCollapsedByIndex = (index: number): boolean =>
+        index >= settings.defaultExpandedConversationGroups
+
+      if (shouldResetCollapsedState) {
+        const next: Record<string, boolean> = {}
+        for (const [index, group] of conversationGroups.entries()) {
+          next[group.id] = defaultCollapsedByIndex(index)
+        }
+        return next
+      }
+
+      let changed = false
+      const next: Record<string, boolean> = {}
+      for (const [index, group] of conversationGroups.entries()) {
+        if (Object.prototype.hasOwnProperty.call(previous, group.id)) {
+          next[group.id] = previous[group.id]
+          continue
+        }
+        next[group.id] = defaultCollapsedByIndex(index)
+        changed = true
+      }
+
+      const previousKeys = Object.keys(previous)
+      const nextKeys = Object.keys(next)
+      if (!changed && previousKeys.length === nextKeys.length) {
+        let same = true
+        for (const key of nextKeys) {
+          if (previous[key] !== next[key]) {
+            same = false
+            break
+          }
+        }
+        if (same) {
+          return previous
+        }
+      }
+      return next
+    })
+
+    previousConversationGroupCountRef.current = currentGroupCount
+    previousExpandedConversationGroupsRef.current = settings.defaultExpandedConversationGroups
+  }, [conversationGroups, settings.defaultExpandedConversationGroups])
 
   const renderComposerTools = (className = 'composer-tools') => (
     <div className={className}>
@@ -1699,55 +3058,139 @@ function App() {
 
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <button
-          type="button"
-          className="menu-button"
-          aria-label="打开会话菜单"
-          onClick={openDrawer}
-        >
-          <span />
-          <span />
-          <span />
-        </button>
+      {titleTransition ? (
+        <div className="title-transition-layer" aria-hidden="true">
+          <div
+            className={`title-transition-title ${titleTransition.phase} ${
+              titleTransition.playing ? 'is-playing' : ''
+            }`}
+            style={
+              {
+                '--title-start-left': `${titleTransition.titleStartRect.left}px`,
+                '--title-start-top': `${titleTransition.titleStartRect.top}px`,
+                '--title-start-width': `${titleTransition.titleStartRect.width}px`,
+                '--title-start-height': `${titleTransition.titleStartRect.height}px`,
+                '--title-end-left': `${titleTransition.titleEndRect.left}px`,
+                '--title-end-top': `${titleTransition.titleEndRect.top}px`,
+                '--title-end-width': `${titleTransition.titleEndRect.width}px`,
+                '--title-end-height': `${titleTransition.titleEndRect.height}px`,
+              } as CSSProperties
+            }
+          >
+            {titleTransition.titleText}
+          </div>
 
-        <div className="header-center">
-          {isEditingTitle && activeConversation ? (
-            <div className="title-editor">
-              <input
-                value={titleDraft}
-                onChange={(event) => setTitleDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-                    saveRenameConversation()
-                  }
-                  if (event.key === 'Escape') {
-                    event.preventDefault()
-                    cancelRenameConversation()
-                  }
-                }}
-              />
-              <button type="button" className="tiny-button" onClick={saveRenameConversation}>
-                保存
-              </button>
-            </div>
-          ) : (
-            <div className="title-display">
-              <span className="title-text">{activeConversation?.title ?? 'Chatroom'}</span>
-              <button
-                type="button"
-                className="icon-inline-button title-rename-button"
-                aria-label="编辑对话名"
-                onClick={beginRenameConversation}
-              >
-                ✎
-              </button>
-            </div>
-          )}
+          <div
+            className={`title-transition-pen ${titleTransition.playing ? 'is-playing' : ''}`}
+            style={
+              {
+                '--pen-start-left': `${titleTransition.penStartRect.left}px`,
+                '--pen-start-top': `${titleTransition.penStartRect.top}px`,
+                '--pen-start-width': `${titleTransition.penStartRect.width}px`,
+                '--pen-start-height': `${titleTransition.penStartRect.height}px`,
+                '--pen-end-left': `${titleTransition.penEndRect.left}px`,
+                '--pen-end-top': `${titleTransition.penEndRect.top}px`,
+                '--pen-end-width': `${titleTransition.penEndRect.width}px`,
+                '--pen-end-height': `${titleTransition.penEndRect.height}px`,
+                '--pen-start-opacity': titleTransition.phase === 'opening' ? 1 : 0,
+                '--pen-end-opacity': titleTransition.phase === 'opening' ? 0 : 1,
+              } as CSSProperties
+            }
+          >
+            ✎
+          </div>
+
+          <div
+            className={`title-transition-actions ${titleTransition.playing ? 'is-playing' : ''}`}
+            style={
+              {
+                '--actions-start-left': `${titleTransition.actionsStartRect.left}px`,
+                '--actions-start-top': `${titleTransition.actionsStartRect.top}px`,
+                '--actions-start-width': `${titleTransition.actionsStartRect.width}px`,
+                '--actions-start-height': `${titleTransition.actionsStartRect.height}px`,
+                '--actions-end-left': `${titleTransition.actionsEndRect.left}px`,
+                '--actions-end-top': `${titleTransition.actionsEndRect.top}px`,
+                '--actions-end-width': `${titleTransition.actionsEndRect.width}px`,
+                '--actions-end-height': `${titleTransition.actionsEndRect.height}px`,
+                '--actions-start-opacity': titleTransition.phase === 'opening' ? 0 : 1,
+                '--actions-end-opacity': titleTransition.phase === 'opening' ? 1 : 0,
+              } as CSSProperties
+            }
+          >
+            <span className="title-transition-button title-save-button">保存</span>
+            <span className="title-transition-button title-cancel-button">取消</span>
+          </div>
         </div>
+      ) : null}
 
-        <div className="header-spacer" />
+      <header className="app-header">
+        <div className={`header-card ${isEditingTitle ? 'is-editing-title' : ''}`}>
+          <button
+            type="button"
+            className="menu-button"
+            aria-label="打开会话菜单"
+            onClick={openDrawer}
+          >
+            <span />
+            <span />
+            <span />
+          </button>
+
+          <div className={`header-center ${isEditingTitle ? 'is-editing' : ''}`}>
+            {isEditingTitle && activeConversation ? (
+              <div className={`title-editor ${titleTransition ? 'is-hidden' : ''}`}>
+                <input
+                  ref={titleInputRef}
+                  value={titleDraft}
+                  onChange={(event) => setTitleDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      saveRenameConversation()
+                    }
+                    if (event.key === 'Escape') {
+                      event.preventDefault()
+                      cancelRenameConversation()
+                    }
+                  }}
+                />
+                <div ref={titleActionsRef} className="title-actions">
+                  <button
+                    type="button"
+                    className="tiny-button title-save-button"
+                    onClick={saveRenameConversation}
+                  >
+                    保存
+                  </button>
+                  <button
+                    type="button"
+                    className="tiny-button title-cancel-button"
+                    onClick={cancelRenameConversation}
+                  >
+                    取消
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className={`title-display ${titleTransition ? 'is-hidden' : ''}`}>
+                <span ref={titleTextRef} className="title-text">
+                  {activeConversation?.title ?? 'Chatroom'}
+                </span>
+                <button
+                  ref={titleRenameButtonRef}
+                  type="button"
+                  className="icon-inline-button title-rename-button"
+                  aria-label="编辑对话名"
+                  onClick={beginRenameConversation}
+                >
+                  ✎
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="header-spacer" />
+        </div>
       </header>
 
       {notice ? <div className={`notice notice-${notice.type}`}>{notice.text}</div> : null}
@@ -1762,11 +3205,130 @@ function App() {
         ) : null}
       </section>
 
-      <main key={activeConversationId} className="message-list page-transition">
+      <main
+        key={activeConversationId}
+        ref={messageListRef}
+        className="message-list page-transition"
+        onScroll={handleMessageListScroll}
+        onPointerDownCapture={handleMessageListPointerDownCapture}
+        onPointerUpCapture={handleMessageListPointerUpCapture}
+        onPointerCancelCapture={handleMessageListPointerCancelCapture}
+        onWheelCapture={handleMessageListWheelCapture}
+      >
         {activeMessages.length === 0 ? (
           <section className="empty-state">
             <h2>Chatroom</h2>
-            <p>点击左上角菜单可新增/切换对话，底部可选择模型和上传图片。</p>
+            <p className="empty-state-line empty-state-intro">
+              我是<span className="empty-state-nowrap">ChatroomAI</span>！
+              <wbr />
+              欢迎找我聊天呀<span className="empty-state-emoticon">ʕ˶'༥'˶ʔ♡</span>
+            </p>
+
+            {emptyStateStats.shouldShowMiddleSection ? (
+              <>
+                <div className="empty-state-divider" aria-hidden="true" />
+
+                <div className="empty-state-body">
+                  <p className="empty-state-line">
+                    在过去的
+                    <span className="empty-state-nowrap">
+                      {emptyStateStats.daysSinceFirstConversation}天
+                    </span>
+                    里，
+                    <wbr />
+                    我们曾经有过
+                    <span className="empty-state-nowrap">
+                      {numberFormatter.format(emptyStateStats.totalConversationCount)}次对话
+                    </span>
+                    ，
+                    <wbr />
+                    你发送过
+                    <span className="empty-state-nowrap">
+                      {numberFormatter.format(emptyStateStats.totalPhotoCount)}张照片
+                    </span>
+                    ，
+                    <wbr />
+                    我们一起消耗了
+                    <span className="empty-state-nowrap">
+                      {formatTokenLabel(emptyStateStats.totalTokenCount)}
+                    </span>
+                    <span className="empty-state-emoticon">(՞˶･֊･˶՞)</span>
+                  </p>
+
+                  {emptyStateStats.earliestTimeRecord ? (
+                    <p className="empty-state-line">
+                      最早的时候，
+                      <wbr />
+                      你从
+                      <span className="empty-state-nowrap">
+                        {formatClockTime(emptyStateStats.earliestTimeRecord.timestamp)}
+                      </span>
+                      就开始与我聊天了，
+                      <wbr />
+                      在
+                      <span className="empty-state-nowrap">
+                        {formatChatDayMonthDay(emptyStateStats.earliestTimeRecord.timestamp, true)}
+                      </span>
+                      <span className="empty-state-emoticon"> ε٩(๑&gt; ₃ &lt;)۶з</span>
+                    </p>
+                  ) : null}
+
+                  {emptyStateStats.latestTimeRecord ? (
+                    <p className="empty-state-line">
+                      最晚的时候，
+                      <wbr />
+                      你在
+                      <span className="empty-state-nowrap">
+                        {formatClockTime(emptyStateStats.latestTimeRecord.timestamp)}时
+                      </span>
+                      还没有入睡，
+                      <wbr />
+                      在
+                      <span className="empty-state-nowrap">
+                        {formatChatDayMonthDay(emptyStateStats.latestTimeRecord.timestamp)}
+                      </span>
+                      ，
+                      <wbr />
+                      要注意身体哦<span className="empty-state-emoticon"> (๑• . •๑)</span>
+                    </p>
+                  ) : null}
+
+                  {emptyStateStats.busiestDay ? (
+                    <p className="empty-state-line">
+                      聊的最多的一天，
+                      <wbr />
+                      我们有过
+                      <span className="empty-state-nowrap">
+                        {numberFormatter.format(emptyStateStats.busiestDay.rounds)}次对话
+                      </span>
+                      ，
+                      <wbr />
+                      一起消耗了
+                      <span className="empty-state-nowrap">
+                        {formatTokenLabel(emptyStateStats.busiestDay.tokens)}
+                      </span>
+                      ，
+                      <wbr />
+                      在
+                      <span className="empty-state-nowrap">
+                        {formatCalendarMonthDay(emptyStateStats.busiestDay.timestamp, true)}
+                      </span>
+                      <span className="empty-state-emoticon">(｡•ㅅ•｡)♡</span>
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="empty-state-divider" aria-hidden="true" />
+              </>
+            ) : (
+              <div className="empty-state-divider" aria-hidden="true" />
+            )}
+
+            <p className="empty-state-line empty-state-outro">
+              接下来，
+              <wbr />
+              让我来回答你的问题吧<span className="empty-state-emoticon">(´,,•ω•,,)♡</span>
+            </p>
           </section>
         ) : null}
 
@@ -1898,7 +3460,7 @@ function App() {
                     </button>
                     {message.role === 'assistant' ? (
                       <button type="button" onClick={() => void regenerate(message.id)}>
-                        重生
+                        重试
                       </button>
                     ) : null}
                   </div>
@@ -1925,37 +3487,35 @@ function App() {
           </div>
         ) : null}
 
-        <div className={`composer-row ${showExpandedComposer ? 'is-expanded' : 'is-compact'}`}>
-          {showExpandedComposer ? renderComposerTools() : null}
-
-          {showExpandedComposer ? (
+        <div className={`composer-panel ${showExpandedComposer ? 'is-expanded' : 'is-compact'}`}>
+          <div className="composer-row">
             <textarea
+              ref={composerInputRef}
+              rows={1}
+              className="composer-input"
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={handleDraftKeyDown}
-              placeholder="输入消息，Enter 发送，Shift+Enter 换行"
-            />
-          ) : (
-            <input
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={handleCompactDraftKeyDown}
+              onChange={(event) => {
+                if (!activeConversation) {
+                  return
+                }
+                updateConversationDraft(activeConversation.id, event.target.value)
+              }}
               placeholder="输入消息"
             />
-          )}
 
-          {isSending ? (
-            <button type="button" className="danger-button" onClick={stopGeneration}>
-              停止
-            </button>
-          ) : (
-            <button type="button" disabled={!canSend} onClick={() => void handleSend()}>
-              发送
-            </button>
-          )}
+            {isSending ? (
+              <button type="button" className="danger-button" onClick={stopGeneration}>
+                停止
+              </button>
+            ) : (
+              <button type="button" disabled={!canSend} onClick={() => void handleSend()}>
+                发送
+              </button>
+            )}
+          </div>
+
+          {renderComposerTools()}
         </div>
-
-        {!showExpandedComposer ? renderComposerTools('composer-tools composer-tools-compact') : null}
 
         <input
           ref={fileInputRef}
@@ -1983,27 +3543,80 @@ function App() {
           <aside className="drawer-panel" onClick={(event) => event.stopPropagation()}>
             <div className="drawer-header">
               <h2>Chatroom</h2>
-              <button type="button" onClick={createNewConversation}>
-                新增对话
-              </button>
             </div>
 
             <div className="conversation-list">
-              {sortedConversations.map((conversation) => (
-                <button
-                  key={conversation.id}
-                  type="button"
-                  className={`conversation-item ${
-                    conversation.id === activeConversationId ? 'active' : ''
-                  }`}
-                  onClick={() => switchConversation(conversation.id)}
-                >
-                  <span className="conversation-item-title">{conversation.title}</span>
-                  <span className="conversation-item-time">
-                    {dateFormatter.format(conversation.updatedAt)}
-                  </span>
-                </button>
-              ))}
+              {conversationGroups.map((group) => {
+                const collapsed = collapsedConversationGroups[group.id] ?? false
+                return (
+                  <section key={group.id} className="conversation-group">
+                    <div className="conversation-group-divider">
+                      <span className="conversation-group-label">{dateFormatter.format(group.labelTime)}</span>
+                      <span className="conversation-group-dash" aria-hidden="true" />
+                      <button
+                        type="button"
+                        className="conversation-group-toggle"
+                        aria-label={collapsed ? '展开分组' : '收起分组'}
+                        onClick={() => toggleConversationGroup(group.id)}
+                      >
+                        <span className={`arrow ${collapsed ? '' : 'open'}`}>▾</span>
+                      </button>
+                    </div>
+
+                    <div className={`conversation-group-content ${collapsed ? 'is-collapsed' : ''}`}>
+                      <div className="conversation-group-content-inner">
+                        {group.conversations.map((conversation) => (
+                          <div
+                            key={conversation.id}
+                            className={`conversation-item-row ${deleteModeEnabled ? 'delete-mode' : ''}`}
+                          >
+                            <button
+                              type="button"
+                              className={`conversation-item ${
+                                conversation.id === activeConversationId ? 'active' : ''
+                              } ${swipingConversationId === conversation.id ? 'is-swiping' : ''}`}
+                              style={
+                                swipingConversationId === conversation.id
+                                  ? { transform: `translate3d(${swipeOffsetX}px, 0, 0)` }
+                                  : undefined
+                              }
+                              onPointerDown={(event) => handleConversationPointerDown(conversation.id, event)}
+                              onPointerMove={(event) => handleConversationPointerMove(conversation.id, event)}
+                              onPointerUp={(event) => handleConversationPointerUp(conversation.id, event)}
+                              onPointerCancel={handleConversationPointerCancel}
+                              onClick={() => handleConversationClick(conversation.id)}
+                            >
+                              <span className="conversation-item-title">{conversation.title}</span>
+                              <div className="conversation-item-times">
+                                <span className="conversation-item-time">
+                                  创建：{dateFormatter.format(conversation.createdAt)}
+                                </span>
+                                <span className="conversation-item-time">
+                                  更新：{dateFormatter.format(conversation.updatedAt)}
+                                </span>
+                              </div>
+                            </button>
+
+                            <button
+                              type="button"
+                              className="conversation-delete-button"
+                              aria-label={`删除 ${conversation.title}`}
+                              onClick={() => requestDeleteConversation(conversation.id)}
+                            >
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path
+                                  d="M9 3.75h6a1 1 0 0 1 .92.61l.46 1.14h3.12a.75.75 0 0 1 0 1.5h-1.03l-.77 11.04A2.25 2.25 0 0 1 15.46 20H8.54a2.25 2.25 0 0 1-2.24-1.96L5.53 7H4.5a.75.75 0 0 1 0-1.5h3.12l.46-1.14A1 1 0 0 1 9 3.75Zm.35 1.75-.4 1h6.1l-.4-1h-5.3ZM7.03 7l.77 10.94a.75.75 0 0 0 .74.66h6.92a.75.75 0 0 0 .74-.66L16.97 7H7.03Zm2.22 2.25a.75.75 0 0 1 .75.75v5.5a.75.75 0 0 1-1.5 0V10a.75.75 0 0 1 .75-.75Zm5.5 0a.75.75 0 0 1 .75.75v5.5a.75.75 0 0 1-1.5 0V10a.75.75 0 0 1 .75-.75Z"
+                                  fill="currentColor"
+                                />
+                              </svg>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </section>
+                )
+              })}
             </div>
 
             <div className="drawer-footer">
@@ -2017,8 +3630,33 @@ function App() {
               >
                 设置
               </button>
+              <button type="button" onClick={createNewConversation}>
+                新增对话
+              </button>
             </div>
           </aside>
+        </div>
+      ) : null}
+
+      {deleteDialogConversation ? (
+        <div className="delete-dialog-overlay" onClick={closeDeleteDialog}>
+          <section className="delete-dialog" onClick={(event) => event.stopPropagation()}>
+            <h3>删除提醒</h3>
+            <p className="delete-dialog-text">确认删除「{deleteDialogConversation.title}」吗？</p>
+            {settings.deleteConfirmGraceSeconds > 0 ? (
+              <p className="delete-dialog-hint">
+                确认后，{settings.deleteConfirmGraceSeconds} 秒内再次点击垃圾桶将不再提醒。
+              </p>
+            ) : null}
+            <div className="delete-dialog-actions">
+              <button type="button" className="ghost-button" onClick={closeDeleteDialog}>
+                取消
+              </button>
+              <button type="button" className="danger-button" onClick={confirmDeleteConversation}>
+                删除
+              </button>
+            </div>
+          </section>
         </div>
       ) : null}
 
@@ -2032,172 +3670,320 @@ function App() {
               </button>
             </div>
 
-            <label className="field">
-              <span>API Base URL</span>
-              <input
-                value={settings.apiBaseUrl}
-                onChange={(event) => updateSetting('apiBaseUrl', event.target.value)}
-                placeholder="https://api.example.com/v1"
-              />
-            </label>
+            <section className="settings-section">
+              <div className="conversation-group-divider settings-section-divider">
+                <span className="conversation-group-label">接口配置</span>
+                <span className="conversation-group-dash" aria-hidden="true" />
+              </div>
 
-            <label className="field">
-              <span>API Key</span>
-              <input
-                type="password"
-                value={settings.apiKey}
-                onChange={(event) => updateSetting('apiKey', event.target.value)}
-                placeholder="sk-..."
-              />
-            </label>
+              <label className="field">
+                <span>API Base URL</span>
+                <input
+                  value={settings.apiBaseUrl}
+                  onChange={(event) => updateSetting('apiBaseUrl', event.target.value)}
+                  placeholder="https://api.example.com/v1"
+                />
+              </label>
 
-            <div className="model-tools">
-              <button type="button" onClick={() => void fetchModels()} disabled={isFetchingModels}>
-                {isFetchingModels ? '加载中...' : '拉取模型列表'}
-              </button>
-              {settings.currentModel ? (
-                <button type="button" className="ghost-button" onClick={() => void testModel(settings.currentModel)}>
-                  检测当前模型
+              <label className="field">
+                <span>API Key</span>
+                <input
+                  type="password"
+                  value={settings.apiKey}
+                  onChange={(event) => updateSetting('apiKey', event.target.value)}
+                  placeholder="sk-..."
+                />
+              </label>
+            </section>
+
+            <section className="settings-section">
+              <div className="conversation-group-divider settings-section-divider">
+                <span className="conversation-group-label">模型设置</span>
+                <span className="conversation-group-dash" aria-hidden="true" />
+              </div>
+
+              <div className="model-tools">
+                <button type="button" onClick={() => void fetchModels()} disabled={isFetchingModels}>
+                  {isFetchingModels ? '加载中...' : '拉取模型列表'}
                 </button>
-              ) : null}
-            </div>
+              </div>
 
-            <div className="model-add-row">
-              <input
-                value={manualModel}
-                onChange={(event) => setManualModel(event.target.value)}
-                placeholder="手动添加模型，例如 gpt-4o-mini"
-              />
-              <button type="button" onClick={addManualModel}>
-                添加
-              </button>
-            </div>
+              <div className="model-add-row">
+                <input
+                  value={manualModel}
+                  onChange={(event) => setManualModel(event.target.value)}
+                  placeholder="手动添加模型，例如 gpt-4o-mini"
+                />
+                <button type="button" onClick={addManualModel}>
+                  添加
+                </button>
+              </div>
 
-            <div className="model-list">
-              {models.length === 0 ? (
-                <p className="summary-muted">暂无模型，请先拉取或手动添加。</p>
-              ) : (
-                models.map((modelId) => (
-                  <div key={modelId} className="model-row">
-                    <label>
-                      <input
-                        type="radio"
-                        checked={settings.currentModel === modelId}
-                        onChange={() => updateSetting('currentModel', modelId)}
-                      />
-                      <span>{modelId}</span>
-                    </label>
-                    <div className="model-row-actions">
-                      <span className={`model-state model-${modelHealth[modelId] ?? 'untested'}`}>
+              <div className="model-list">
+                {models.length === 0 ? (
+                  <p className="summary-muted">暂无模型，请先拉取或手动添加。</p>
+                ) : (
+                  models.map((modelId) => (
+                    <div
+                      key={modelId}
+                      className={`model-row ${settings.currentModel === modelId ? 'active' : ''}`}
+                      onClick={() => updateSetting('currentModel', modelId)}
+                    >
+                      <span className="model-row-label">{modelId}</span>
+                      <button
+                        type="button"
+                        className={`model-health-button model-${modelHealth[modelId] ?? 'untested'}`}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          void testModel(modelId)
+                        }}
+                        disabled={modelHealth[modelId] === 'testing'}
+                      >
                         {modelHealthLabel(modelHealth[modelId])}
-                      </span>
-                      <button type="button" className="tiny-button" onClick={() => void testModel(modelId)}>
-                        检测
                       </button>
                     </div>
-                  </div>
-                ))
-              )}
-            </div>
+                  ))
+                )}
+              </div>
+            </section>
 
-            <label className="field">
-              <span>System Prompt（可留空）</span>
-              <textarea
-                value={settings.systemPrompt}
-                onChange={(event) => updateSetting('systemPrompt', event.target.value)}
-                placeholder="你可以在此配置系统提示词"
-              />
-            </label>
+            <section className="settings-section">
+              <div className="conversation-group-divider settings-section-divider">
+                <span className="conversation-group-label">提示词</span>
+                <span className="conversation-group-dash" aria-hidden="true" />
+              </div>
 
-            <div className="field-grid">
+              <label className="field field-system-prompt">
+                <span>System Prompt（可留空）</span>
+                <textarea
+                  value={settings.systemPrompt}
+                  onChange={(event) => updateSetting('systemPrompt', event.target.value)}
+                  placeholder="你可以在此配置系统提示词"
+                />
+              </label>
+            </section>
+
+            <section className="settings-section">
+              <div className="conversation-group-divider settings-section-divider">
+                <span className="conversation-group-label">生成参数</span>
+                <span className="conversation-group-dash" aria-hidden="true" />
+              </div>
+
+              <div className="field-grid">
+                <label className="field">
+                  <span>Temperature (0-2)</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="2"
+                    value={numericSettingDrafts.temperature}
+                    placeholder={String(DEFAULT_SETTINGS.temperature)}
+                    onChange={(event) =>
+                      handleNumericSettingChange('temperature', event.target.value, 0, 2)
+                    }
+                    onBlur={() => finalizeNumericSettingDraft('temperature')}
+                  />
+                </label>
+
+                <label className="field">
+                  <span>Top P (0-1)</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="1"
+                    value={numericSettingDrafts.topP}
+                    placeholder={String(DEFAULT_SETTINGS.topP)}
+                    onChange={(event) =>
+                      handleNumericSettingChange('topP', event.target.value, 0, 1)
+                    }
+                    onBlur={() => finalizeNumericSettingDraft('topP')}
+                  />
+                </label>
+
+                <label className="field">
+                  <span>Max Tokens</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="8192"
+                    value={numericSettingDrafts.maxTokens}
+                    placeholder={String(DEFAULT_SETTINGS.maxTokens)}
+                    onChange={(event) =>
+                      handleNumericSettingChange('maxTokens', event.target.value, 1, 8192, true)
+                    }
+                    onBlur={() => finalizeNumericSettingDraft('maxTokens')}
+                  />
+                </label>
+
+                <label className="field">
+                  <span>Presence Penalty (-2~2)</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="-2"
+                    max="2"
+                    value={numericSettingDrafts.presencePenalty}
+                    placeholder={String(DEFAULT_SETTINGS.presencePenalty)}
+                    onChange={(event) =>
+                      handleNumericSettingChange('presencePenalty', event.target.value, -2, 2)
+                    }
+                    onBlur={() => finalizeNumericSettingDraft('presencePenalty')}
+                  />
+                </label>
+
+                <label className="field">
+                  <span>Frequency Penalty (-2~2)</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="-2"
+                    max="2"
+                    value={numericSettingDrafts.frequencyPenalty}
+                    placeholder={String(DEFAULT_SETTINGS.frequencyPenalty)}
+                    onChange={(event) =>
+                      handleNumericSettingChange('frequencyPenalty', event.target.value, -2, 2)
+                    }
+                    onBlur={() => finalizeNumericSettingDraft('frequencyPenalty')}
+                  />
+                </label>
+              </div>
+            </section>
+
+            <section className="settings-section">
+              <div className="conversation-group-divider settings-section-divider">
+                <span className="conversation-group-label">对话管理</span>
+                <span className="conversation-group-dash" aria-hidden="true" />
+              </div>
+
+              <div className="field-grid">
+                <label className="field">
+                  <span>删对话免提醒时长（秒）</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="600"
+                    value={numericSettingDrafts.deleteConfirmGraceSeconds}
+                    placeholder={String(DEFAULT_SETTINGS.deleteConfirmGraceSeconds)}
+                    onChange={(event) =>
+                      handleNumericSettingChange(
+                        'deleteConfirmGraceSeconds',
+                        event.target.value,
+                        0,
+                        600,
+                        true,
+                      )
+                    }
+                    onBlur={() => finalizeNumericSettingDraft('deleteConfirmGraceSeconds')}
+                  />
+                </label>
+
+                <label className="field">
+                  <span>对话分组时间间隔（分钟）</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="120"
+                    value={numericSettingDrafts.conversationGroupGapMinutes}
+                    placeholder={String(DEFAULT_SETTINGS.conversationGroupGapMinutes)}
+                    onChange={(event) =>
+                      handleNumericSettingChange(
+                        'conversationGroupGapMinutes',
+                        event.target.value,
+                        0,
+                        120,
+                        true,
+                      )
+                    }
+                    onBlur={() => finalizeNumericSettingDraft('conversationGroupGapMinutes')}
+                  />
+                </label>
+
+                <label className="field">
+                  <span>默认展开分组数</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="20"
+                    value={numericSettingDrafts.defaultExpandedConversationGroups}
+                    placeholder={String(DEFAULT_SETTINGS.defaultExpandedConversationGroups)}
+                    onChange={(event) =>
+                      handleNumericSettingChange(
+                        'defaultExpandedConversationGroups',
+                        event.target.value,
+                        0,
+                        20,
+                        true,
+                      )
+                    }
+                    onBlur={() => finalizeNumericSettingDraft('defaultExpandedConversationGroups')}
+                  />
+                </label>
+              </div>
+            </section>
+
+            <section className="settings-section">
+              <div className="conversation-group-divider settings-section-divider">
+                <span className="conversation-group-label">显示选项</span>
+                <span className="conversation-group-dash" aria-hidden="true" />
+              </div>
+
               <label className="field">
-                <span>Temperature (0-2)</span>
+                <span>空白页统计最少对话数</span>
                 <input
                   type="number"
-                  step="0.1"
                   min="0"
-                  max="2"
-                  value={settings.temperature}
+                  max={String(MAX_STORED_CONVERSATIONS)}
+                  value={numericSettingDrafts.emptyStateStatsMinConversations}
+                  placeholder={String(DEFAULT_SETTINGS.emptyStateStatsMinConversations)}
                   onChange={(event) =>
-                    updateSetting('temperature', clamp(Number(event.target.value) || 0, 0, 2))
-                  }
-                />
-              </label>
-
-              <label className="field">
-                <span>Top P (0-1)</span>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="1"
-                  value={settings.topP}
-                  onChange={(event) =>
-                    updateSetting('topP', clamp(Number(event.target.value) || 0, 0, 1))
-                  }
-                />
-              </label>
-
-              <label className="field">
-                <span>Max Tokens</span>
-                <input
-                  type="number"
-                  min="1"
-                  max="8192"
-                  value={settings.maxTokens}
-                  onChange={(event) =>
-                    updateSetting(
-                      'maxTokens',
-                      Math.round(clamp(Number(event.target.value) || 1, 1, 8192)),
+                    handleNumericSettingChange(
+                      'emptyStateStatsMinConversations',
+                      event.target.value,
+                      0,
+                      MAX_STORED_CONVERSATIONS,
+                      true,
                     )
                   }
+                  onBlur={() => finalizeNumericSettingDraft('emptyStateStatsMinConversations')}
                 />
               </label>
 
-              <label className="field">
-                <span>Presence Penalty (-2~2)</span>
+              <label className="toggle-row">
+                <span>显示思考过程</span>
                 <input
-                  type="number"
-                  step="0.1"
-                  min="-2"
-                  max="2"
-                  value={settings.presencePenalty}
+                  className="toggle-switch"
+                  type="checkbox"
+                  checked={settings.showReasoning}
+                  onChange={(event) => updateSetting('showReasoning', event.target.checked)}
+                />
+              </label>
+
+              <label className="toggle-row">
+                <span>删除模式振动</span>
+                <input
+                  className="toggle-switch"
+                  type="checkbox"
+                  checked={settings.deleteModeHapticsEnabled}
                   onChange={(event) =>
-                    updateSetting(
-                      'presencePenalty',
-                      clamp(Number(event.target.value) || 0, -2, 2),
-                    )
+                    updateSetting('deleteModeHapticsEnabled', event.target.checked)
                   }
                 />
               </label>
 
-              <label className="field">
-                <span>Frequency Penalty (-2~2)</span>
+              <label className="toggle-row">
+                <span>首 Token 振动</span>
                 <input
-                  type="number"
-                  step="0.1"
-                  min="-2"
-                  max="2"
-                  value={settings.frequencyPenalty}
+                  className="toggle-switch"
+                  type="checkbox"
+                  checked={settings.firstTokenHapticsEnabled}
                   onChange={(event) =>
-                    updateSetting(
-                      'frequencyPenalty',
-                      clamp(Number(event.target.value) || 0, -2, 2),
-                    )
+                    updateSetting('firstTokenHapticsEnabled', event.target.checked)
                   }
                 />
               </label>
-            </div>
-
-            <label className="toggle-row">
-              <span>显示思考过程</span>
-              <input
-                className="toggle-switch"
-                type="checkbox"
-                checked={settings.showReasoning}
-                onChange={(event) => updateSetting('showReasoning', event.target.checked)}
-              />
-            </label>
+            </section>
           </section>
         </div>
       ) : null}

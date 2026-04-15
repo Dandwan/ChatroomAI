@@ -25,3 +25,7 @@ dist-ssr
 app-debug.apk
 app-release*.apk
 android/gradle/gradle-8.14.3-all.zip
+.codex
+android/.gradle-home/
+android/keystore.properties
+android/keystore/

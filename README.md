@@ -1,79 +1,119 @@
-# ChatroomAI
+<h1 align="center">ChatroomAI</h1>
 
-移动端优先的 AI 聊天应用，基于 **React + Vite + Capacitor(Android)**，兼容 GPT 格式 API，支持多会话、图片输入、LaTeX 渲染、思考过程展示与完整对话编辑能力。
+<p align="center">
+  为手机场景重新整理过的 AI 聊天应用。<br />
+  支持 GPT 兼容 API、多会话、图片输入、公式渲染、思考过程查看，以及完整的对话编辑能力。
+</p>
 
-## 本次更新总结
+<p align="center">
+  <a href="https://github.com/Dandwan/ChatroomAI/releases/latest">下载最新 Release</a>
+  ·
+  <a href="#功能亮点">功能亮点</a>
+  ·
+  <a href="#界面预览">界面预览</a>
+  ·
+  <a href="#开发者入口">开发者入口</a>
+</p>
 
-1. **多会话重构完成**：新增左侧会话抽屉、会话自动命名与手动改名，顶部标题居中展示当前会话。
-2. **输入区能力增强**：模型选择下沉到底部，新增图库上传 + 相机拍照按钮，支持同区域上弹模型菜单。
-3. **聊天交互完善**：支持复制、编辑、重新生成、按轮次修改（仅修改 / 修改并重发），并优化消息操作区与统计区密度。
-4. **渲染与数据能力增强**：补强 Markdown + LaTeX 兼容渲染，支持思考过程显示在正文上方，统计首 token 延迟、总耗时与 token 消耗。
-5. **稳定性与动画修复**：修复图片发送导致界面异常问题（避免本地存储超限），补全抽屉/菜单/页面切换/展开收起的开启动画与关闭动画。
-6. **文案本地化**：关键统计与顶部信息改为中文全称，提升可读性。
+## 本次更新
 
-## 核心功能
+- 多会话体验完成重构，支持侧边抽屉切换、新建会话、自动命名和手动改名。
+- 输入区更顺手，模型选择下沉到底部，同时补上相册上传和相机拍照入口。
+- 对话操作更完整，支持复制、编辑、重新生成，以及按轮次修改后续上下文。
+- Markdown 和 LaTeX 渲染进一步补强，思考过程、Token 消耗、首 Token 延迟和总耗时都能直接看到。
+- 动画与移动端细节更完整，补全标题编辑过渡、抽屉开合、菜单切换和触感反馈。
 
-- GPT 兼容 API 配置：自定义 Base URL / API Key
-- 模型管理：拉取模型列表、手动添加模型、逐个检测模型
-- 参数设置：System Prompt（可空）、Temperature、Top P、Max Tokens、Presence/Frequency Penalty
-- 多轮对话与多会话管理
-- 消息复制、编辑、重新生成、上下文截断重发
-- 图片输入：相册选择 + 相机拍照
-- Markdown + LaTeX（KaTeX）渲染
-- 思考过程折叠展示
-- 指标统计：token 消耗、首 token 延迟、总耗时
+## 功能亮点
 
-## 本地开发
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>多会话更顺手</strong><br />
+      历史对话集中在侧边抽屉里，切换、新建、重命名都更直接，适合长期使用。
+    </td>
+    <td width="50%" valign="top">
+      <strong>聊天过程可控</strong><br />
+      支持复制、编辑、重新生成，还能只改某一轮，或者带着后续上下文一起重发。
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>学习和长文阅读更舒服</strong><br />
+      Markdown、表格和 LaTeX 公式都能正常显示，适合看推导、笔记和复杂回答。
+    </td>
+    <td width="50%" valign="top">
+      <strong>配置自由但不难用</strong><br />
+      自定义 API Base URL / API Key、拉取模型列表、手动加模型、调节常用参数，一页完成。
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>支持图片输入</strong><br />
+      既可以从相册选图，也可以直接拍照，把图文对话放进同一条发送链路里。
+    </td>
+    <td width="50%" valign="top">
+      <strong>过程数据看得见</strong><br />
+      支持思考过程折叠展示，并统计 Token、首 Token 延迟和总耗时，方便判断模型表现。
+    </td>
+  </tr>
+</table>
+
+## 界面预览
+
+<table>
+  <tr>
+    <td align="center" width="25%">
+      <img src="./README.assets/01-home.jpg" alt="ChatroomAI 主页面截图" width="220" />
+      <br />
+      <strong>1. 主页面</strong>
+    </td>
+    <td align="center" width="25%">
+      <img src="./README.assets/02-math.jpg" alt="ChatroomAI 公式渲染截图" width="220" />
+      <br />
+      <strong>2. 公式渲染</strong>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="25%">
+      <img src="./README.assets/03-history.jpg" alt="ChatroomAI 历史对话截图" width="220" />
+      <br />
+      <strong>3. 历史对话选择</strong>
+    </td>
+    <td align="center" width="25%">
+      <img src="./README.assets/04-settings.jpg" alt="ChatroomAI 设置页面截图" width="220" />
+      <br />
+      <strong>4. 设置页面</strong>
+    </td>
+  </tr>
+</table>
+
+## 技术栈
+
+- React 19
+- Vite
+- Capacitor 8 + Android
+- Markdown / KaTeX
+- GPT 兼容 API 接入
+
+## 开发者入口
 
 ```bash
 npm install
 npm run dev
 ```
 
-## 代码质量与构建
+质量检查与 Web 构建：
 
 ```bash
 npm run lint
 npm run build
 ```
 
-## API 深度联调
-
-先设置环境变量（示例）：
-
-```bash
-set API_BASE_URL=https://your-openai-compatible-endpoint/v1
-set API_KEY=your-api-key
-npm run test:api
-```
-
-可选指定模型：
-
-```bash
-set TEST_MODEL=your-model-id
-npm run test:api
-```
-
-## Android 打包与安装
-
-首次接入 Android：
-
-```bash
-npm run android:add
-```
-
-构建 Release APK（非 Debug）：
+构建 Android Release：
 
 ```bash
 npm run android:build
 ```
 
-APK 路径：
-
-- `android\app\build\outputs\apk\release\app-release-unsigned.apk`
-
-安装到设备：
-
-```bash
-adb install -r android\app\build\outputs\apk\release\app-release-unsigned.apk
-```
+构建产物位于 `android/app/build/outputs/apk/release/`。
+如果本地已配置签名 keystore，生成的是已签名 release APK；仓库不会提交任何真实 API 信息或本地签名文件。
