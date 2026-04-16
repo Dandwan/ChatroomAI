@@ -30,7 +30,7 @@
 ### Android
 
 - [查看最新 Release](https://github.com/Dandwan/ChatroomAI/releases/latest)
-- [下载 Android APK（v1.1.0）](https://github.com/Dandwan/ChatroomAI/releases/download/v1.1.0/ChatroomAI-v1.1.0-android-release.apk)
+- [下载 Android APK（v1.1.1）](https://github.com/Dandwan/ChatroomAI/releases/download/v1.1.1/ChatroomAI-v1.1.1-android-release.apk)
 
 ## 功能特性
 

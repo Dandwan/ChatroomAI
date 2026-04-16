@@ -5,4 +5,21 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   base: './',
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: (id) => {
+          if (
+            id.includes('react-markdown') ||
+            id.includes('remark-gfm') ||
+            id.includes('remark-math') ||
+            id.includes('rehype-katex')
+          ) {
+            return 'markdown'
+          }
+          return undefined
+        },
+      },
+    },
+  },
 })
