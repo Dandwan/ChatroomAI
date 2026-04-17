@@ -1,0 +1,49 @@
+每个 Skill 是一个文件夹，必须包含 SKILL.md 文件，其他资源按需组织，支持渐进式加载和复用。
+核心结构
+一个典型的 Skill 文件夹结构如下：
+skill-name/                # 文件夹名即技能标识，推荐 kebab-case 小写+连字符
+├── SKILL.md               # 必须文件，包含 YAML frontmatter 和 Markdown 指令
+├── scripts/              # 可选，提供可执行代码
+├── examples/              # 可选，提供示例或反例供 AI 学习
+│   ├── good.md
+│   └── anti-pattern.md
+├── templates/             # 可选，存放模板文件，如 XML、JSON 或 Markdown
+│   ├── template1.xml
+│   └── template2.xml
+├── workflows/             # 可选，分步骤检查或操作文件
+│   ├── step1.md
+│   └── step2.md
+└── config-template.json   # 可选，存放配置或元数据
+SKILL.md 文件规范
+YAML frontmatter（元数据）
+name: Skill 名称
+description: 功能描述和触发条件，必须清晰说明“做什么”和“什么时候用”
+author、version、allowed-tools 等可选字段
+示例：
+---
+name: code-review
+description: 按团队标准审查代码。当用户要求 review、审查、检查代码质量时使用。
+author: yourname
+version: "1.0"
+allowed-tools: Read, Bash(grep:*)
+---
+Markdown 正文
+描述 AI 执行步骤、规则和注意事项
+可包含分步骤操作、检查清单、模板引用等
+支持渐进式加载，AI 仅在匹配 description 时读取完整指令
+命名与组织原则
+文件夹名使用 kebab-case，便于识别和调用
+description 字段必须明确触发条件和关键词
+示例文件夹（examples）用于展示标准和反例，帮助 AI 学习正确操作
+templates 和 workflows 文件夹可按需添加，支持多步操作和跨服务工作流
+使用与加载机制
+启动：AI 仅加载每个 Skill 的名称和 description
+激活：当任务匹配 description 时，完整 SKILL.md 被读入上下文
+执行：AI 按指令执行，按需加载参考文件或模板，保持 token 消耗可控
+实战技巧
+将重复性流程写成 Skill，实现复用
+分步骤设置验证门槛，确保输出质量
+对跨服务工作流，明确每阶段输入输出
+使用 examples 提供正反例，帮助 AI 理解标准操作
+description 要具体，避免模糊描述，如“帮助处理项目”不如“管理项目迭代工作流，包括迭代规划、任务创建和进度追踪”清晰
+通过以上结构和规范，Skill 文件夹可以高效管理 AI Agent 的能力，实现可复用、按需加载和渐进式执行。

@@ -1,0 +1,1980 @@
+const http = require('node:http')
+const https = require('node:https')
+const zlib = require('node:zlib')
+const { URL, URLSearchParams } = require('node:url')
+
+const DEFAULT_HEADERS = {
+  'user-agent':
+    'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Mobile Safari/537.36',
+  accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7',
+  'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
+  'accept-encoding': 'gzip, deflate, br',
+}
+
+const DEFAULT_TIMEOUT_MS = 15000
+const FETCH_TIMEOUT_MS = 20000
+const MAX_RESULTS = 20
+const DEFAULT_WEB_PROVIDERS = [
+  'baidu_direct',
+  'bing_cn_direct',
+  'duckduckgo_html',
+  'startpage_direct',
+  'brave_direct',
+]
+const DEFAULT_IMAGE_PROVIDERS = ['bing_images', 'baidu_images', 'so360_images']
+
+const SITE_MAP = {
+  annasarchive: 'annas-archive.org',
+  bilibili: 'bilibili.com',
+  douyin: 'douyin.com',
+  github: 'github.com',
+  jisilu: 'jisilu.cn',
+  reddit: 'reddit.com',
+  toutiao: 'toutiao.com',
+  twitter: 'x.com',
+  wechat: 'mp.weixin.qq.com',
+  weibo: 'weibo.com',
+  xiaohongshu: 'xiaohongshu.com',
+  xiaoyuzhoufm: 'xiaoyuzhou.fm',
+  youtube: 'youtube.com',
+  zhihu: 'zhihu.com',
+}
+
+const PLATFORM_GROUPS = {
+  dev: ['github', 'reddit', 'zhihu'],
+  social: ['xiaohongshu', 'douyin', 'bilibili', 'youtube', 'twitter', 'weibo', 'wechat', 'toutiao', 'xiaoyuzhoufm'],
+  search: ['google', 'tavily', 'jina', 'duckduckgo', 'brave', 'yahoo', 'yandex', 'bing', 'wikipedia', 'metaso', 'volcengine', 'baidu', 'exa', 'serper'],
+  rss: ['rss'],
+  no_api_key: [
+    'baidu_direct',
+    'bing_cn_direct',
+    'bing_int_direct',
+    'so360_direct',
+    'sogou_direct',
+    'toutiao_direct',
+    'jisilu_direct',
+    'google_direct',
+    'google_hk_direct',
+    'duckduckgo_html',
+    'startpage_direct',
+    'brave_direct',
+    'yahoo_direct',
+    'ecosia_direct',
+    'qwant_direct',
+    'wolfram_direct',
+    'mojeek',
+    'duckduckgo_instant',
+  ],
+  preferred: ['baidu_direct', 'bing_cn_direct', 'duckduckgo_html', 'startpage_direct', 'brave_direct', 'github', 'reddit', 'zhihu'],
+}
+
+PLATFORM_GROUPS.all = Array.from(new Set(Object.values(PLATFORM_GROUPS).flatMap((items) => items)))
+
+const PLATFORM_LABELS = {
+  annasarchive: 'Anna\'s Archive',
+  baidu: 'Baidu API',
+  baidu_direct: 'Baidu',
+  bilibili: 'Bilibili',
+  bing: 'Bing API',
+  bing_cn_direct: 'Bing China',
+  bing_int_direct: 'Bing',
+  brave: 'Brave API',
+  brave_direct: 'Brave',
+  dev: 'Developer Group',
+  douyin: 'Douyin',
+  duckduckgo: 'DuckDuckGo',
+  duckduckgo_html: 'DuckDuckGo HTML',
+  duckduckgo_instant: 'DuckDuckGo Instant Answer',
+  ecosia_direct: 'Ecosia',
+  exa: 'Exa',
+  github: 'GitHub',
+  google: 'Google API',
+  google_direct: 'Google',
+  google_hk_direct: 'Google Hong Kong',
+  jina: 'Jina Search',
+  jisilu_direct: 'Jisilu',
+  metaso: 'Metaso',
+  mojeek: 'Mojeek',
+  qwant_direct: 'Qwant',
+  reddit: 'Reddit',
+  rss: 'RSS',
+  search: 'Search Group',
+  serper: 'Serper',
+  social: 'Social Group',
+  so360_direct: '360 Search',
+  sogou_direct: 'Sogou',
+  startpage_direct: 'Startpage',
+  tavily: 'Tavily',
+  toutiao: 'Toutiao',
+  toutiao_direct: 'Toutiao',
+  twitter: 'Twitter / X',
+  volcengine: 'Volcengine',
+  wechat: 'WeChat Articles',
+  weibo: 'Weibo',
+  wikipedia: 'Wikipedia',
+  wolfram_direct: 'Wolfram Alpha',
+  xiaohongshu: 'Xiaohongshu',
+  xiaoyuzhoufm: 'Xiaoyuzhou FM',
+  yahoo: 'Yahoo API',
+  yahoo_direct: 'Yahoo',
+  yandex: 'Yandex',
+  youtube: 'YouTube',
+  zhihu: 'Zhihu',
+}
+
+const PLATFORM_ALIASES = {
+  bing_cn: 'bing_cn_direct',
+  bing_int: 'bing_int_direct',
+  brave_no_api: 'brave_direct',
+  ddg: 'duckduckgo_html',
+  duckduckgo_no_api: 'duckduckgo_html',
+  i360: 'so360_direct',
+  so360: 'so360_direct',
+  x: 'twitter',
+}
+
+const IMAGE_PROVIDER_ALIASES = {
+  baidu: 'baidu_images',
+  bing: 'bing_images',
+  danbooru: 'danbooru_images',
+  gelbooru: 'gelbooru_images',
+  google: 'google_images',
+  huaban: 'huaban_images',
+  i360: 'so360_images',
+  pexels: 'pexels_images',
+  pixabay: 'pixabay_images',
+  safebooru: 'safebooru_images',
+  sogou: 'sogou_images',
+  so360: 'so360_images',
+  unsplash: 'unsplash_images',
+  volcengine: 'volcengine_images',
+  yahoo: 'yahoo_images',
+  yandex: 'yandex_images',
+}
+
+const IMAGE_SITE_MAP = {
+  foodiesfeed_images: 'foodiesfeed.com',
+  huaban_images: 'huaban.com',
+  pexels_images: 'pexels.com',
+  pixabay_images: 'pixabay.com',
+  unsplash_images: 'unsplash.com',
+  yahoo_images: 'images.search.yahoo.com',
+  yandex_images: 'yandex.com/images',
+}
+
+const IMAGE_PROVIDER_LABELS = {
+  baidu_images: 'Baidu Images',
+  bing_images: 'Bing Images',
+  danbooru_images: 'Danbooru',
+  foodiesfeed_images: 'Foodiesfeed',
+  gelbooru_images: 'Gelbooru',
+  google_images: 'Google Images',
+  huaban_images: 'Huaban',
+  pexels_images: 'Pexels',
+  pixabay_images: 'Pixabay',
+  safebooru_images: 'Safebooru',
+  sogou_images: 'Sogou Images',
+  so360_images: '360 Images',
+  unsplash_images: 'Unsplash',
+  volcengine_images: 'Volcengine Images',
+  yahoo_images: 'Yahoo Images',
+  yandex_images: 'Yandex Images',
+}
+
+const ENTITY_MAP = {
+  amp: '&',
+  apos: '\'',
+  gt: '>',
+  lt: '<',
+  nbsp: ' ',
+  quot: '"',
+}
+
+function readConfig() {
+  try {
+    return JSON.parse(process.env.SKILL_CONFIG_JSON || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function parseArgv(argv) {
+  const values = {}
+  const flags = new Set()
+  const positionals = []
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const current = argv[index]
+    if (!current.startsWith('--')) {
+      positionals.push(current)
+      continue
+    }
+
+    const key = current.slice(2)
+    const next = argv[index + 1]
+    if (!next || next.startsWith('--')) {
+      flags.add(key)
+      continue
+    }
+
+    values[key] = next
+    index += 1
+  }
+
+  return { values, flags, positionals }
+}
+
+function normalizeWhitespace(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function decodeHtmlEntities(value) {
+  return String(value || '').replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, token) => {
+    const lower = token.toLowerCase()
+    if (lower.startsWith('#')) {
+      const codePoint =
+        lower[1] === 'x'
+          ? Number.parseInt(lower.slice(2), 16)
+          : Number.parseInt(lower.slice(1), 10)
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match
+    }
+    return ENTITY_MAP[lower] || match
+  })
+}
+
+function stripTags(value) {
+  return decodeHtmlEntities(String(value || '').replace(/<[^>]+>/g, ' '))
+}
+
+function normalizeText(value) {
+  return normalizeWhitespace(stripTags(value))
+}
+
+function parseCommaList(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function uniqueStrings(items) {
+  return Array.from(new Set(items.filter(Boolean)))
+}
+
+function clampLimit(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? fallback), 10)
+  if (!Number.isFinite(parsed)) {
+    return fallback
+  }
+  return Math.max(1, Math.min(MAX_RESULTS, parsed))
+}
+
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? fallback), 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback
+  }
+  return parsed
+}
+
+function getNested(source, path, fallback) {
+  let current = source
+  for (const segment of path) {
+    if (!current || typeof current !== 'object' || !(segment in current)) {
+      return fallback
+    }
+    current = current[segment]
+  }
+  return current === undefined ? fallback : current
+}
+
+function getApiKey(config, key) {
+  const direct = getNested(config, ['apiKeys', key], '') || getNested(config, ['credentials', key], '')
+  if (typeof direct === 'string' && direct.trim()) {
+    return direct.trim()
+  }
+  const envKey = String(key || '')
+    .replace(/[A-Z]/g, (char) => `_${char}`)
+    .replace(/-/g, '_')
+    .toUpperCase()
+    .replace(/^_+/, '')
+  return process.env[envKey] || ''
+}
+
+function normalizePlatformName(value) {
+  const normalized = normalizeWhitespace(value).toLowerCase()
+  return PLATFORM_ALIASES[normalized] || normalized
+}
+
+function normalizeProviderName(value) {
+  const normalized = normalizeWhitespace(value).toLowerCase()
+  return PLATFORM_ALIASES[normalized] || normalized
+}
+
+function normalizeImageProviderName(value) {
+  const normalized = normalizeWhitespace(value).toLowerCase()
+  return IMAGE_PROVIDER_ALIASES[normalized] || normalized
+}
+
+function sanitizeUrl(value) {
+  return normalizeWhitespace(decodeHtmlEntities(value || ''))
+}
+
+function unwrapSearchRedirect(rawUrl, baseUrl) {
+  if (!rawUrl) {
+    return ''
+  }
+  try {
+    const resolved = new URL(decodeHtmlEntities(rawUrl), baseUrl)
+    const host = resolved.hostname.toLowerCase()
+    const path = resolved.pathname
+    if (
+      host.includes('duckduckgo.com') ||
+      host.includes('google.') ||
+      host.includes('startpage.com') ||
+      host.includes('search.yahoo.com')
+    ) {
+      for (const key of ['uddg', 'q', 'url']) {
+        const candidate = resolved.searchParams.get(key)
+        if (candidate && /^https?:/i.test(candidate)) {
+          return candidate
+        }
+      }
+    }
+    return resolved.toString()
+  } catch {
+    return sanitizeUrl(rawUrl)
+  }
+}
+
+function toAbsoluteUrl(rawUrl, baseUrl) {
+  const unwrapped = unwrapSearchRedirect(rawUrl, baseUrl)
+  if (!unwrapped) {
+    return ''
+  }
+  try {
+    return new URL(unwrapped, baseUrl).toString()
+  } catch {
+    return sanitizeUrl(unwrapped)
+  }
+}
+
+function looksLikeWebUrl(value) {
+  return /^https?:\/\//i.test(value || '')
+}
+
+function decodeBody(body, encoding) {
+  const lower = String(encoding || '').toLowerCase()
+  try {
+    if (lower.includes('br')) {
+      return zlib.brotliDecompressSync(body)
+    }
+    if (lower.includes('gzip')) {
+      return zlib.gunzipSync(body)
+    }
+    if (lower.includes('deflate')) {
+      return zlib.inflateSync(body)
+    }
+  } catch {
+    return body
+  }
+  return body
+}
+
+function request(url, options) {
+  const finalOptions = options || {}
+  const target = new URL(url)
+  const transport = target.protocol === 'http:' ? http : https
+  const timeoutMs = Number.isFinite(finalOptions.timeoutMs)
+    ? finalOptions.timeoutMs
+    : DEFAULT_TIMEOUT_MS
+  const headers = { ...DEFAULT_HEADERS, ...(finalOptions.headers || {}) }
+
+  return new Promise((resolve, reject) => {
+    const req = transport.request(
+      target,
+      {
+        method: finalOptions.method || 'GET',
+        headers,
+      },
+      (res) => {
+        const chunks = []
+        res.on('data', (chunk) => chunks.push(chunk))
+        res.on('end', () => {
+          const status = res.statusCode || 0
+          const rawBody = Buffer.concat(chunks)
+          const decodedBody = decodeBody(rawBody, res.headers['content-encoding'])
+
+          if (status >= 300 && status < 400 && res.headers.location && (finalOptions.redirects || 0) < 5) {
+            resolve(
+              request(new URL(res.headers.location, target).toString(), {
+                ...finalOptions,
+                redirects: (finalOptions.redirects || 0) + 1,
+              }),
+            )
+            return
+          }
+
+          resolve({
+            status,
+            headers: res.headers,
+            text: decodedBody.toString('utf-8'),
+          })
+        })
+      },
+    )
+
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`Request timed out after ${timeoutMs}ms`))
+    })
+    req.on('error', reject)
+
+    if (finalOptions.body) {
+      req.write(finalOptions.body)
+    }
+    req.end()
+  })
+}
+
+async function requestText(url, options) {
+  const response = await request(url, options)
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`Request failed: ${response.status} ${url}`)
+  }
+  return response.text
+}
+
+async function requestJson(url, options) {
+  const text = await requestText(url, options)
+  try {
+    return JSON.parse(text)
+  } catch (error) {
+    throw new Error(`Invalid JSON response from ${url}: ${error.message}`)
+  }
+}
+
+async function postJson(url, body, options) {
+  const headers = {
+    'content-type': 'application/json',
+    ...(options && options.headers ? options.headers : {}),
+  }
+  return requestJson(url, {
+    ...(options || {}),
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
+}
+
+function makeItem(title, url, snippet, source, extra) {
+  return {
+    title: normalizeWhitespace(title),
+    url: sanitizeUrl(url),
+    snippet: normalizeWhitespace(snippet),
+    source,
+    ...(extra || {}),
+  }
+}
+
+function dedupeItems(items) {
+  const seen = new Set()
+  const results = []
+  for (const item of items) {
+    const key = `${String(item.title || '').toLowerCase()}|${String(item.url || '').toLowerCase()}`
+    if (!item || !item.title || !item.url || seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    results.push(item)
+  }
+  return results
+}
+
+function markPlatform(items, platform) {
+  return items.map((item) => ({
+    ...item,
+    platform: item.platform || platform,
+  }))
+}
+
+function buildSiteQuery(query, site) {
+  return site ? `site:${site} ${query}` : query
+}
+
+function createItemsFromMatches(html, pattern, mapper, limit) {
+  const results = []
+  for (const match of html.matchAll(pattern)) {
+    const item = mapper(match)
+    if (!item || !item.title || !item.url || !looksLikeWebUrl(item.url)) {
+      continue
+    }
+    results.push(item)
+    if (results.length >= limit) {
+      break
+    }
+  }
+  return dedupeItems(results).slice(0, limit)
+}
+
+function resolvePresetLimit(preset, fallback) {
+  switch (preset) {
+    case 'small':
+      return 3
+    case 'medium':
+      return 5
+    case 'large':
+      return 10
+    case 'extra':
+    case 'max':
+      return 20
+    default:
+      return fallback
+  }
+}
+
+async function searchBing(query, limit, host, config) {
+  const base = host === 'cn' ? 'https://cn.bing.com' : 'https://www.bing.com'
+  const html = await requestText(`${base}/search?q=${encodeURIComponent(query)}`, {
+    timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
+  })
+  const blocks = html.match(/<li class="b_algo\b[\s\S]*?<\/li>/g) || []
+  const items = []
+
+  for (const block of blocks) {
+    const headerMatch =
+      block.match(/<div class="b_algoheader"[\s\S]*?<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i) ||
+      block.match(/<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>\s*<\/h2>/i)
+
+    if (!headerMatch) {
+      continue
+    }
+
+    const snippetMatch =
+      block.match(/<div class="b_caption"[\s\S]*?<p[^>]*>([\s\S]*?)<\/p>/i) ||
+      block.match(/<p[^>]*>([\s\S]*?)<\/p>/i)
+    const title = normalizeText(headerMatch[2])
+    const url = toAbsoluteUrl(headerMatch[1], base)
+    if (!title || !url) {
+      continue
+    }
+
+    items.push(
+      makeItem(
+        title,
+        url,
+        snippetMatch ? normalizeText(snippetMatch[1]) : '',
+        host === 'cn' ? 'bing_cn_direct' : 'bing_int_direct',
+      ),
+    )
+    if (items.length >= limit) {
+      break
+    }
+  }
+
+  return items
+}
+
+async function searchDuckDuckGoHtml(query, limit, config) {
+  const base = 'https://html.duckduckgo.com'
+  const html = await requestText(`${base}/html/?q=${encodeURIComponent(query)}`, {
+    timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
+  })
+
+  return createItemsFromMatches(
+    html,
+    /<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?(?:<a[^>]+class="[^"]*result__snippet[^"]*"[^>]*>|<div[^>]+class="[^"]*result__snippet[^"]*"[^>]*>)([\s\S]*?)<\/(?:a|div)>/gi,
+    (match) =>
+      makeItem(
+        normalizeText(match[2]),
+        toAbsoluteUrl(match[1], base),
+        normalizeText(match[3]),
+        'duckduckgo_html',
+      ),
+    limit,
+  )
+}
+
+async function searchDuckDuckGoInstant(query, limit) {
+  const payload = await requestJson(
+    `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_redirect=1&no_html=1`,
+  )
+  const items = []
+
+  if (payload.AbstractText && payload.AbstractURL) {
+    items.push(
+      makeItem(payload.Heading || payload.AbstractSource || query, payload.AbstractURL, payload.AbstractText, 'duckduckgo_instant', {
+        answerType: 'abstract',
+      }),
+    )
+  }
+
+  for (const result of payload.Results || []) {
+    if (!result.Text || !result.FirstURL) {
+      continue
+    }
+    items.push(
+      makeItem(
+        normalizeText(result.Text.split(' - ')[0]),
+        result.FirstURL,
+        result.Text,
+        'duckduckgo_instant',
+        { answerType: 'result' },
+      ),
+    )
+  }
+
+  const collectTopics = (topics, depth = 0) => {
+    for (const topic of topics || []) {
+      if (topic.Topics && depth < 2) {
+        collectTopics(topic.Topics, depth + 1)
+        continue
+      }
+      if (topic.Text && topic.FirstURL) {
+        items.push(
+          makeItem(
+            normalizeText(topic.Text.split(' - ')[0]),
+            topic.FirstURL,
+            topic.Text,
+            'duckduckgo_instant',
+            { answerType: 'related' },
+          ),
+        )
+      }
+    }
+  }
+
+  collectTopics(payload.RelatedTopics || [])
+  return dedupeItems(items).slice(0, limit)
+}
+
+async function searchBraveHtml(query, limit, config) {
+  const base = 'https://search.brave.com'
+  const html = await requestText(`${base}/search?q=${encodeURIComponent(query)}&source=web`, {
+    timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
+  })
+  const blocks = html.match(/<div[^>]+data-type="web"[\s\S]*?<\/div>\s*<\/div>/g) || []
+  const items = []
+
+  for (const block of blocks) {
+    const headerMatch =
+      block.match(/<a[^>]+href="([^"]+)"[^>]*>[\s\S]*?<div[^>]+class="[^"]*title[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+      block.match(/<a[^>]+href="([^"]+)"[^>]+class="[^"]*snippet-title[^"]*"[^>]*>([\s\S]*?)<\/a>/i)
+    if (!headerMatch) {
+      continue
+    }
+    const snippetMatch =
+      block.match(/<div[^>]+class="[^"]*snippet[^"]*"[\s\S]*?<div[^>]+class="[^"]*content[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+      block.match(/<p[^>]+class="[^"]*snippet[^"]*"[^>]*>([\s\S]*?)<\/p>/i)
+
+    items.push(
+      makeItem(
+        normalizeText(headerMatch[2]),
+        toAbsoluteUrl(headerMatch[1], base),
+        snippetMatch ? normalizeText(snippetMatch[1]) : '',
+        'brave_direct',
+      ),
+    )
+    if (items.length >= limit) {
+      break
+    }
+  }
+
+  return dedupeItems(items).slice(0, limit)
+}
+
+async function searchBaidu(query, limit, config) {
+  const base = 'https://www.baidu.com'
+  const html = await requestText(`${base}/s?wd=${encodeURIComponent(query)}`, {
+    timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
+  })
+  const blocks = html.match(/<div[^>]+class="[^"]*(?:result|c-container)[^"]*"[\s\S]*?<\/div>\s*<\/div>?/g) || []
+  const items = []
+
+  for (const block of blocks) {
+    const headerMatch = block.match(/<h3[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>\s*<\/h3>/i)
+    if (!headerMatch) {
+      continue
+    }
+    const snippetMatch = block.match(/<div[^>]+class="[^"]*(?:c-abstract|content-right_.*?abstract)[^"]*"[^>]*>([\s\S]*?)<\/div>/i)
+    items.push(
+      makeItem(
+        normalizeText(headerMatch[2]),
+        toAbsoluteUrl(headerMatch[1], base),
+        snippetMatch ? normalizeText(snippetMatch[1]) : '',
+        'baidu_direct',
+      ),
+    )
+    if (items.length >= limit) {
+      break
+    }
+  }
+
+  return dedupeItems(items).slice(0, limit)
+}
+
+async function searchGoogleHtml(query, limit, config, host) {
+  const domain = host || 'www.google.com'
+  const base = `https://${domain}`
+  const html = await requestText(
+    `${base}/search?hl=zh-CN&num=${Math.min(limit, 10)}&q=${encodeURIComponent(query)}`,
+    {
+      timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
+    },
+  )
+
+  return createItemsFromMatches(
+    html,
+    /<a[^>]+href="\/url\?q=([^"&]+)[^"]*"[^>]*>([\s\S]*?)<\/a>/gi,
+    (match) =>
+      makeItem(
+        normalizeText(match[2]),
+        decodeURIComponent(match[1]),
+        '',
+        domain.includes('.hk') ? 'google_hk_direct' : 'google_direct',
+      ),
+    limit,
+  )
+}
+
+async function searchStartpageHtml(query, limit, config) {
+  const base = 'https://www.startpage.com'
+  const html = await requestText(`${base}/sp/search?query=${encodeURIComponent(query)}`, {
+    timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
+  })
+  return createItemsFromMatches(
+    html,
+    /<a[^>]+href="([^"]+)"[^>]+(?:class="[^"]*(?:result-link|w-gl__result-title)[^"]*"|data-testid="result-title-a")[^>]*>([\s\S]*?)<\/a>/gi,
+    (match) =>
+      makeItem(normalizeText(match[2]), toAbsoluteUrl(match[1], base), '', 'startpage_direct'),
+    limit,
+  )
+}
+
+async function searchYahooHtml(query, limit, config) {
+  const base = 'https://search.yahoo.com'
+  const html = await requestText(`${base}/search?p=${encodeURIComponent(query)}`, {
+    timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
+  })
+  return createItemsFromMatches(
+    html,
+    /<a[^>]+href="([^"]+)"[^>]+(?:class="[^"]*(?:d-ib|title)[^"]*"|data-matarget="rh")[^>]*>([\s\S]*?)<\/a>/gi,
+    (match) =>
+      makeItem(normalizeText(match[2]), toAbsoluteUrl(match[1], base), '', 'yahoo_direct'),
+    limit,
+  )
+}
+
+async function searchEcosiaHtml(query, limit, config) {
+  const base = 'https://www.ecosia.org'
+  const html = await requestText(`${base}/search?q=${encodeURIComponent(query)}`, {
+    timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
+  })
+  return createItemsFromMatches(
+    html,
+    /<a[^>]+href="([^"]+)"[^>]+(?:data-test="result-title"|class="[^"]*result-title[^"]*")[^>]*>([\s\S]*?)<\/a>/gi,
+    (match) =>
+      makeItem(normalizeText(match[2]), toAbsoluteUrl(match[1], base), '', 'ecosia_direct'),
+    limit,
+  )
+}
+
+async function searchQwantHtml(query, limit, config) {
+  const base = 'https://www.qwant.com'
+  const html = await requestText(`${base}/?q=${encodeURIComponent(query)}&t=web`, {
+    timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
+  })
+  return createItemsFromMatches(
+    html,
+    /<a[^>]+href="([^"]+)"[^>]+(?:class="[^"]*(?:result|title|webResult)[^"]*"|data-testid="web-result-title")[^>]*>([\s\S]*?)<\/a>/gi,
+    (match) =>
+      makeItem(normalizeText(match[2]), toAbsoluteUrl(match[1], base), '', 'qwant_direct'),
+    limit,
+  )
+}
+
+async function searchSo360Html(query, limit, config) {
+  const base = 'https://www.so.com'
+  const html = await requestText(`${base}/s?q=${encodeURIComponent(query)}`, {
+    timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
+  })
+  return createItemsFromMatches(
+    html,
+    /<a[^>]+href="([^"]+)"[^>]+(?:data-mdurl="[^"]*"|class="[^"]*res-title[^"]*")[^>]*>([\s\S]*?)<\/a>/gi,
+    (match) =>
+      makeItem(normalizeText(match[2]), toAbsoluteUrl(match[1], base), '', 'so360_direct'),
+    limit,
+  )
+}
+
+async function searchSogouHtml(query, limit, config) {
+  const base = 'https://www.sogou.com'
+  const html = await requestText(`${base}/web?query=${encodeURIComponent(query)}`, {
+    timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
+  })
+  return createItemsFromMatches(
+    html,
+    /<a[^>]+href="([^"]+)"[^>]+(?:id="uigs_result_title"|\bhref=[^>]+data-rank="[^"]+"|class="[^"]*vr-title[^"]*")[^>]*>([\s\S]*?)<\/a>/gi,
+    (match) =>
+      makeItem(normalizeText(match[2]), toAbsoluteUrl(match[1], base), '', 'sogou_direct'),
+    limit,
+  )
+}
+
+async function searchMojeekHtml(query, limit, config) {
+  const base = 'https://www.mojeek.com'
+  const html = await requestText(`${base}/search?q=${encodeURIComponent(query)}`, {
+    timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
+  })
+  return createItemsFromMatches(
+    html,
+    /<a[^>]+href="([^"]+)"[^>]+class="[^"]*title[^"]*"[^>]*>([\s\S]*?)<\/a>/gi,
+    (match) =>
+      makeItem(normalizeText(match[2]), toAbsoluteUrl(match[1], base), '', 'mojeek'),
+    limit,
+  )
+}
+
+async function searchYandexHtml(query, limit, config) {
+  const base = 'https://yandex.com'
+  const html = await requestText(`${base}/search/?text=${encodeURIComponent(query)}`, {
+    timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
+  })
+  return createItemsFromMatches(
+    html,
+    /<a[^>]+href="([^"]+)"[^>]+(?:class="[^"]*(?:OrganicTitle-Link|link_theme_outer)[^"]*"|aria-label="[^"]+")[^>]*>([\s\S]*?)<\/a>/gi,
+    (match) =>
+      makeItem(normalizeText(match[2]), toAbsoluteUrl(match[1], base), '', 'yandex'),
+    limit,
+  )
+}
+
+async function searchWikipedia(query, limit) {
+  const payload = await requestJson(
+    `https://zh.wikipedia.org/w/api.php?action=query&list=search&format=json&origin=*&srsearch=${encodeURIComponent(query)}&srlimit=${limit}`,
+  )
+  return (payload.query && payload.query.search ? payload.query.search : []).map((item) =>
+    makeItem(item.title, `https://zh.wikipedia.org/?curid=${item.pageid}`, item.snippet || '', 'wikipedia', {
+      publishedAt: item.timestamp,
+    }),
+  )
+}
+
+async function searchGithub(query, limit, config) {
+  const token = getApiKey(config, 'github')
+  const payload = await requestJson(
+    `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&per_page=${Math.min(limit, 10)}`,
+    {
+      headers: {
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        accept: 'application/vnd.github+json',
+      },
+    },
+  )
+  return (payload.items || []).map((item) =>
+    makeItem(item.full_name, item.html_url, item.description || '', 'github', {
+      publishedAt: item.updated_at,
+    }),
+  )
+}
+
+async function searchReddit(query, limit) {
+  const payload = await requestJson(
+    `https://www.reddit.com/search.json?q=${encodeURIComponent(query)}&limit=${limit}`,
+    {
+      headers: { 'user-agent': `${DEFAULT_HEADERS['user-agent']} ChatroomAI/1.1` },
+    },
+  )
+  const children = payload.data && Array.isArray(payload.data.children) ? payload.data.children : []
+  return children
+    .map((entry) => (entry && entry.data ? entry.data : null))
+    .filter(Boolean)
+    .map((item) =>
+      makeItem(item.title || '', `https://www.reddit.com${item.permalink || ''}`, item.selftext || '', 'reddit', {
+        publishedAt: item.created_utc ? new Date(item.created_utc * 1000).toISOString() : undefined,
+      }),
+    )
+}
+
+async function searchJina(query, limit, config) {
+  const apiKey = getApiKey(config, 'jina')
+  if (!apiKey) {
+    throw new Error('Jina API key is missing')
+  }
+  const payload = await requestJson(`https://s.jina.ai/?q=${encodeURIComponent(query)}`, {
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      'x-respond-with': 'no-content',
+      accept: 'application/json',
+    },
+  })
+  return (payload.data || []).slice(0, limit).map((item) =>
+    makeItem(item.title || item.url || query, item.url || '', item.description || item.content || '', 'jina'),
+  )
+}
+
+async function searchTavily(query, limit, config) {
+  const apiKey = getApiKey(config, 'tavily')
+  if (!apiKey) {
+    throw new Error('Tavily API key is missing')
+  }
+  const payload = await postJson('https://api.tavily.com/search', {
+    api_key: apiKey,
+    query,
+    max_results: limit,
+    include_answer: false,
+  })
+  return (payload.results || []).map((item) =>
+    makeItem(item.title || item.url, item.url || '', item.content || '', 'tavily'),
+  )
+}
+
+async function searchExa(query, limit, config) {
+  const apiKey = getApiKey(config, 'exa')
+  if (!apiKey) {
+    throw new Error('Exa API key is missing')
+  }
+  const payload = await postJson(
+    'https://api.exa.ai/search',
+    {
+      query,
+      numResults: limit,
+      type: 'auto',
+      contents: { text: { maxCharacters: 500 } },
+    },
+    {
+      headers: { 'x-api-key': apiKey },
+    },
+  )
+  return (payload.results || []).map((item) =>
+    makeItem(item.title || item.url, item.url || '', getNested(item, ['contents', 'text'], item.text || ''), 'exa'),
+  )
+}
+
+async function searchSerper(query, limit, config) {
+  const apiKey = getApiKey(config, 'serper')
+  if (!apiKey) {
+    throw new Error('Serper API key is missing')
+  }
+  const payload = await postJson(
+    'https://google.serper.dev/search',
+    {
+      q: query,
+      num: limit,
+    },
+    {
+      headers: { 'x-api-key': apiKey },
+    },
+  )
+  return (payload.organic || []).map((item) =>
+    makeItem(item.title || item.link, item.link || '', item.snippet || '', 'serper'),
+  )
+}
+
+async function searchGoogleCustomSearch(query, limit, config, image) {
+  const apiKey = getApiKey(config, 'googleSearch')
+  const searchEngineId = getApiKey(config, 'googleSearchEngineId')
+  if (!apiKey || !searchEngineId) {
+    throw new Error('Google Custom Search credentials are missing')
+  }
+  const params = new URLSearchParams({
+    key: apiKey,
+    cx: searchEngineId,
+    q: query,
+    num: String(Math.max(1, Math.min(10, limit))),
+  })
+  if (image) {
+    params.set('searchType', 'image')
+  }
+  const payload = await requestJson(`https://www.googleapis.com/customsearch/v1?${params.toString()}`)
+  return (payload.items || []).map((item) =>
+    makeItem(item.title || item.link, item.link || '', item.snippet || '', image ? 'google_images' : 'google', image && item.image
+      ? {
+          imageUrl: item.link,
+          thumbnailUrl: item.image.thumbnailLink,
+        }
+      : undefined),
+  )
+}
+
+async function searchGoogle(query, limit, config) {
+  if (getApiKey(config, 'googleSearch') && getApiKey(config, 'googleSearchEngineId')) {
+    return searchGoogleCustomSearch(query, limit, config, false)
+  }
+  return searchGoogleHtml(query, limit, config, 'www.google.com')
+}
+
+async function searchYouTubeApi(query, limit, config) {
+  const apiKey = getApiKey(config, 'youtube')
+  if (!apiKey) {
+    throw new Error('YouTube API key is missing')
+  }
+  const params = new URLSearchParams({
+    key: apiKey,
+    part: 'snippet',
+    type: 'video',
+    q: query,
+    maxResults: String(Math.max(1, Math.min(50, limit))),
+  })
+  const payload = await requestJson(`https://www.googleapis.com/youtube/v3/search?${params.toString()}`)
+  return (payload.items || []).map((item) =>
+    makeItem(
+      getNested(item, ['snippet', 'title'], ''),
+      `https://www.youtube.com/watch?v=${getNested(item, ['id', 'videoId'], '')}`,
+      getNested(item, ['snippet', 'description'], ''),
+      'youtube',
+      {
+        publishedAt: getNested(item, ['snippet', 'publishedAt'], undefined),
+      },
+    ),
+  )
+}
+
+async function searchMetaso(query, limit, config) {
+  const apiKey = getApiKey(config, 'metaso')
+  if (!apiKey) {
+    throw new Error('Metaso API key is missing')
+  }
+  const payload = await postJson(
+    'https://metaso.cn/api/v1/search',
+    {
+      q: query,
+      scope: 'webpage',
+      includeSummary: true,
+      size: String(limit),
+      includeRawContent: false,
+      conciseSnippet: true,
+    },
+    {
+      headers: { authorization: `Bearer ${apiKey}` },
+    },
+  )
+  return (payload.webpages || []).map((item) =>
+    makeItem(item.title || item.link, item.link || '', item.summary || item.snippet || '', 'metaso', {
+      publishedAt: item.date,
+    }),
+  )
+}
+
+async function searchVolcengine(query, limit, config) {
+  const apiKey = getApiKey(config, 'volcengine')
+  if (!apiKey) {
+    throw new Error('Volcengine API key is missing')
+  }
+  const payload = await postJson(
+    'https://open.feedcoopapi.com/search_api/web_search',
+    {
+      Query: query,
+      SearchType: 'web',
+      Count: limit,
+      Filter: {
+        NeedContent: false,
+        NeedUrl: true,
+        AuthInfoLevel: 0,
+      },
+      NeedSummary: false,
+      QueryControl: {
+        QueryRewrite: false,
+      },
+    },
+    {
+      headers: { authorization: `Bearer ${apiKey}` },
+    },
+  )
+
+  const webResults =
+    getNested(payload, ['Result', 'WebResults'], []) ||
+    getNested(payload, ['Result', 'WebResults', 'Items'], []) ||
+    payload.WebResults ||
+    payload.web_results ||
+    []
+
+  return (Array.isArray(webResults) ? webResults : []).map((item) =>
+    makeItem(
+      item.Title || item.title || item.SiteName || item.site_name || item.Url || item.url || '',
+      item.Url || item.url || '',
+      item.Summary || item.summary || item.Snippet || item.snippet || '',
+      'volcengine',
+      {
+        publishedAt: item.PublishTime || item.publish_time,
+      },
+    ),
+  )
+}
+
+async function searchBingImages(query, limit, config) {
+  const html = await requestText(`https://www.bing.com/images/search?q=${encodeURIComponent(query)}`, {
+    timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
+  })
+  const items = []
+  const matches = html.matchAll(/<a[^>]+class="[^"]*\biusc\b[^"]*"[^>]+m="([^"]+)"[^>]*>/g)
+  for (const match of matches) {
+    let metadata
+    try {
+      metadata = JSON.parse(decodeHtmlEntities(match[1]))
+    } catch {
+      continue
+    }
+    if (!metadata || !metadata.murl) {
+      continue
+    }
+    items.push(
+      makeItem(metadata.t || query, metadata.murl, '', 'bing_images', {
+        imageUrl: metadata.murl,
+        thumbnailUrl: metadata.turl || metadata.murl,
+      }),
+    )
+    if (items.length >= limit) {
+      break
+    }
+  }
+  return dedupeItems(items).slice(0, limit)
+}
+
+async function searchBaiduImages(query, limit, config) {
+  const payload = await requestJson(
+    `https://image.baidu.com/search/acjson?tn=resultjson_com&word=${encodeURIComponent(query)}&pn=0&rn=${limit}`,
+    {
+      timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
+      headers: { referer: 'https://image.baidu.com/' },
+    },
+  )
+  return dedupeItems(
+    (payload.data || [])
+      .filter((item) => item && (item.middleURL || item.hoverURL || item.thumbURL))
+      .map((item) =>
+        makeItem(
+          item.fromPageTitleEnc || item.fromPageTitle || query,
+          item.fromURL || item.pageUrl || item.replaceUrl?.[0]?.ObjURL || item.middleURL,
+          item.fromPageTitle || '',
+          'baidu_images',
+          {
+            imageUrl: item.middleURL || item.hoverURL || item.thumbURL,
+            thumbnailUrl: item.thumbURL || item.middleURL || item.hoverURL,
+          },
+        ),
+      ),
+  ).slice(0, limit)
+}
+
+async function searchSo360Images(query, limit, config) {
+  const payload = await requestJson(
+    `https://image.so.com/j?q=${encodeURIComponent(query)}&src=srp&sn=0&pn=${limit}`,
+    {
+      timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
+      headers: { referer: 'https://image.so.com/' },
+    },
+  )
+  return dedupeItems(
+    (payload.list || []).map((item) =>
+      makeItem(item.title || query, item.link || item.url || item.img, item.desc || '', 'so360_images', {
+        imageUrl: item.img || item.imgurl || item.thumb_bak || item.thumb,
+        thumbnailUrl: item.thumb_bak || item.thumb || item.img,
+      }),
+    ),
+  ).slice(0, limit)
+}
+
+async function searchGelbooruImages(query, limit) {
+  const payload = await requestJson(
+    `https://gelbooru.com/index.php?page=dapi&s=post&q=index&json=1&tags=${encodeURIComponent(query)}&limit=${limit}`,
+  )
+  const posts = Array.isArray(payload.post) ? payload.post : Array.isArray(payload) ? payload : []
+  return posts.map((item) =>
+    makeItem(item.tags || query, item.source || item.file_url || '', '', 'gelbooru_images', {
+      imageUrl: item.file_url || '',
+      thumbnailUrl: item.preview_url || item.sample_url || item.file_url || '',
+    }),
+  )
+}
+
+async function searchSafebooruImages(query, limit) {
+  const payload = await requestJson(
+    `https://safebooru.org/index.php?page=dapi&s=post&q=index&json=1&tags=${encodeURIComponent(query)}&limit=${limit}`,
+  )
+  const posts = Array.isArray(payload.post) ? payload.post : Array.isArray(payload) ? payload : []
+  return posts.map((item) =>
+    makeItem(item.tags || query, item.source || item.file_url || '', '', 'safebooru_images', {
+      imageUrl: item.file_url || '',
+      thumbnailUrl: item.preview_url || item.sample_url || item.file_url || '',
+    }),
+  )
+}
+
+async function searchDanbooruImages(query, limit) {
+  const payload = await requestJson(
+    `https://danbooru.donmai.us/posts.json?tags=${encodeURIComponent(query)}&limit=${limit}`,
+  )
+  return (payload || []).map((item) =>
+    makeItem(item.tag_string || query, item.source || item.file_url || '', '', 'danbooru_images', {
+      imageUrl: item.file_url || '',
+      thumbnailUrl: item.preview_file_url || item.large_file_url || item.file_url || '',
+    }),
+  )
+}
+
+async function searchPixabayImages(query, limit, config) {
+  const apiKey = getApiKey(config, 'pixabay')
+  if (apiKey) {
+    const payload = await requestJson(
+      `https://pixabay.com/api/?key=${encodeURIComponent(apiKey)}&q=${encodeURIComponent(query)}&per_page=${limit}`,
+    )
+    return (payload.hits || []).map((item) =>
+      makeItem(item.tags || query, item.pageURL || item.largeImageURL || '', '', 'pixabay_images', {
+        imageUrl: item.largeImageURL || item.webformatURL || item.previewURL || '',
+        thumbnailUrl: item.previewURL || item.webformatURL || item.largeImageURL || '',
+      }),
+    )
+  }
+  return searchPreviewImagesBySiteSearch(query, 'pixabay.com', limit, config)
+}
+
+async function searchPexelsImages(query, limit, config) {
+  const apiKey = getApiKey(config, 'pexels')
+  if (apiKey) {
+    const payload = await requestJson(
+      `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=${limit}`,
+      {
+        headers: { authorization: apiKey },
+      },
+    )
+    return (payload.photos || []).map((item) =>
+      makeItem(item.alt || query, item.url || item.src?.original || '', '', 'pexels_images', {
+        imageUrl: getNested(item, ['src', 'large2x'], getNested(item, ['src', 'original'], '')),
+        thumbnailUrl: getNested(item, ['src', 'medium'], getNested(item, ['src', 'small'], '')),
+      }),
+    )
+  }
+  return searchPreviewImagesBySiteSearch(query, 'pexels.com', limit, config)
+}
+
+async function searchUnsplashImages(query, limit, config) {
+  const apiKey = getApiKey(config, 'unsplash')
+  if (apiKey) {
+    const payload = await requestJson(
+      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=${limit}`,
+      {
+        headers: { authorization: `Client-ID ${apiKey}` },
+      },
+    )
+    return (payload.results || []).map((item) =>
+      makeItem(item.alt_description || item.description || query, item.links?.html || item.urls?.full || '', '', 'unsplash_images', {
+        imageUrl: item.urls?.full || item.urls?.regular || '',
+        thumbnailUrl: item.urls?.small || item.urls?.thumb || '',
+      }),
+    )
+  }
+  return searchPreviewImagesBySiteSearch(query, 'unsplash.com', limit, config)
+}
+
+async function searchVolcengineImages(query, limit, config) {
+  const apiKey = getApiKey(config, 'volcengine')
+  if (!apiKey) {
+    throw new Error('Volcengine API key is missing')
+  }
+  const payload = await postJson(
+    'https://open.feedcoopapi.com/search_api/web_search',
+    {
+      Query: query,
+      SearchType: 'image',
+      Count: Math.min(limit, 5),
+      Filter: {},
+      QueryControl: {
+        QueryRewrite: false,
+      },
+    },
+    {
+      headers: { authorization: `Bearer ${apiKey}` },
+    },
+  )
+  const images = getNested(payload, ['Result', 'ImageResults'], [])
+  return (Array.isArray(images) ? images : []).map((item) =>
+    makeItem(item.Title || query, item.Url || item.Image?.Url || '', item.SiteName || '', 'volcengine_images', {
+      imageUrl: item.Image?.Url || '',
+      thumbnailUrl: item.Image?.Url || '',
+      publishedAt: item.PublishTime || undefined,
+    }),
+  )
+}
+
+async function fetchPagePreviewImage(url, config) {
+  const html = await requestText(url, {
+    timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
+  })
+  const imageMatch =
+    html.match(/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/i) ||
+    html.match(/<meta[^>]+name="twitter:image"[^>]+content="([^"]+)"/i) ||
+    html.match(/<img[^>]+src="([^"]+)"[^>]*>/i)
+  if (!imageMatch) {
+    return null
+  }
+  return toAbsoluteUrl(imageMatch[1], url)
+}
+
+async function searchPreviewImagesBySiteSearch(query, site, limit, config) {
+  const providerList = getNested(config, ['defaultProviders'], DEFAULT_WEB_PROVIDERS)
+    .map((provider) => normalizeProviderName(provider))
+    .filter(Boolean)
+  const searchResult = await runProviders(query, providerList, Math.min(limit * 2, MAX_RESULTS), site, config)
+  const items = []
+
+  for (const item of searchResult.items) {
+    try {
+      const previewUrl = await fetchPagePreviewImage(item.url, config)
+      if (!previewUrl) {
+        continue
+      }
+      items.push({
+        ...item,
+        source: `${site}_preview`,
+        imageUrl: previewUrl,
+        thumbnailUrl: previewUrl,
+      })
+      if (items.length >= limit) {
+        break
+      }
+    } catch {
+      // Ignore preview fetch failures and continue with the next result.
+    }
+  }
+
+  return dedupeItems(items).slice(0, limit)
+}
+
+async function readFeedItems(feedUrl, config) {
+  const xml = await requestText(feedUrl, {
+    timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
+  })
+  const itemBlocks = xml.match(/<(?:item|entry)\b[\s\S]*?<\/(?:item|entry)>/g) || []
+  return itemBlocks.map((block) => ({
+    title: normalizeText((block.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || ''),
+    link: decodeHtmlEntities(
+      (block.match(/<link[^>]+href="([^"]+)"/i) || [])[1] ||
+        (block.match(/<link[^>]*>([\s\S]*?)<\/link>/i) || [])[1] ||
+        '',
+    ),
+    description: normalizeText(
+      (block.match(/<(?:description|summary|content)[^>]*>([\s\S]*?)<\/(?:description|summary|content)>/i) || [])[1] || '',
+    ),
+    publishedAt: normalizeWhitespace(
+      (block.match(/<(?:pubDate|updated|published)[^>]*>([\s\S]*?)<\/(?:pubDate|updated|published)>/i) || [])[1] || '',
+    ),
+  }))
+}
+
+async function searchRss(query, feeds, limit, config) {
+  const lowered = String(query || '').toLowerCase()
+  const results = []
+  for (const feed of feeds) {
+    const items = await readFeedItems(feed, config)
+    for (const item of items) {
+      const haystack = `${item.title}\n${item.description}`.toLowerCase()
+      if (lowered && !haystack.includes(lowered)) {
+        continue
+      }
+      if (!item.link) {
+        continue
+      }
+      results.push(
+        makeItem(item.title, item.link, item.description, feed, {
+          publishedAt: item.publishedAt || undefined,
+        }),
+      )
+      if (results.length >= limit) {
+        return results
+      }
+    }
+  }
+  return results
+}
+
+async function fetchUrlViaReader(url) {
+  const normalized = url.replace(/^https?:\/\//i, '')
+  const text = await requestText(`https://r.jina.ai/http://${normalized}`, {
+    headers: { accept: 'text/plain' },
+    timeoutMs: FETCH_TIMEOUT_MS,
+  })
+  const lines = text.split('\n').map((line) => line.trimEnd())
+  const titleLine = lines.find((line) => line.startsWith('Title: '))
+  const descriptionLine = lines.find((line) => line.startsWith('Description: '))
+  const blankIndex = lines.findIndex((line) => line === '')
+  return {
+    title: titleLine ? titleLine.slice(7).trim() : url,
+    url,
+    description: descriptionLine ? descriptionLine.slice(13).trim() : '',
+    content: normalizeWhitespace(lines.slice(blankIndex >= 0 ? blankIndex + 1 : 0).join('\n')).slice(0, 8000),
+    engine: 'jina_reader',
+  }
+}
+
+async function fetchUrlViaHtml(url, config) {
+  const html = await requestText(url, {
+    timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
+  })
+  const title = normalizeText((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || url)
+  const description = decodeHtmlEntities(
+    (html.match(/<meta[^>]+name="description"[^>]+content="([^"]*)"/i) || [])[1] || '',
+  )
+  const body =
+    (html.match(/<article[^>]*>([\s\S]*?)<\/article>/i) || [])[1] ||
+    (html.match(/<main[^>]*>([\s\S]*?)<\/main>/i) || [])[1] ||
+    (html.match(/<body[^>]*>([\s\S]*?)<\/body>/i) || [])[1] ||
+    ''
+  return {
+    title,
+    url,
+    description: normalizeWhitespace(description),
+    content: normalizeText(body).slice(0, 8000),
+    engine: 'html',
+  }
+}
+
+async function fetchUrl(url, config, extract) {
+  const preferred = extract || getNested(config, ['fetchUrl', 'preferredEngine'], 'jina')
+  if (preferred !== 'html') {
+    try {
+      return await fetchUrlViaReader(url)
+    } catch (error) {
+      if (preferred === 'jina') {
+        return fetchUrlViaHtml(url, config)
+      }
+      throw error
+    }
+  }
+  return fetchUrlViaHtml(url, config)
+}
+
+async function runProviders(query, providers, limit, site, config) {
+  const effectiveQuery = buildSiteQuery(query, site)
+  const normalizedProviders = uniqueStrings(providers.map((provider) => normalizeProviderName(provider)))
+  const tasks = normalizedProviders.map(async (provider) => {
+    switch (provider) {
+      case 'baidu':
+      case 'baidu_direct':
+        return searchBaidu(effectiveQuery, limit, config)
+      case 'bing':
+      case 'bing_int':
+      case 'bing_int_direct':
+        return searchBing(effectiveQuery, limit, 'www', config)
+      case 'bing_cn':
+      case 'bing_cn_direct':
+        return searchBing(effectiveQuery, limit, 'cn', config)
+      case 'brave':
+      case 'brave_direct':
+        return searchBraveHtml(effectiveQuery, limit, config)
+      case 'duckduckgo':
+      case 'duckduckgo_html':
+        return searchDuckDuckGoHtml(effectiveQuery, limit, config)
+      case 'duckduckgo_instant':
+        return searchDuckDuckGoInstant(effectiveQuery, limit)
+      case 'ecosia_direct':
+        return searchEcosiaHtml(effectiveQuery, limit, config)
+      case 'exa':
+        return searchExa(query, limit, config)
+      case 'github':
+        return searchGithub(query, limit, config)
+      case 'google':
+        return searchGoogle(query, limit, config)
+      case 'google_direct':
+        return searchGoogleHtml(effectiveQuery, limit, config, 'www.google.com')
+      case 'google_hk_direct':
+        return searchGoogleHtml(effectiveQuery, limit, config, 'www.google.com.hk')
+      case 'jina':
+        return searchJina(query, limit, config)
+      case 'metaso':
+        return searchMetaso(query, limit, config)
+      case 'mojeek':
+        return searchMojeekHtml(effectiveQuery, limit, config)
+      case 'qwant_direct':
+        return searchQwantHtml(effectiveQuery, limit, config)
+      case 'reddit':
+        return searchReddit(query, limit)
+      case 'serper':
+        return searchSerper(query, limit, config)
+      case 'so360_direct':
+        return searchSo360Html(effectiveQuery, limit, config)
+      case 'sogou_direct':
+        return searchSogouHtml(effectiveQuery, limit, config)
+      case 'startpage_direct':
+        return searchStartpageHtml(effectiveQuery, limit, config)
+      case 'tavily':
+        return searchTavily(query, limit, config)
+      case 'toutiao_direct':
+        return runProviders(query, getNested(config, ['siteSearchProviders'], DEFAULT_WEB_PROVIDERS), limit, SITE_MAP.toutiao, config).then((result) => result.items)
+      case 'volcengine':
+        return searchVolcengine(query, limit, config)
+      case 'wikipedia':
+        return searchWikipedia(effectiveQuery, limit)
+      case 'wolfram_direct':
+        return searchDuckDuckGoInstant(query, Math.min(limit, 5))
+      case 'yahoo':
+      case 'yahoo_direct':
+        return searchYahooHtml(effectiveQuery, limit, config)
+      case 'yandex':
+        return searchYandexHtml(effectiveQuery, limit, config)
+      case 'jisilu_direct':
+        return runProviders(query, getNested(config, ['siteSearchProviders'], DEFAULT_WEB_PROVIDERS), limit, SITE_MAP.jisilu, config).then((result) => result.items)
+      default:
+        throw new Error(`Unsupported provider: ${provider}`)
+    }
+  })
+
+  const settled = await Promise.allSettled(tasks)
+  const errors = settled
+    .filter((result) => result.status === 'rejected')
+    .map((result) =>
+      String(result.reason && result.reason.message ? result.reason.message : result.reason),
+    )
+  const items = dedupeItems(
+    settled
+      .filter((result) => result.status === 'fulfilled')
+      .flatMap((result) => result.value),
+  ).slice(0, limit)
+  return {
+    items,
+    errors,
+    providers: normalizedProviders,
+  }
+}
+
+function resolvePlatforms(parsed, config, fallbackGroup) {
+  const platforms = uniqueStrings(parseCommaList(parsed.values.platforms).map((platform) => normalizePlatformName(platform)))
+  const group = normalizeWhitespace(parsed.values.group || fallbackGroup).toLowerCase()
+  if (platforms.length > 0) {
+    return platforms
+  }
+  if (group) {
+    return PLATFORM_GROUPS[group] ? [...PLATFORM_GROUPS[group]] : []
+  }
+  return [...getNested(config, ['defaultUnionPlatforms'], PLATFORM_GROUPS.preferred)]
+}
+
+function listPlatformMetadata() {
+  const platforms = uniqueStrings(PLATFORM_GROUPS.all)
+  return platforms.map((platform) => ({
+    id: platform,
+    label: PLATFORM_LABELS[platform] || platform,
+    site: SITE_MAP[platform] || null,
+  }))
+}
+
+async function runPlatformSearch(platform, query, limit, config, fallbackProviders) {
+  const normalizedPlatform = normalizePlatformName(platform)
+  const startedAt = Date.now()
+  const siteProviderList = uniqueStrings(
+    getNested(config, ['siteSearchProviders'], fallbackProviders).map((provider) => normalizeProviderName(provider)),
+  )
+  try {
+    let items = []
+    let mode = 'provider'
+    switch (normalizedPlatform) {
+      case 'baidu':
+      case 'baidu_direct':
+        items = await searchBaidu(query, limit, config)
+        break
+      case 'bing':
+      case 'bing_int_direct':
+        items = await searchBing(query, limit, 'www', config)
+        break
+      case 'bing_cn_direct':
+        items = await searchBing(query, limit, 'cn', config)
+        break
+      case 'brave':
+      case 'brave_direct':
+        items = await searchBraveHtml(query, limit, config)
+        break
+      case 'duckduckgo':
+      case 'duckduckgo_html':
+        items = await searchDuckDuckGoHtml(query, limit, config)
+        break
+      case 'duckduckgo_instant':
+        items = await searchDuckDuckGoInstant(query, limit)
+        break
+      case 'ecosia_direct':
+        items = await searchEcosiaHtml(query, limit, config)
+        break
+      case 'exa':
+        items = await searchExa(query, limit, config)
+        break
+      case 'github':
+        try {
+          items = await searchGithub(query, limit, config)
+        } catch {
+          mode = 'site_fallback'
+          items = (await runProviders(query, siteProviderList, limit, SITE_MAP.github, config)).items
+        }
+        break
+      case 'google':
+        items = await searchGoogle(query, limit, config)
+        break
+      case 'google_direct':
+        items = await searchGoogleHtml(query, limit, config, 'www.google.com')
+        break
+      case 'google_hk_direct':
+        items = await searchGoogleHtml(query, limit, config, 'www.google.com.hk')
+        break
+      case 'jina':
+        items = await searchJina(query, limit, config)
+        break
+      case 'metaso':
+        items = await searchMetaso(query, limit, config)
+        break
+      case 'mojeek':
+        items = await searchMojeekHtml(query, limit, config)
+        break
+      case 'qwant_direct':
+        items = await searchQwantHtml(query, limit, config)
+        break
+      case 'reddit':
+        try {
+          items = await searchReddit(query, limit)
+        } catch {
+          mode = 'site_fallback'
+          items = (await runProviders(query, siteProviderList, limit, SITE_MAP.reddit, config)).items
+        }
+        break
+      case 'rss':
+        items = await searchRss(query, getNested(config, ['rssFeeds'], []), limit, config)
+        break
+      case 'serper':
+        items = await searchSerper(query, limit, config)
+        break
+      case 'so360_direct':
+        items = await searchSo360Html(query, limit, config)
+        break
+      case 'sogou_direct':
+        items = await searchSogouHtml(query, limit, config)
+        break
+      case 'startpage_direct':
+        items = await searchStartpageHtml(query, limit, config)
+        break
+      case 'tavily':
+        items = await searchTavily(query, limit, config)
+        break
+      case 'volcengine':
+        items = await searchVolcengine(query, limit, config)
+        break
+      case 'wikipedia':
+        items = await searchWikipedia(query, limit)
+        break
+      case 'wolfram_direct':
+        items = await searchDuckDuckGoInstant(query, limit)
+        if (items.length === 0) {
+          mode = 'site_fallback'
+          items = (await runProviders(query, siteProviderList, limit, 'wolframalpha.com', config)).items
+        }
+        break
+      case 'yahoo':
+      case 'yahoo_direct':
+        items = await searchYahooHtml(query, limit, config)
+        break
+      case 'yandex':
+        items = await searchYandexHtml(query, limit, config)
+        break
+      case 'youtube':
+        if (getApiKey(config, 'youtube')) {
+          items = await searchYouTubeApi(query, limit, config)
+        } else {
+          mode = 'site_fallback'
+          items = (await runProviders(query, siteProviderList, limit, SITE_MAP.youtube, config)).items
+        }
+        break
+      default:
+        if (!SITE_MAP[normalizedPlatform]) {
+          throw new Error(`Unknown platform: ${normalizedPlatform}`)
+        }
+        mode = 'site_fallback'
+        items = (await runProviders(query, siteProviderList, limit, SITE_MAP[normalizedPlatform], config)).items
+        break
+    }
+
+    return {
+      success: true,
+      error: null,
+      total: items.length,
+      timing_ms: Date.now() - startedAt,
+      items: markPlatform(items, normalizedPlatform),
+      mode,
+      label: PLATFORM_LABELS[normalizedPlatform] || normalizedPlatform,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+      total: 0,
+      timing_ms: Date.now() - startedAt,
+      items: [],
+      mode: 'error',
+      label: PLATFORM_LABELS[normalizedPlatform] || normalizedPlatform,
+    }
+  }
+}
+
+async function runWebSearch(argv, config) {
+  const parsed = parseArgv(argv)
+  const query = normalizeWhitespace(parsed.values.query || parsed.positionals[0])
+  if (!query) {
+    throw new Error('web_search.internal requires --query')
+  }
+  const limit = clampLimit(parsed.values.limit, getNested(config, ['defaultLimit'], 5))
+  const providers = parseCommaList(parsed.values.providers).map((provider) => normalizeProviderName(provider))
+  const providerList = providers.length > 0 ? providers : getNested(config, ['defaultProviders'], DEFAULT_WEB_PROVIDERS)
+  const site = normalizeWhitespace(parsed.values.site) || null
+  const result = await runProviders(query, providerList, limit, site, config)
+  return {
+    query,
+    items: result.items,
+    providers: result.providers,
+    site,
+    errors: result.errors,
+  }
+}
+
+async function runUnionSearch(argv, config) {
+  const parsed = parseArgv(argv)
+  if (parsed.flags.has('list-platforms')) {
+    return {
+      platforms: listPlatformMetadata(),
+      groups: PLATFORM_GROUPS,
+    }
+  }
+  if (parsed.flags.has('list-groups')) {
+    return {
+      groups: PLATFORM_GROUPS,
+    }
+  }
+
+  const query = normalizeWhitespace(parsed.values.query || parsed.positionals[0])
+  if (!query) {
+    throw new Error('union_search.internal requires --query')
+  }
+
+  const limit = clampLimit(parsed.values.limit, getNested(config, ['defaultLimit'], 5))
+  const preset = normalizeWhitespace(parsed.values.preset).toLowerCase()
+  const perPlatformLimit = resolvePresetLimit(preset, limit)
+  const platforms = resolvePlatforms(parsed, config)
+  if (platforms.length === 0) {
+    throw new Error('No platforms selected for union_search.internal')
+  }
+
+  const fallbackProviders = parseCommaList(parsed.values.providers).map((provider) => normalizeProviderName(provider))
+  const providerList = fallbackProviders.length > 0 ? fallbackProviders : getNested(config, ['defaultProviders'], DEFAULT_WEB_PROVIDERS)
+  const settled = await Promise.all(
+    platforms.map(async (platform) => [platform, await runPlatformSearch(platform, query, perPlatformLimit, config, providerList)]),
+  )
+
+  const results = Object.fromEntries(settled)
+  const mergedItems = settled.flatMap(([, result]) => result.items)
+  const deduplicatedItems = dedupeItems(mergedItems)
+  const successful = settled.filter(([, result]) => result.success).length
+  const failed = settled.length - successful
+
+  return {
+    query,
+    platforms,
+    timestamp: new Date().toISOString(),
+    results,
+    items: parsed.flags.has('deduplicate') ? deduplicatedItems : mergedItems,
+    summary: {
+      total_platforms: settled.length,
+      successful,
+      failed,
+      total_items: mergedItems.length,
+      deduplicated_items: deduplicatedItems.length,
+    },
+  }
+}
+
+async function runSocialSearch(argv, config) {
+  const parsed = parseArgv(argv)
+  const query = normalizeWhitespace(parsed.values.query || parsed.positionals[0])
+  if (!query) {
+    throw new Error('social_search.internal requires --query')
+  }
+
+  const limit = clampLimit(parsed.values.limit, getNested(config, ['defaultLimit'], 5))
+  const providers = parseCommaList(parsed.values.providers).map((provider) => normalizeProviderName(provider))
+  const providerList = providers.length > 0 ? providers : getNested(config, ['defaultProviders'], DEFAULT_WEB_PROVIDERS)
+
+  const platform = normalizePlatformName(parsed.values.platform)
+  if (platform) {
+    const result = await runPlatformSearch(platform, query, limit, config, providerList)
+    return {
+      query,
+      platform,
+      providers: providerList,
+      ...result,
+    }
+  }
+
+  return runUnionSearch(
+    ['--query', query, '--group', 'social', '--limit', String(limit), '--providers', providerList.join(',')],
+    config,
+  )
+}
+
+async function runDevSearch(argv, config) {
+  const parsed = parseArgv(argv)
+  const query = normalizeWhitespace(parsed.values.query || parsed.positionals[0])
+  if (!query) {
+    throw new Error('dev_search.internal requires --query')
+  }
+
+  const limit = clampLimit(parsed.values.limit, getNested(config, ['defaultLimit'], 5))
+  const providers = parseCommaList(parsed.values.providers).map((provider) => normalizeProviderName(provider))
+  const providerList = providers.length > 0 ? providers : getNested(config, ['defaultProviders'], DEFAULT_WEB_PROVIDERS)
+  const platform = normalizePlatformName(parsed.values.platform)
+
+  if (platform) {
+    const result = await runPlatformSearch(platform, query, limit, config, providerList)
+    return {
+      query,
+      platform,
+      providers: providerList,
+      ...result,
+    }
+  }
+
+  return runUnionSearch(
+    ['--query', query, '--group', 'dev', '--limit', String(limit), '--providers', providerList.join(',')],
+    config,
+  )
+}
+
+async function runImageSearch(argv, config) {
+  const parsed = parseArgv(argv)
+  if (parsed.flags.has('list-platforms')) {
+    return {
+      providers: Object.keys(IMAGE_PROVIDER_LABELS).map((id) => ({
+        id,
+        label: IMAGE_PROVIDER_LABELS[id],
+      })),
+    }
+  }
+
+  const query = normalizeWhitespace(parsed.values.query || parsed.positionals[0])
+  if (!query) {
+    throw new Error('image_search.internal requires --query')
+  }
+
+  const limit = clampLimit(parsed.values.limit, 10)
+  const providers = parseCommaList(parsed.values.providers).map((provider) => normalizeImageProviderName(provider))
+  const providerList = providers.length > 0 ? providers : getNested(config, ['defaultImageProviders'], DEFAULT_IMAGE_PROVIDERS)
+
+  const tasks = providerList.map(async (provider) => {
+    switch (provider) {
+      case 'baidu_images':
+        return searchBaiduImages(query, limit, config)
+      case 'bing_images':
+        return searchBingImages(query, limit, config)
+      case 'danbooru_images':
+        return searchDanbooruImages(query, limit)
+      case 'gelbooru_images':
+        return searchGelbooruImages(query, limit)
+      case 'google_images':
+        return searchGoogleCustomSearch(query, limit, config, true)
+      case 'huaban_images':
+      case 'foodiesfeed_images':
+        return searchPreviewImagesBySiteSearch(query, IMAGE_SITE_MAP[provider], limit, config)
+      case 'pexels_images':
+        return searchPexelsImages(query, limit, config)
+      case 'pixabay_images':
+        return searchPixabayImages(query, limit, config)
+      case 'safebooru_images':
+        return searchSafebooruImages(query, limit)
+      case 'sogou_images':
+        return searchPreviewImagesBySiteSearch(query, 'pic.sogou.com', limit, config)
+      case 'so360_images':
+        return searchSo360Images(query, limit, config)
+      case 'unsplash_images':
+        return searchUnsplashImages(query, limit, config)
+      case 'volcengine_images':
+        return searchVolcengineImages(query, limit, config)
+      case 'yahoo_images':
+      case 'yandex_images':
+        return searchPreviewImagesBySiteSearch(query, IMAGE_SITE_MAP[provider], limit, config)
+      default:
+        throw new Error(`Unsupported image provider: ${provider}`)
+    }
+  })
+
+  const settled = await Promise.allSettled(tasks)
+  const errors = settled
+    .filter((result) => result.status === 'rejected')
+    .map((result) =>
+      String(result.reason && result.reason.message ? result.reason.message : result.reason),
+    )
+  const items = dedupeItems(
+    settled
+      .filter((result) => result.status === 'fulfilled')
+      .flatMap((result) => result.value),
+  ).slice(0, limit)
+
+  return {
+    query,
+    items,
+    providers: providerList,
+    errors,
+  }
+}
+
+async function runRssSearchCommand(argv, config) {
+  const parsed = parseArgv(argv)
+  const query = normalizeWhitespace(parsed.values.query || parsed.positionals[0])
+  if (!query) {
+    throw new Error('rss_search.internal requires --query')
+  }
+  const feeds = parseCommaList(parsed.values.feeds)
+  const feedList = feeds.length > 0 ? feeds : getNested(config, ['rssFeeds'], [])
+  if (feedList.length === 0) {
+    throw new Error('rss_search.internal requires configured feeds')
+  }
+  const limit = clampLimit(parsed.values.limit, getNested(config, ['defaultLimit'], 5))
+  return {
+    query,
+    feeds: feedList,
+    items: await searchRss(query, feedList, limit, config),
+  }
+}
+
+async function runFetchUrl(argv, config) {
+  const parsed = parseArgv(argv)
+  const url = normalizeWhitespace(parsed.values.url || parsed.positionals[0])
+  if (!url) {
+    throw new Error('fetch_url.internal requires --url')
+  }
+  return fetchUrl(url, config, normalizeWhitespace(parsed.values.extract))
+}
+
+async function dispatch(scriptName, argv) {
+  const config = readConfig()
+  switch (scriptName) {
+    case 'web_search.internal':
+      return runWebSearch(argv, config)
+    case 'union_search.internal':
+      return runUnionSearch(argv, config)
+    case 'social_search.internal':
+      return runSocialSearch(argv, config)
+    case 'dev_search.internal':
+      return runDevSearch(argv, config)
+    case 'image_search.internal':
+      return runImageSearch(argv, config)
+    case 'rss_search.internal':
+      return runRssSearchCommand(argv, config)
+    case 'fetch_url.internal':
+      return runFetchUrl(argv, config)
+    default:
+      throw new Error(`Unknown union-search script: ${scriptName}`)
+  }
+}
+
+async function main(scriptName, argv) {
+  const payload = await dispatch(scriptName, argv)
+  process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`)
+}
+
+module.exports = {
+  main,
+  PLATFORM_GROUPS,
+}

@@ -1,0 +1,56 @@
+{
+  "enabled": true,
+  "defaultProviders": [
+    "baidu_direct",
+    "bing_cn_direct",
+    "duckduckgo_html",
+    "startpage_direct",
+    "brave_direct"
+  ],
+  "siteSearchProviders": [
+    "duckduckgo_html",
+    "startpage_direct",
+    "brave_direct",
+    "bing_cn_direct",
+    "baidu_direct"
+  ],
+  "defaultUnionPlatforms": [
+    "baidu_direct",
+    "bing_cn_direct",
+    "duckduckgo_html",
+    "startpage_direct",
+    "brave_direct",
+    "github",
+    "reddit",
+    "zhihu"
+  ],
+  "defaultImageProviders": [
+    "bing_images",
+    "baidu_images",
+    "so360_images"
+  ],
+  "defaultLimit": 5,
+  "requestTimeoutMs": 15000,
+  "rssFeeds": [
+    "https://hnrss.org/frontpage",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml"
+  ],
+  "fetchUrl": {
+    "preferredEngine": "jina"
+  },
+  "apiKeys": {
+    "github": "",
+    "googleSearch": "",
+    "googleSearchEngineId": "",
+    "jina": "",
+    "tavily": "",
+    "exa": "",
+    "serper": "",
+    "metaso": "",
+    "volcengine": "",
+    "youtube": "",
+    "pixabay": "",
+    "pexels": "",
+    "unsplash": ""
+  }
+}

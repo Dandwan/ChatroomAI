@@ -1,0 +1,14 @@
+polkit.addRule(function(action, subject) {
+    if (!subject.active || !subject.local || subject.user !== "__HOTSPOT_USER__") {
+        return;
+    }
+
+    if (action.id === "org.freedesktop.systemd1.manage-units") {
+        var unit = action.lookup("unit");
+        var verb = action.lookup("verb");
+        if (unit === "concurrent-hotspot.service" &&
+            (verb === "start" || verb === "stop" || verb === "restart" || verb === "reload")) {
+            return polkit.Result.YES;
+        }
+    }
+});

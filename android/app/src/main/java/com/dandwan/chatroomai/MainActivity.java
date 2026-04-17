@@ -15,6 +15,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(SkillRuntimePlugin.class);
         super.onCreate(savedInstanceState);
         applySystemBarStyle();
     }

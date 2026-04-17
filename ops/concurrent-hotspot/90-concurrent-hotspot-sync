@@ -1,0 +1,3 @@
+#!/bin/sh
+
+/usr/local/bin/hotspotctl backend-dispatch "$1" "$2"

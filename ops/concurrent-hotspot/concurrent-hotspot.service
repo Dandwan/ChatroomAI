@@ -1,0 +1,17 @@
+[Unit]
+Description=并发 Wi-Fi 热点
+After=NetworkManager.service
+Wants=NetworkManager.service
+PartOf=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/hotspotctl backend-start
+ExecReload=/usr/local/bin/hotspotctl backend-sync
+ExecStop=/usr/local/bin/hotspotctl backend-stop
+TimeoutStartSec=45
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

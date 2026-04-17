@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=并发热点托盘
+Comment=在 KDE 系统托盘中控制并发 Wi-Fi 热点
+Exec=/usr/local/bin/hotspotctl tray
+Icon=gnome-netstatus-disconn
+Terminal=false
+OnlyShowIn=KDE;
+X-KDE-autostart-after=panel
+StartupNotify=false
