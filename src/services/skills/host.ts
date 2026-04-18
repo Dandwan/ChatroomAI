@@ -20,6 +20,18 @@ const builtinUnionSearchFiles = import.meta.glob('../../../builtin-skills/union-
   eager: true,
 }) as Record<string, string>
 
+const builtinDeviceInfoFiles = import.meta.glob('../../../builtin-skills/device-info/**/*', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>
+
+const builtinRuntimeShellFiles = import.meta.glob('../../../builtin-skills/runtime-shell/**/*', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>
+
 interface SkillHostState {
   enabledById: Record<string, boolean>
   deletedBuiltinIds: string[]
@@ -64,17 +76,29 @@ const toBuiltinFiles = (files: Record<string, string>, prefix: string): Record<s
       .filter((entry): entry is [string, string] => entry !== null),
   )
 
-const builtinUnionSearchFileMap = toBuiltinFiles(builtinUnionSearchFiles, 'builtin-skills/union-search')
+const createBuiltinSkillDefinition = (
+  id: string,
+  files: Record<string, string>,
+): BuiltinSkillDefinition => {
+  const fileMap = toBuiltinFiles(files, `builtin-skills/${id}`)
+  const markdown = fileMap['SKILL.md']
+  if (!markdown) {
+    throw new Error(`内置 skill 缺少 SKILL.md：${id}`)
+  }
+  return {
+    id,
+    markdown,
+    configTemplate: fileMap['config-template.json']
+      ? (JSON.parse(fileMap['config-template.json']) as Record<string, unknown>)
+      : null,
+    files: fileMap,
+  }
+}
 
 const BUILTIN_SKILLS: BuiltinSkillDefinition[] = [
-  {
-    id: 'union-search',
-    markdown: builtinUnionSearchFileMap['SKILL.md'],
-    configTemplate: builtinUnionSearchFileMap['config-template.json']
-      ? (JSON.parse(builtinUnionSearchFileMap['config-template.json']) as Record<string, unknown>)
-      : null,
-    files: builtinUnionSearchFileMap,
-  },
+  createBuiltinSkillDefinition('union-search', builtinUnionSearchFiles),
+  createBuiltinSkillDefinition('device-info', builtinDeviceInfoFiles),
+  createBuiltinSkillDefinition('runtime-shell', builtinRuntimeShellFiles),
 ]
 
 export const getBuiltinSkillRoot = (skillId: string): string =>
