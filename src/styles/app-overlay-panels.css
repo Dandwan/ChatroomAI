@@ -1,10 +1,11 @@
 .drawer-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.45);
+  background: transparent;
   z-index: 40;
   opacity: 0;
   transition: opacity 0.22s ease;
+  will-change: opacity;
 }
 
 .drawer-overlay.is-open {
@@ -16,22 +17,24 @@
 }
 
 .drawer-panel {
-  width: min(80vw, 312px);
+  width: min(72vw, 296px);
   height: 100%;
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.97));
+  background: var(--surface-panel);
   border-right: 1px solid var(--border-color);
   border-top-right-radius: var(--radius-card);
   border-bottom-right-radius: var(--radius-card);
+  box-shadow: var(--glass-shadow, var(--shadow-soft));
   padding: calc(var(--safe-top-inset) + 6px) 14px calc(14px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 10px;
-  transform: translateX(-104%);
+  transform: translate3d(-104%, 0, 0);
   transition: transform 0.24s ease;
+  backface-visibility: hidden;
 }
 
 .drawer-overlay.is-open .drawer-panel {
-  transform: translateX(0);
+  transform: translate3d(0, 0, 0);
 }
 
 .drawer-header {
@@ -57,6 +60,36 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
+}
+
+.drawer-action-button,
+.settings-nav-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-weight: 600;
+}
+
+.drawer-action-button svg,
+.settings-nav-button svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.drawer-settings-button,
+.settings-nav-button.is-back {
+  color: var(--accent-2);
+}
+
+.drawer-new-chat-button {
+  background: var(--surface-active);
+  color: var(--text-primary);
+}
+
+.settings-nav-button.is-close {
+  color: var(--accent-cute);
 }
 
 .conversation-list {
@@ -137,6 +170,13 @@
   display: flex;
   align-items: stretch;
   min-width: 0;
+  position: relative;
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.conversation-item-row.is-swiping {
+  will-change: transform;
+  transition: none;
 }
 
 .conversation-item {
@@ -154,7 +194,6 @@
   cursor: pointer;
   transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
   touch-action: pan-y;
-  will-change: transform;
 }
 
 .conversation-item:hover {
@@ -192,38 +231,60 @@
 }
 
 .conversation-delete-button {
-  width: 0;
-  min-width: 0;
-  margin-left: 0;
+  position: absolute;
+  right: 6px;
+  bottom: 2px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   opacity: 0;
-  transform: translateX(10px) scale(0.92);
+  transform: scale(0.82);
   pointer-events: none;
   overflow: hidden;
-  border: 1px solid rgba(248, 113, 113, 0.38);
-  border-radius: var(--radius-card);
-  background: linear-gradient(180deg, rgba(185, 28, 28, 0.92), rgba(153, 27, 27, 0.94));
-  color: #fee2e2;
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--status-danger);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   transition:
-    width 0.24s ease,
-    min-width 0.24s ease,
-    margin-left 0.24s ease,
-    opacity 0.18s ease,
-    transform 0.24s ease,
-    border-color 0.2s ease;
+    opacity 0.22s ease,
+    transform 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    color 0.2s ease;
+  z-index: 2;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 .conversation-item-row.delete-mode .conversation-delete-button {
-  width: 46px;
-  min-width: 46px;
-  margin-left: 8px;
   opacity: 1;
-  transform: translateX(0) scale(1);
+  transform: scale(1);
   pointer-events: auto;
+  animation: delete-ready-wiggle 0.42s ease-in-out 1;
+}
+
+.conversation-item-row.delete-mode .conversation-item {
+  border-color: var(--status-danger-border);
+  background: var(--status-danger-bg);
+  color: var(--text-primary);
+}
+
+@keyframes delete-ready-wiggle {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+  25% {
+    transform: rotate(-10deg) scale(1.03);
+  }
+  75% {
+    transform: rotate(10deg) scale(1.03);
+  }
 }
 
 .conversation-delete-button svg {
@@ -236,8 +297,12 @@
   padding-top: 10px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: stretch;
   gap: 10px;
+}
+
+.drawer-footer .drawer-action-button {
+  flex: 1;
 }
 
 .delete-dialog-overlay {
@@ -254,10 +319,10 @@
 
 .delete-dialog {
   width: min(100%, 360px);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--glass-edge-strong, var(--border-color));
   border-radius: var(--radius-card);
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.96));
-  box-shadow: var(--shadow-soft);
+  background: var(--surface-popover);
+  box-shadow: var(--glass-shadow, var(--shadow-soft));
   padding: 16px;
   animation: pop-in 0.22s ease;
 }
@@ -304,7 +369,7 @@
 .settings-screen {
   position: fixed;
   inset: 0;
-  background: rgba(2, 6, 23, 0.96);
+  background: var(--surface-overlay);
   z-index: 45;
   opacity: 0;
   transition: opacity 0.24s ease;
@@ -324,16 +389,17 @@
   margin: 0 auto;
   padding: 0 16px 16px;
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  transform: translateY(14px);
   opacity: 0;
-  transition: transform 0.24s ease, opacity 0.24s ease;
+  transition: opacity 0.22s ease;
 }
 
 .settings-screen.is-open .settings-page {
-  transform: translateY(0);
   opacity: 1;
 }
 
@@ -341,7 +407,11 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  animation: fade-up 0.24s ease;
+  animation: none;
+}
+
+.settings-view-content.is-animated {
+  animation: fade-up 0.2s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .settings-header {
@@ -352,8 +422,30 @@
   top: 0;
   z-index: 2;
   margin: 0 -16px;
-  background: linear-gradient(180deg, rgba(2, 6, 23, 0.98), rgba(2, 6, 23, 0.92));
+  background:
+    linear-gradient(140deg, rgba(255, 255, 255, 0.08), transparent 42%),
+    var(--surface-panel);
+  border-bottom: 1px solid var(--glass-edge-strong, var(--border-color));
   padding: calc(var(--safe-top-inset) + 12px) 16px 12px;
+}
+
+.settings-screen .settings-entry-button,
+.settings-screen .settings-static-card,
+.settings-screen .settings-entity-card,
+.settings-screen .json-node-card,
+.settings-screen .json-add-panel,
+.settings-screen .model-list,
+.settings-screen .model-row,
+.settings-screen .model-health-button,
+.settings-screen .model-toggle-button,
+.settings-screen .settings-chat-input,
+.settings-screen .field textarea,
+.settings-screen .field input:not([type='checkbox']):not([type='radio']),
+.settings-screen .model-add-row input,
+.settings-screen .json-type-select,
+.settings-screen .json-add-row select {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 .settings-header h2 {
@@ -1070,13 +1162,30 @@
   height: 22px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--border-color);
-  background: rgba(148, 163, 184, 0.2);
+  background: var(--toggle-off-bg);
   position: relative;
   cursor: pointer;
   transition: background 0.2s ease, border-color 0.2s ease;
   flex-shrink: 0;
   min-width: 38px;
   margin-left: 0;
+}
+
+.toggle-switch::before {
+  content: none;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  pointer-events: none;
+  z-index: 3;
+  background: var(--center-edge-mask-glow);
+  mix-blend-mode: screen;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
 }
 
 .toggle-switch::after {
@@ -1088,12 +1197,96 @@
   background: #ffffff;
   top: 2px;
   left: 2px;
+  z-index: 2;
   transition: transform 0.2s ease;
 }
 
 .toggle-switch:checked {
-  background: rgba(56, 189, 248, 0.6);
-  border-color: rgba(56, 189, 248, 0.8);
+  background: var(--toggle-on-bg);
+  border-color: var(--toggle-on-border);
+}
+
+
+/* Modern + cute refinement pass (ui-ux-pro-max inspired) */
+.conversation-group-dash,
+.drawer-footer {
+  border-color: var(--line-muted);
+}
+
+.settings-entry-button:hover,
+.conversation-item:hover,
+.model-row:hover,
+.model-health-button:hover,
+.model-toggle-button:hover {
+  border-color: var(--accent-2);
+}
+
+.conversation-item.active,
+.model-row.active,
+.model-toggle-button.is-enabled {
+  background: var(--surface-active);
+  box-shadow: 0 0 0 1px var(--border-color);
+}
+
+.settings-entry-button,
+.settings-static-card,
+.settings-entity-card,
+.json-node-card,
+.json-add-panel,
+.model-list,
+.model-row {
+  background: var(--surface-card);
+}
+
+.settings-screen,
+.settings-header,
+.drawer-panel,
+.delete-dialog {
+  background: var(--surface-panel);
+}
+
+.delete-dialog-overlay {
+  background: var(--surface-overlay-strong);
+}
+
+.json-node-card.is-open:not(.is-root) {
+  border-color: var(--accent-2);
+  background: var(--surface-card);
+}
+
+.json-add-panel {
+  border-color: var(--line-muted);
+}
+
+.model-list {
+  background: var(--surface-muted);
+}
+
+.model-health-button.model-untested {
+  color: var(--text-secondary);
+}
+
+.model-health-button.model-testing {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.16);
+}
+
+.model-health-button.model-ok {
+  color: var(--status-success);
+  border-color: var(--status-success-border);
+  background: var(--status-success-bg);
+}
+
+.model-health-button.model-error {
+  color: var(--status-danger);
+  border-color: var(--status-danger-border);
+  background: var(--status-danger-bg);
+}
+
+.conversation-delete-button {
+  border-color: var(--status-danger-border);
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
 }
 
 .toggle-switch:checked::after {
@@ -1167,4 +1360,62 @@
   .title-text {
     max-width: 60vw;
   }
+}
+
+/* Cute pastel theme refinements */
+.drawer-overlay {
+  background: transparent;
+}
+
+.drawer-panel,
+.settings-screen,
+.settings-header {
+  background: var(--surface-panel);
+}
+
+.delete-dialog {
+  background: var(--surface-popover);
+}
+
+.delete-dialog-overlay {
+  background: var(--surface-overlay-strong);
+}
+
+.conversation-item,
+.conversation-group-toggle,
+.settings-entry-button,
+.settings-static-card,
+.settings-entity-card,
+.json-node-card,
+.json-type-badge,
+.json-add-panel,
+.model-list,
+.model-row,
+.model-health-button,
+.model-toggle-button {
+  background: var(--surface-card);
+  border-color: var(--glass-edge-strong, var(--border-color));
+  box-shadow: var(--glass-shadow, var(--shadow-soft));
+}
+
+.conversation-item.active,
+.model-row.active,
+.model-toggle-button.is-enabled {
+  background: var(--surface-active);
+  border-color: var(--accent-2);
+}
+
+.settings-entry-button:hover,
+.conversation-item:hover,
+.model-row:hover {
+  border-color: var(--accent-2);
+}
+
+.toggle-switch {
+  background: var(--toggle-off-bg);
+}
+
+.toggle-switch:checked {
+  background: var(--toggle-on-bg);
+  border-color: var(--toggle-on-border);
 }
