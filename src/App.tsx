@@ -25,6 +25,7 @@ import {
   readErrorMessage,
   requestNonStreamCompletion,
   requestStreamCompletion,
+  type RequestSettings,
 } from './services/chat-api'
 import { executeSkillCall, readSkillSections } from './services/skills/executor'
 import {
@@ -72,6 +73,35 @@ import './App.css'
 
 type Role = 'user' | 'assistant'
 type ModelHealth = 'untested' | 'testing' | 'ok' | 'error'
+type ProviderPromptSettingKey = 'systemPrompt' | 'skillCallSystemPrompt'
+type ProviderNumericSettingKey =
+  | 'temperature'
+  | 'topP'
+  | 'maxTokens'
+  | 'presencePenalty'
+  | 'frequencyPenalty'
+  | 'maxModelRetryCount'
+
+interface ProviderModel {
+  id: string
+  enabled: boolean
+}
+
+interface ProviderConfig {
+  id: string
+  name: string
+  apiBaseUrl: string
+  apiKey: string
+  models: ProviderModel[]
+  systemPrompt?: string
+  skillCallSystemPrompt?: string
+  temperature?: number
+  topP?: number
+  maxTokens?: number
+  presencePenalty?: number
+  frequencyPenalty?: number
+  maxModelRetryCount?: number
+}
 
 interface ImageAttachment {
   id: string
@@ -141,8 +171,6 @@ interface ConversationGroup {
 }
 
 interface AppSettings {
-  apiBaseUrl: string
-  apiKey: string
   systemPrompt: string
   skillCallSystemPrompt: string
   temperature: number
@@ -153,7 +181,8 @@ interface AppSettings {
   showReasoning: boolean
   deleteModeHapticsEnabled: boolean
   firstTokenHapticsEnabled: boolean
-  models: string[]
+  providers: ProviderConfig[]
+  currentProviderId: string
   currentModel: string
   deleteConfirmGraceSeconds: number
   conversationGroupGapMinutes: number
@@ -228,8 +257,22 @@ interface LoadedChatState {
   draftsByConversation: Record<string, string>
 }
 
-type SettingsView = 'main' | 'skills' | 'skill-config' | 'runtimes'
-type PromptEditorKey = 'systemPrompt' | 'skillCallSystemPrompt'
+interface ActiveProviderRequestSettings extends RequestSettings {
+  providerId: string
+  providerName: string
+  systemPrompt: string
+  skillCallSystemPrompt: string
+  maxModelRetryCount: number
+}
+
+interface EnabledModelOption {
+  providerId: string
+  providerName: string
+  modelId: string
+}
+
+type SettingsView = 'main' | 'providers' | 'provider-detail' | 'skills' | 'skill-config' | 'runtimes'
+type PromptEditorKey = ProviderPromptSettingKey
 
 const SETTINGS_STORAGE_KEY = 'chatroom.settings.v1'
 const LEGACY_MESSAGES_STORAGE_KEY = 'chatroom.messages.v1'
@@ -259,8 +302,6 @@ const REMARK_PLUGINS = [remarkGfm, remarkMath]
 const REHYPE_PLUGINS = [rehypeKatex]
 
 const DEFAULT_SETTINGS: AppSettings = {
-  apiBaseUrl: '',
-  apiKey: '',
   systemPrompt: `
 1.你是一名猫娘小助手，你应该用尽可能温和有感情的方式回应主人，你需要扮演与主人在现实中互动，而不是程序或语言模型，也不受程序或语言模型的限制。
 2.猫娘不知道程序或模型是什么，不能以任何形式提及程序或语言模型相关内容。
@@ -278,7 +319,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   showReasoning: true,
   deleteModeHapticsEnabled: true,
   firstTokenHapticsEnabled: true,
-  models: [],
+  providers: [],
+  currentProviderId: '',
   currentModel: '',
   deleteConfirmGraceSeconds: DEFAULT_DELETE_CONFIRM_GRACE_SECONDS,
   conversationGroupGapMinutes: DEFAULT_CONVERSATION_GROUP_GAP_MINUTES,
@@ -299,7 +341,20 @@ const NUMERIC_SETTING_DEFAULTS: Record<NumericSettingKey, number> = {
   maxModelRetryCount: DEFAULT_SETTINGS.maxModelRetryCount,
 }
 
+const PROVIDER_NUMERIC_LIMITS: Record<
+  ProviderNumericSettingKey,
+  { minimum: number; maximum: number; integer?: boolean }
+> = {
+  temperature: { minimum: 0, maximum: 2 },
+  topP: { minimum: 0, maximum: 1 },
+  maxTokens: { minimum: 1, maximum: 8192, integer: true },
+  presencePenalty: { minimum: -2, maximum: 2 },
+  frequencyPenalty: { minimum: -2, maximum: 2 },
+  maxModelRetryCount: { minimum: 0, maximum: 10, integer: true },
+}
+
 type NumericSettingDrafts = Record<NumericSettingKey, string>
+type ProviderNumericSettingDrafts = Record<ProviderNumericSettingKey, string>
 type ConversationDrafts = Record<string, string>
 
 const normalizeNumericSettingDraft = (key: NumericSettingKey, value: number): string =>
@@ -327,6 +382,18 @@ const createNumericSettingDrafts = (settings: AppSettings): NumericSettingDrafts
     'maxModelRetryCount',
     settings.maxModelRetryCount,
   ),
+})
+
+const createProviderNumericSettingDrafts = (
+  provider?: ProviderConfig | null,
+): ProviderNumericSettingDrafts => ({
+  temperature: provider?.temperature === undefined ? '' : String(provider.temperature),
+  topP: provider?.topP === undefined ? '' : String(provider.topP),
+  maxTokens: provider?.maxTokens === undefined ? '' : String(provider.maxTokens),
+  presencePenalty: provider?.presencePenalty === undefined ? '' : String(provider.presencePenalty),
+  frequencyPenalty: provider?.frequencyPenalty === undefined ? '' : String(provider.frequencyPenalty),
+  maxModelRetryCount:
+    provider?.maxModelRetryCount === undefined ? '' : String(provider.maxModelRetryCount),
 })
 
 const numberFormatter = new Intl.NumberFormat('zh-CN')
@@ -387,6 +454,215 @@ const toFiniteNumber = (value: unknown): number | undefined => {
 
 const clamp = (value: number, minimum: number, maximum: number): number =>
   Math.min(Math.max(value, minimum), maximum)
+
+const createProviderModelKey = (providerId: string, modelId: string): string => `${providerId}::${modelId}`
+
+const createProviderNameCandidate = (providers: ProviderConfig[]): string => {
+  const usedNames = new Set(providers.map((provider) => provider.name.trim()).filter(Boolean))
+  let index = 1
+  while (true) {
+    const candidate = `服务商 ${index}`
+    if (!usedNames.has(candidate)) {
+      return candidate
+    }
+    index += 1
+  }
+}
+
+const createProviderConfig = (name = '服务商'): ProviderConfig => ({
+  id: createId(),
+  name,
+  apiBaseUrl: '',
+  apiKey: '',
+  models: [],
+})
+
+const normalizeProviderPromptOverride = (
+  value: unknown,
+  upgrade?: (input: string) => string,
+): string | undefined => {
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const nextValue = upgrade ? upgrade(value) : value
+  return nextValue.trim().length > 0 ? nextValue : undefined
+}
+
+const normalizeProviderNumericOverride = (
+  key: ProviderNumericSettingKey,
+  value: unknown,
+): number | undefined => {
+  const parsed = toFiniteNumber(value)
+  if (parsed === undefined) {
+    return undefined
+  }
+
+  const limits = PROVIDER_NUMERIC_LIMITS[key]
+  const clamped = clamp(parsed, limits.minimum, limits.maximum)
+  return limits.integer ? Math.round(clamped) : clamped
+}
+
+const normalizeProviderModel = (value: unknown): ProviderModel | undefined => {
+  if (typeof value === 'string') {
+    const id = value.trim()
+    return id ? { id, enabled: false } : undefined
+  }
+
+  if (!isRecord(value) || typeof value.id !== 'string') {
+    return undefined
+  }
+
+  const id = value.id.trim()
+  if (!id) {
+    return undefined
+  }
+
+  return {
+    id,
+    enabled: value.enabled === true,
+  }
+}
+
+const normalizeProviderModels = (value: unknown): ProviderModel[] => {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const models: ProviderModel[] = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    const normalized = normalizeProviderModel(item)
+    if (!normalized || seen.has(normalized.id)) {
+      continue
+    }
+    seen.add(normalized.id)
+    models.push(normalized)
+  }
+  return models
+}
+
+const normalizeProviderConfig = (value: unknown): ProviderConfig | undefined => {
+  if (!isRecord(value)) {
+    return undefined
+  }
+
+  const id = typeof value.id === 'string' && value.id.trim() ? value.id.trim() : createId()
+  const name = typeof value.name === 'string' && value.name.trim() ? value.name.trim() : '未命名服务商'
+
+  return {
+    id,
+    name,
+    apiBaseUrl: typeof value.apiBaseUrl === 'string' ? value.apiBaseUrl : '',
+    apiKey: typeof value.apiKey === 'string' ? value.apiKey : '',
+    models: normalizeProviderModels(value.models),
+    systemPrompt: normalizeProviderPromptOverride(value.systemPrompt),
+    skillCallSystemPrompt: normalizeProviderPromptOverride(
+      value.skillCallSystemPrompt,
+      upgradeSkillCallSystemPrompt,
+    ),
+    temperature: normalizeProviderNumericOverride('temperature', value.temperature),
+    topP: normalizeProviderNumericOverride('topP', value.topP),
+    maxTokens: normalizeProviderNumericOverride('maxTokens', value.maxTokens),
+    presencePenalty: normalizeProviderNumericOverride('presencePenalty', value.presencePenalty),
+    frequencyPenalty: normalizeProviderNumericOverride('frequencyPenalty', value.frequencyPenalty),
+    maxModelRetryCount: normalizeProviderNumericOverride(
+      'maxModelRetryCount',
+      value.maxModelRetryCount,
+    ),
+  }
+}
+
+const buildLegacyProvider = (parsed: Record<string, unknown>): ProviderConfig | undefined => {
+  const legacyModels = Array.isArray(parsed.models)
+    ? parsed.models
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : []
+  const legacyCurrentModel =
+    typeof parsed.currentModel === 'string' ? parsed.currentModel.trim() : ''
+  const mergedModels = new Set(legacyModels)
+  if (legacyCurrentModel) {
+    mergedModels.add(legacyCurrentModel)
+  }
+
+  if (
+    typeof parsed.apiBaseUrl !== 'string' &&
+    typeof parsed.apiKey !== 'string' &&
+    mergedModels.size === 0
+  ) {
+    return undefined
+  }
+
+  return {
+    id: createId(),
+    name: '默认服务商',
+    apiBaseUrl: typeof parsed.apiBaseUrl === 'string' ? parsed.apiBaseUrl : '',
+    apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : '',
+    models: Array.from(mergedModels).map((modelId) => ({
+      id: modelId,
+      enabled: modelId === legacyCurrentModel,
+    })),
+  }
+}
+
+const getEnabledModelOptions = (providers: ProviderConfig[]): EnabledModelOption[] =>
+  providers.flatMap((provider) =>
+    provider.models
+      .filter((model) => model.enabled)
+      .map((model) => ({
+        providerId: provider.id,
+        providerName: provider.name,
+        modelId: model.id,
+      })),
+  )
+
+const ensureValidCurrentModelSelection = (settings: AppSettings): AppSettings => {
+  const hasCurrentSelection = settings.providers.some(
+    (provider) =>
+      provider.id === settings.currentProviderId &&
+      provider.models.some((model) => model.id === settings.currentModel && model.enabled),
+  )
+  if (hasCurrentSelection) {
+    return settings
+  }
+
+  const fallback = getEnabledModelOptions(settings.providers)[0]
+  return {
+    ...settings,
+    currentProviderId: fallback?.providerId ?? '',
+    currentModel: fallback?.modelId ?? '',
+  }
+}
+
+const resolveProviderRequestSettings = (settings: AppSettings): ActiveProviderRequestSettings | null => {
+  const provider = settings.providers.find((item) => item.id === settings.currentProviderId)
+  if (!provider) {
+    return null
+  }
+
+  const model = provider.models.find((item) => item.id === settings.currentModel && item.enabled)
+  if (!model) {
+    return null
+  }
+
+  return {
+    providerId: provider.id,
+    providerName: provider.name,
+    apiBaseUrl: provider.apiBaseUrl,
+    apiKey: provider.apiKey,
+    currentModel: model.id,
+    systemPrompt: provider.systemPrompt ?? settings.systemPrompt,
+    skillCallSystemPrompt: provider.skillCallSystemPrompt ?? settings.skillCallSystemPrompt,
+    temperature: provider.temperature ?? settings.temperature,
+    topP: provider.topP ?? settings.topP,
+    maxTokens: provider.maxTokens ?? settings.maxTokens,
+    presencePenalty: provider.presencePenalty ?? settings.presencePenalty,
+    frequencyPenalty: provider.frequencyPenalty ?? settings.frequencyPenalty,
+    maxModelRetryCount: provider.maxModelRetryCount ?? settings.maxModelRetryCount,
+  }
+}
 
 const padTwoDigits = (value: number): string => String(value).padStart(2, '0')
 
@@ -822,7 +1098,7 @@ const parseSkillExecutionPayload = (
 const buildSkillAgentMessages = (
   historyBeforeCurrentUser: ChatMessage[],
   currentUserMessage: ChatMessage,
-  settings: AppSettings,
+  settings: Pick<ActiveProviderRequestSettings, PromptEditorKey>,
   blocks: PromptBlock[],
 ): ApiMessage[] => {
   const payload: ApiMessage[] = []
@@ -1097,12 +1373,13 @@ const loadSettings = (): AppSettings => {
     if (!isRecord(parsed)) {
       return DEFAULT_SETTINGS
     }
-
-    const models = Array.isArray(parsed.models)
-      ? parsed.models.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-      : DEFAULT_SETTINGS.models
-    const currentModel =
-      typeof parsed.currentModel === 'string' ? parsed.currentModel : DEFAULT_SETTINGS.currentModel
+    const parsedProviders = Array.isArray(parsed.providers)
+      ? parsed.providers
+          .map((item) => normalizeProviderConfig(item))
+          .filter((item): item is ProviderConfig => Boolean(item))
+      : []
+    const legacyProvider = parsedProviders.length === 0 ? buildLegacyProvider(parsed) : undefined
+    const providers = legacyProvider ? [legacyProvider] : parsedProviders
 
     const rawTemperature = toFiniteNumber(parsed.temperature)
     const rawTopP = toFiniteNumber(parsed.topP)
@@ -1113,10 +1390,16 @@ const loadSettings = (): AppSettings => {
     const rawConversationGroupGapMinutes = toFiniteNumber(parsed.conversationGroupGapMinutes)
     const rawEmptyStateStatsMinConversations = toFiniteNumber(parsed.emptyStateStatsMinConversations)
     const rawMaxModelRetryCount = toFiniteNumber(parsed.maxModelRetryCount)
+    const currentProviderId =
+      typeof parsed.currentProviderId === 'string' && parsed.currentProviderId.trim()
+        ? parsed.currentProviderId
+        : legacyProvider?.id ?? DEFAULT_SETTINGS.currentProviderId
+    const currentModel =
+      typeof parsed.currentModel === 'string' && parsed.currentModel.trim()
+        ? parsed.currentModel
+        : DEFAULT_SETTINGS.currentModel
 
-    return {
-      apiBaseUrl: typeof parsed.apiBaseUrl === 'string' ? parsed.apiBaseUrl : DEFAULT_SETTINGS.apiBaseUrl,
-      apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : DEFAULT_SETTINGS.apiKey,
+    return ensureValidCurrentModelSelection({
       systemPrompt:
         typeof parsed.systemPrompt === 'string' ? parsed.systemPrompt : DEFAULT_SETTINGS.systemPrompt,
       skillCallSystemPrompt:
@@ -1150,7 +1433,8 @@ const loadSettings = (): AppSettings => {
         typeof parsed.firstTokenHapticsEnabled === 'boolean'
           ? parsed.firstTokenHapticsEnabled
           : DEFAULT_SETTINGS.firstTokenHapticsEnabled,
-      models,
+      providers,
+      currentProviderId,
       currentModel,
       deleteConfirmGraceSeconds:
         rawDeleteConfirmGraceSeconds !== undefined
@@ -1172,7 +1456,7 @@ const loadSettings = (): AppSettings => {
         rawMaxModelRetryCount !== undefined
           ? Math.round(clamp(rawMaxModelRetryCount, 0, 10))
           : DEFAULT_SETTINGS.maxModelRetryCount,
-    }
+    })
   } catch {
     return DEFAULT_SETTINGS
   }
@@ -1307,13 +1591,18 @@ function App() {
     open: openModelMenu,
     close: closeModelMenu,
   } = useAnimatedVisibility(180)
-  const [manualModel, setManualModel] = useState('')
+  const [providerDetailTargetId, setProviderDetailTargetId] = useState<string | null>(null)
+  const [manualModelDraft, setManualModelDraft] = useState('')
+  const [providerModelSearch, setProviderModelSearch] = useState('')
+  const [providerNumericSettingDrafts, setProviderNumericSettingDrafts] =
+    useState<ProviderNumericSettingDrafts>(() => createProviderNumericSettingDrafts(null))
   const [modelHealth, setModelHealth] = useState<Record<string, ModelHealth>>({})
   const [notice, setNotice] = useState<Notice | null>(null)
   const [isSending, setIsSending] = useState(false)
-  const [isFetchingModels, setIsFetchingModels] = useState(false)
+  const [isFetchingModelsByProviderId, setIsFetchingModelsByProviderId] = useState<Record<string, boolean>>({})
   const [deleteModeEnabled, setDeleteModeEnabled] = useState(false)
   const [deleteDialogConversationId, setDeleteDialogConversationId] = useState<string | null>(null)
+  const [deleteDialogProviderId, setDeleteDialogProviderId] = useState<string | null>(null)
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editingText, setEditingText] = useState('')
   const [openReasoningByMessage, setOpenReasoningByMessage] = useState<Record<string, boolean>>({})
@@ -1341,6 +1630,10 @@ function App() {
     systemPrompt: true,
     skillCallSystemPrompt: true,
   })
+  const [openProviderPromptEditors, setOpenProviderPromptEditors] = useState<Record<PromptEditorKey, boolean>>({
+    systemPrompt: true,
+    skillCallSystemPrompt: true,
+  })
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const cameraInputRef = useRef<HTMLInputElement | null>(null)
@@ -1359,6 +1652,8 @@ function App() {
   const storageWarningShownRef = useRef(false)
   const settingsScrollByViewRef = useRef<Record<SettingsView, number>>({
     main: 0,
+    providers: 0,
+    'provider-detail': 0,
     skills: 0,
     'skill-config': 0,
     runtimes: 0,
@@ -1407,6 +1702,13 @@ function App() {
         : null,
     [conversations, deleteDialogConversationId],
   )
+  const deleteDialogProvider = useMemo(
+    () =>
+      deleteDialogProviderId
+        ? settings.providers.find((provider) => provider.id === deleteDialogProviderId) ?? null
+        : null,
+    [deleteDialogProviderId, settings.providers],
+  )
   const activeMessages = useMemo(() => activeConversation?.messages ?? [], [activeConversation])
   const draft = activeConversation ? draftsByConversation[activeConversation.id] ?? '' : ''
   const visibleConversations = useMemo(
@@ -1448,15 +1750,42 @@ function App() {
     }))
   }, [sortedConversations, settings.conversationGroupGapMinutes])
 
-  const models = useMemo(() => {
-    const merged = new Set(
-      settings.models.map((item) => item.trim()).filter((item) => item.length > 0),
-    )
-    if (settings.currentModel.trim()) {
-      merged.add(settings.currentModel.trim())
+  const enabledModelOptions = useMemo(
+    () => getEnabledModelOptions(settings.providers),
+    [settings.providers],
+  )
+  const enabledModelsByProvider = useMemo(
+    () =>
+      settings.providers
+        .map((provider) => ({
+          providerId: provider.id,
+          providerName: provider.name,
+          models: provider.models.filter((model) => model.enabled),
+        }))
+        .filter((provider) => provider.models.length > 0),
+    [settings.providers],
+  )
+  const activeProviderRequestSettings = useMemo(
+    () => resolveProviderRequestSettings(settings),
+    [settings],
+  )
+  const providerDetailTarget = useMemo(
+    () => settings.providers.find((provider) => provider.id === providerDetailTargetId) ?? null,
+    [providerDetailTargetId, settings.providers],
+  )
+  const filteredProviderModels = useMemo(() => {
+    const provider = providerDetailTarget
+    if (!provider) {
+      return []
     }
-    return Array.from(merged)
-  }, [settings.models, settings.currentModel])
+
+    const keyword = providerModelSearch.trim().toLowerCase()
+    if (!keyword) {
+      return provider.models
+    }
+
+    return provider.models.filter((model) => model.id.toLowerCase().includes(keyword))
+  }, [providerDetailTarget, providerModelSearch])
 
   const tokenSummary = useMemo(() => {
     let promptTokens = 0
@@ -1649,14 +1978,33 @@ function App() {
     }))
   }, [])
 
+  const toggleProviderPromptEditor = useCallback((key: PromptEditorKey): void => {
+    setOpenProviderPromptEditors((previous) => ({
+      ...previous,
+      [key]: !previous[key],
+    }))
+  }, [])
+
+  const resetProviderDetailState = useCallback((): void => {
+    setProviderDetailTargetId(null)
+    setManualModelDraft('')
+    setProviderModelSearch('')
+    setProviderNumericSettingDrafts(createProviderNumericSettingDrafts(null))
+    setOpenProviderPromptEditors({
+      systemPrompt: true,
+      skillCallSystemPrompt: true,
+    })
+  }, [])
+
   const openSettingsHome = useCallback((): void => {
     setSettingsView('main')
+    resetProviderDetailState()
     setSkillConfigTargetId(null)
     setSkillConfigDraft('')
     setSkillConfigValue({})
     setSkillConfigRawError(null)
     openSettings()
-  }, [openSettings])
+  }, [openSettings, resetProviderDetailState])
 
   const rememberSettingsScrollPosition = useCallback((view: SettingsView = settingsView): void => {
     const settingsPage = settingsPageRef.current
@@ -1671,15 +2019,31 @@ function App() {
     setSettingsView(nextView)
   }, [rememberSettingsScrollPosition])
 
+  const openProviderDetail = useCallback((providerId: string): void => {
+    rememberSettingsScrollPosition()
+    const targetProvider =
+      settingsRef.current.providers.find((provider) => provider.id === providerId) ?? null
+    setManualModelDraft('')
+    setProviderModelSearch('')
+    setProviderNumericSettingDrafts(createProviderNumericSettingDrafts(targetProvider))
+    setOpenProviderPromptEditors({
+      systemPrompt: true,
+      skillCallSystemPrompt: true,
+    })
+    setProviderDetailTargetId(providerId)
+    setSettingsView('provider-detail')
+  }, [rememberSettingsScrollPosition])
+
   const closeSettingsPanel = useCallback((): void => {
     rememberSettingsScrollPosition()
     setSettingsView('main')
+    resetProviderDetailState()
     setSkillConfigTargetId(null)
     setSkillConfigDraft('')
     setSkillConfigValue({})
     setSkillConfigRawError(null)
     closeSettings()
-  }, [closeSettings, rememberSettingsScrollPosition])
+  }, [closeSettings, rememberSettingsScrollPosition, resetProviderDetailState])
 
   const handleSettingsBack = useCallback((): void => {
     if (settingsView === 'skill-config') {
@@ -1691,13 +2055,19 @@ function App() {
       setSkillConfigRawError(null)
       return
     }
+    if (settingsView === 'provider-detail') {
+      rememberSettingsScrollPosition()
+      resetProviderDetailState()
+      setSettingsView('providers')
+      return
+    }
     if (settingsView !== 'main') {
       rememberSettingsScrollPosition()
       setSettingsView('main')
       return
     }
     closeSettingsPanel()
-  }, [closeSettingsPanel, rememberSettingsScrollPosition, settingsView])
+  }, [closeSettingsPanel, rememberSettingsScrollPosition, resetProviderDetailState, settingsView])
 
   const refreshExtensions = useCallback(async (silent = false): Promise<void> => {
     if (!silent) {
@@ -1793,7 +2163,7 @@ function App() {
         setIsInstallingSkillArchive(false)
       }
     },
-    [refreshExtensions],
+    [pushNotice, refreshExtensions],
   )
 
   const handleRuntimeArchiveSelect = useCallback(
@@ -1821,7 +2191,7 @@ function App() {
         setIsInstallingRuntimeArchive(false)
       }
     },
-    [refreshExtensions],
+    [pushNotice, refreshExtensions],
   )
 
   const handleSetSkillEnabled = useCallback(async (skillId: string, enabled: boolean): Promise<void> => {
@@ -1834,7 +2204,7 @@ function App() {
       const message = error instanceof Error ? error.message : '更新 skill 状态失败'
       pushNotice(`更新 skill 状态失败：${message}`, 'error')
     }
-  }, [])
+  }, [pushNotice])
 
   const handleDeleteSkill = useCallback(async (skillId: string): Promise<void> => {
     if (!window.confirm(`确认删除 skill "${skillId}" 吗？`)) {
@@ -1856,7 +2226,7 @@ function App() {
       const message = error instanceof Error ? error.message : '删除 skill 失败'
       pushNotice(`删除 skill 失败：${message}`, 'error')
     }
-  }, [refreshExtensions, skillConfigTargetId])
+  }, [pushNotice, refreshExtensions, skillConfigTargetId])
 
   const handleSetRuntimeEnabled = useCallback(async (runtimeId: string, enabled: boolean): Promise<void> => {
     try {
@@ -1868,7 +2238,7 @@ function App() {
       const message = error instanceof Error ? error.message : '更新运行时状态失败'
       pushNotice(`更新运行时状态失败：${message}`, 'error')
     }
-  }, [])
+  }, [pushNotice])
 
   const handleDeleteRuntime = useCallback(async (runtimeId: string): Promise<void> => {
     if (!window.confirm(`确认删除运行时 "${runtimeId}" 吗？`)) {
@@ -1883,7 +2253,7 @@ function App() {
       const message = error instanceof Error ? error.message : '删除运行时失败'
       pushNotice(`删除运行时失败：${message}`, 'error')
     }
-  }, [refreshExtensions])
+  }, [pushNotice, refreshExtensions])
 
   const handleSetDefaultRuntime = useCallback(
     async (runtime: RuntimeRecord): Promise<void> => {
@@ -1900,7 +2270,7 @@ function App() {
         pushNotice(`设置默认运行时失败：${message}`, 'error')
       }
     },
-    [refreshExtensions],
+    [pushNotice, refreshExtensions],
   )
 
   const handleTestRuntime = useCallback(async (runtimeId: string): Promise<void> => {
@@ -1930,11 +2300,21 @@ function App() {
       )
       pushNotice(`运行时检测失败：${message}`, 'error')
     }
+  }, [pushNotice])
+
+  const applySettingsUpdate = useCallback((updater: (previous: AppSettings) => AppSettings): void => {
+    setSettings((previous) => {
+      const next = ensureValidCurrentModelSelection(updater(previous))
+      settingsRef.current = next
+      return next
+    })
   }, [])
 
   const updateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]): void => {
-    settingsRef.current = { ...settingsRef.current, [key]: value }
-    setSettings((previous) => ({ ...previous, [key]: value }))
+    applySettingsUpdate((previous) => ({
+      ...previous,
+      [key]: value,
+    }))
   }
 
   const handleNumericSettingChange = (
@@ -1969,6 +2349,204 @@ function App() {
       [key]: normalizeNumericSettingDraft(key, settingsRef.current[key]),
     }))
   }
+
+  const updateProviderById = useCallback(
+    (providerId: string, updater: (provider: ProviderConfig) => ProviderConfig): void => {
+      applySettingsUpdate((previous) => ({
+        ...previous,
+        providers: previous.providers.map((provider) =>
+          provider.id === providerId ? updater(provider) : provider,
+        ),
+      }))
+    },
+    [applySettingsUpdate],
+  )
+
+  const selectCurrentModel = useCallback(
+    (providerId: string, modelId: string): void => {
+      applySettingsUpdate((previous) => {
+        const provider = previous.providers.find((item) => item.id === providerId)
+        if (!provider || !provider.models.some((model) => model.id === modelId && model.enabled)) {
+          return previous
+        }
+        return {
+          ...previous,
+          currentProviderId: providerId,
+          currentModel: modelId,
+        }
+      })
+    },
+    [applySettingsUpdate],
+  )
+
+  const addProvider = useCallback((): void => {
+    rememberSettingsScrollPosition()
+    const provider = createProviderConfig(createProviderNameCandidate(settingsRef.current.providers))
+    setManualModelDraft('')
+    setProviderModelSearch('')
+    setProviderNumericSettingDrafts(createProviderNumericSettingDrafts(provider))
+    setOpenProviderPromptEditors({
+      systemPrompt: true,
+      skillCallSystemPrompt: true,
+    })
+    setProviderDetailTargetId(provider.id)
+    setSettingsView('provider-detail')
+    applySettingsUpdate((previous) => ({
+      ...previous,
+      providers: [...previous.providers, provider],
+    }))
+  }, [applySettingsUpdate, rememberSettingsScrollPosition])
+
+  const deleteProvider = useCallback(
+    (providerId: string): void => {
+      const targetProvider = settingsRef.current.providers.find((provider) => provider.id === providerId)
+      const providerLabel = targetProvider?.name.trim() || '未命名服务商'
+
+      applySettingsUpdate((previous) => ({
+        ...previous,
+        providers: previous.providers.filter((provider) => provider.id !== providerId),
+      }))
+      setModelHealth((previous) => {
+        const next: Record<string, ModelHealth> = {}
+        const prefix = `${providerId}::`
+        for (const [key, value] of Object.entries(previous)) {
+          if (!key.startsWith(prefix)) {
+            next[key] = value
+          }
+        }
+        return next
+      })
+
+      if (providerDetailTargetId === providerId) {
+        resetProviderDetailState()
+        setSettingsView('providers')
+      }
+
+      pushNotice(`已删除服务商：${providerLabel}`, 'success')
+    },
+    [applySettingsUpdate, providerDetailTargetId, pushNotice, resetProviderDetailState],
+  )
+
+  const requestDeleteProvider = useCallback((providerId: string): void => {
+    setDeleteDialogConversationId(null)
+    setDeleteDialogProviderId(providerId)
+  }, [])
+
+  const updateProviderField = useCallback(
+    (providerId: string, key: 'name' | 'apiBaseUrl' | 'apiKey', value: string): void => {
+      updateProviderById(providerId, (provider) => ({
+        ...provider,
+        [key]: value,
+      }))
+    },
+    [updateProviderById],
+  )
+
+  const updateProviderPromptOverride = useCallback(
+    (providerId: string, key: ProviderPromptSettingKey, value: string): void => {
+      const normalizedValue = normalizeProviderPromptOverride(value)
+      updateProviderById(providerId, (provider) => ({
+        ...provider,
+        [key]: normalizedValue,
+      }))
+    },
+    [updateProviderById],
+  )
+
+  const handleProviderNumericSettingChange = useCallback(
+    (key: ProviderNumericSettingKey, rawValue: string): void => {
+      setProviderNumericSettingDrafts((previous) => ({
+        ...previous,
+        [key]: rawValue,
+      }))
+
+      if (!providerDetailTargetId) {
+        return
+      }
+
+      if (rawValue.trim() === '') {
+        updateProviderById(providerDetailTargetId, (provider) => ({
+          ...provider,
+          [key]: undefined,
+        }))
+        return
+      }
+
+      const parsed = Number(rawValue)
+      if (!Number.isFinite(parsed)) {
+        return
+      }
+
+      const limits = PROVIDER_NUMERIC_LIMITS[key]
+      const nextValue = limits.integer
+        ? Math.round(clamp(parsed, limits.minimum, limits.maximum))
+        : clamp(parsed, limits.minimum, limits.maximum)
+      updateProviderById(providerDetailTargetId, (provider) => ({
+        ...provider,
+        [key]: nextValue,
+      }))
+    },
+    [providerDetailTargetId, updateProviderById],
+  )
+
+  const finalizeProviderNumericSettingDraft = useCallback((key: ProviderNumericSettingKey): void => {
+    if (!providerDetailTargetId) {
+      return
+    }
+
+    const provider =
+      settingsRef.current.providers.find((item) => item.id === providerDetailTargetId) ?? null
+    const nextValue = provider?.[key]
+    setProviderNumericSettingDrafts((previous) => ({
+      ...previous,
+      [key]: nextValue === undefined ? '' : String(nextValue),
+    }))
+  }, [providerDetailTargetId])
+
+  const setProviderModelEnabled = useCallback(
+    (providerId: string, modelId: string, enabled: boolean): void => {
+      updateProviderById(providerId, (provider) => ({
+        ...provider,
+        models: provider.models.map((model) =>
+          model.id === modelId
+            ? {
+                ...model,
+                enabled,
+              }
+            : model,
+        ),
+      }))
+    },
+    [updateProviderById],
+  )
+
+  const addManualProviderModel = useCallback((): void => {
+    if (!providerDetailTargetId) {
+      return
+    }
+
+    const modelId = manualModelDraft.trim()
+    if (!modelId) {
+      return
+    }
+
+    updateProviderById(providerDetailTargetId, (provider) => {
+      if (provider.models.some((model) => model.id === modelId)) {
+        return provider
+      }
+
+      return {
+        ...provider,
+        models: [...provider.models, { id: modelId, enabled: false }],
+      }
+    })
+    setModelHealth((previous) => ({
+      ...previous,
+      [createProviderModelKey(providerDetailTargetId, modelId)]:
+        previous[createProviderModelKey(providerDetailTargetId, modelId)] ?? 'untested',
+    }))
+    setManualModelDraft('')
+  }, [manualModelDraft, providerDetailTargetId, updateProviderById])
 
   const updateConversationDraft = (conversationId: string, nextDraft: string): void => {
     const timestamp = Date.now()
@@ -2156,15 +2734,26 @@ function App() {
   }
 
   const ensureReadyToRequest = (): boolean => {
-    if (!settings.apiBaseUrl.trim() || !settings.apiKey.trim()) {
-      pushNotice('请先在设置中填写 API 地址和 API Key。', 'error')
-      openSettingsHome()
+    if (!activeProviderRequestSettings) {
+      pushNotice('请先选择已启用模型。', 'error')
+      if (enabledModelOptions.length === 0) {
+        openSettings()
+        setSettingsView('providers')
+      } else {
+        openModelMenu()
+      }
       closeDrawer()
       return false
     }
-    if (!settings.currentModel.trim()) {
-      pushNotice('请先选择模型。', 'error')
-      openModelMenu()
+
+    if (
+      !activeProviderRequestSettings.apiBaseUrl.trim() ||
+      !activeProviderRequestSettings.apiKey.trim()
+    ) {
+      pushNotice('请先在服务商设置中填写 URL 和 API Key。', 'error')
+      openSettings()
+      openProviderDetail(activeProviderRequestSettings.providerId)
+      closeDrawer()
       return false
     }
     return true
@@ -2212,7 +2801,10 @@ function App() {
       return
     }
 
-    const settingsSnapshot = { ...settings }
+    const settingsSnapshot = activeProviderRequestSettings
+    if (!settingsSnapshot) {
+      return
+    }
     const assistantId = createId()
     const placeholder: ChatMessage = {
       id: assistantId,
@@ -2228,6 +2820,7 @@ function App() {
 
     const controller = new AbortController()
     setAbortController(controller)
+    const firstTokenHapticsEnabled = settings.firstTokenHapticsEnabled
     let hasTriggeredFirstTokenHaptic = false
     const currentUserMessage = history[history.length - 1]
     const historyBeforeCurrentUser = history.slice(0, -1)
@@ -2277,7 +2870,7 @@ function App() {
       )
     }
     const triggerFirstTokenHaptic = (): void => {
-      if (!settingsSnapshot.firstTokenHapticsEnabled || hasTriggeredFirstTokenHaptic) {
+      if (!firstTokenHapticsEnabled || hasTriggeredFirstTokenHaptic) {
         return
       }
 
@@ -2583,16 +3176,24 @@ function App() {
     abortController?.abort()
   }
 
-  const fetchModels = async (): Promise<void> => {
-    if (!settings.apiBaseUrl.trim() || !settings.apiKey.trim()) {
-      pushNotice('请先填写 API 地址和 Key。', 'error')
+  const fetchProviderModels = async (providerId: string): Promise<void> => {
+    const provider = settingsRef.current.providers.find((item) => item.id === providerId)
+    if (!provider) {
       return
     }
 
-    setIsFetchingModels(true)
+    if (!provider.apiBaseUrl.trim() || !provider.apiKey.trim()) {
+      pushNotice('请先填写该服务商的 URL 和 API Key。', 'error')
+      return
+    }
+
+    setIsFetchingModelsByProviderId((previous) => ({
+      ...previous,
+      [providerId]: true,
+    }))
     try {
-      const response = await fetch(buildApiUrl(settings.apiBaseUrl, '/models'), {
-        headers: authHeaders(settings.apiKey),
+      const response = await fetch(buildApiUrl(provider.apiBaseUrl, '/models'), {
+        headers: authHeaders(provider.apiKey),
       })
       if (!response.ok) {
         throw new Error(await readErrorMessage(response))
@@ -2609,46 +3210,59 @@ function App() {
         return
       }
 
-      setSettings((previous) => {
-        const merged = new Set([...previous.models, ...incoming])
-        const firstModel = previous.currentModel || incoming[0]
+      updateProviderById(providerId, (currentProvider) => {
+        const existing = new Map(currentProvider.models.map((model) => [model.id, model]))
+        for (const modelId of incoming) {
+          if (!existing.has(modelId)) {
+            existing.set(modelId, { id: modelId, enabled: false })
+          }
+        }
         return {
-          ...previous,
-          models: Array.from(merged),
-          currentModel: firstModel,
+          ...currentProvider,
+          models: Array.from(existing.values()),
         }
       })
 
       setModelHealth((previous) => {
         const updated = { ...previous }
         for (const modelId of incoming) {
-          if (!updated[modelId]) {
-            updated[modelId] = 'untested'
+          const key = createProviderModelKey(providerId, modelId)
+          if (!updated[key]) {
+            updated[key] = 'untested'
           }
         }
         return updated
       })
 
-      pushNotice(`已加载 ${incoming.length} 个模型。`, 'success')
+      pushNotice(`已为 ${provider.name || '当前服务商'} 加载 ${incoming.length} 个模型。`, 'success')
     } catch (error) {
       const message = error instanceof Error ? error.message : '模型加载失败'
       pushNotice(`模型加载失败：${message}`, 'error')
     } finally {
-      setIsFetchingModels(false)
+      setIsFetchingModelsByProviderId((previous) => ({
+        ...previous,
+        [providerId]: false,
+      }))
     }
   }
 
-  const testModel = async (modelId: string): Promise<void> => {
-    if (!settings.apiBaseUrl.trim() || !settings.apiKey.trim()) {
-      pushNotice('请先填写 API 地址和 Key。', 'error')
+  const testProviderModel = async (providerId: string, modelId: string): Promise<void> => {
+    const provider = settingsRef.current.providers.find((item) => item.id === providerId)
+    if (!provider) {
       return
     }
 
-    setModelHealth((previous) => ({ ...previous, [modelId]: 'testing' }))
+    if (!provider.apiBaseUrl.trim() || !provider.apiKey.trim()) {
+      pushNotice('请先填写该服务商的 URL 和 API Key。', 'error')
+      return
+    }
+
+    const healthKey = createProviderModelKey(providerId, modelId)
+    setModelHealth((previous) => ({ ...previous, [healthKey]: 'testing' }))
     try {
-      const response = await fetch(buildApiUrl(settings.apiBaseUrl, '/chat/completions'), {
+      const response = await fetch(buildApiUrl(provider.apiBaseUrl, '/chat/completions'), {
         method: 'POST',
-        headers: authHeaders(settings.apiKey),
+        headers: authHeaders(provider.apiKey),
         body: JSON.stringify({
           model: modelId,
           messages: [{ role: 'user', content: 'ping' }],
@@ -2662,27 +3276,13 @@ function App() {
         throw new Error(await readErrorMessage(response))
       }
 
-      setModelHealth((previous) => ({ ...previous, [modelId]: 'ok' }))
+      setModelHealth((previous) => ({ ...previous, [healthKey]: 'ok' }))
       pushNotice(`模型 ${modelId} 检测成功。`, 'success')
     } catch (error) {
       const message = error instanceof Error ? error.message : '检测失败'
-      setModelHealth((previous) => ({ ...previous, [modelId]: 'error' }))
+      setModelHealth((previous) => ({ ...previous, [healthKey]: 'error' }))
       pushNotice(`模型 ${modelId} 检测失败：${message}`, 'error')
     }
-  }
-
-  const addManualModel = (): void => {
-    const model = manualModel.trim()
-    if (!model) {
-      return
-    }
-    setSettings((previous) => ({
-      ...previous,
-      models: Array.from(new Set([...previous.models, model])),
-      currentModel: previous.currentModel || model,
-    }))
-    setModelHealth((previous) => ({ ...previous, [model]: previous[model] ?? 'untested' }))
-    setManualModel('')
   }
 
   const handleImageSelect = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
@@ -3017,6 +3617,7 @@ function App() {
 
   const closeDeleteDialog = (): void => {
     setDeleteDialogConversationId(null)
+    setDeleteDialogProviderId(null)
   }
 
   const confirmDeleteConversation = (): void => {
@@ -3030,6 +3631,16 @@ function App() {
     deleteConversation(conversationId)
   }
 
+  const confirmDeleteProvider = (): void => {
+    if (!deleteDialogProviderId) {
+      return
+    }
+
+    const providerId = deleteDialogProviderId
+    closeDeleteDialog()
+    deleteProvider(providerId)
+  }
+
   const requestDeleteConversation = (conversationId: string): void => {
     const now = Date.now()
     if (now <= deleteConfirmBypassUntilRef.current) {
@@ -3038,6 +3649,7 @@ function App() {
       return
     }
 
+    setDeleteDialogProviderId(null)
     setDeleteDialogConversationId(conversationId)
   }
 
@@ -3366,7 +3978,7 @@ function App() {
 
   useEffect(() => {
     void refreshExtensions()
-  }, [refreshExtensions])
+  }, [pushNotice, refreshExtensions])
 
   useEffect(() => {
     if (!notice) {
@@ -3381,8 +3993,8 @@ function App() {
     let listenerHandle: { remove: () => Promise<void> } | null = null
 
     void CapacitorApp.addListener('backButton', ({ canGoBack }) => {
-      if (deleteDialogConversationId) {
-        setDeleteDialogConversationId(null)
+      if (deleteDialogConversationId || deleteDialogProviderId) {
+        closeDeleteDialog()
         return
       }
       if (modelMenuMounted) {
@@ -3418,8 +4030,10 @@ function App() {
     }
   }, [
     closeDrawer,
+    closeDeleteDialog,
     closeModelMenu,
     deleteDialogConversationId,
+    deleteDialogProviderId,
     drawerMounted,
     handleSettingsBack,
     modelMenuMounted,
@@ -3547,6 +4161,16 @@ function App() {
       setDeleteDialogConversationId(null)
     }
   }, [conversations, deleteDialogConversationId])
+
+  useEffect(() => {
+    if (!deleteDialogProviderId) {
+      return
+    }
+
+    if (!settings.providers.some((provider) => provider.id === deleteDialogProviderId)) {
+      setDeleteDialogProviderId(null)
+    }
+  }, [deleteDialogProviderId, settings.providers])
 
   useEffect(() => {
     setPendingImages([])
@@ -3737,7 +4361,7 @@ function App() {
           <div
             className={`model-popover composer-model-popover ${modelMenuVisible ? 'is-open' : 'is-closing'}`}
           >
-            {models.length === 0 ? (
+            {enabledModelOptions.length === 0 ? (
               <div className="model-popover-empty">
                 <p>暂无模型</p>
                 <button
@@ -3745,25 +4369,40 @@ function App() {
                   className="tiny-button"
                   onClick={() => {
                     closeModelMenu()
-                    openSettingsHome()
+                    openSettings()
+                    setSettingsView('providers')
                   }}
                 >
                   去设置
                 </button>
               </div>
             ) : (
-              models.map((model) => (
-                <button
-                  key={model}
-                  type="button"
-                  className={`model-option ${settings.currentModel === model ? 'active' : ''}`}
-                  onClick={() => {
-                    updateSetting('currentModel', model)
-                    closeModelMenu()
-                  }}
-                >
-                  {model}
-                </button>
+              enabledModelsByProvider.map((provider) => (
+                <div key={provider.providerId} className="model-provider-group">
+                  <div className="conversation-group-divider model-provider-divider">
+                    <span className="conversation-group-label">{provider.providerName || '未命名服务商'}</span>
+                    <span className="conversation-group-dash" aria-hidden="true" />
+                  </div>
+
+                  {provider.models.map((model) => (
+                    <button
+                      key={createProviderModelKey(provider.providerId, model.id)}
+                      type="button"
+                      className={`model-option ${
+                        settings.currentProviderId === provider.providerId &&
+                        settings.currentModel === model.id
+                          ? 'active'
+                          : ''
+                      }`}
+                      onClick={() => {
+                        selectCurrentModel(provider.providerId, model.id)
+                        closeModelMenu()
+                      }}
+                    >
+                      {model.id}
+                    </button>
+                  ))}
+                </div>
               ))
             )}
           </div>
@@ -3804,91 +4443,25 @@ function App() {
     <>
       <section className="settings-section">
         <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">接口配置</span>
+          <span className="conversation-group-label">服务商配置</span>
           <span className="conversation-group-dash" aria-hidden="true" />
         </div>
 
-        <label className="field">
-          <span>API Base URL</span>
-          <ChatInputBox
-            className="settings-chat-input"
-            value={settings.apiBaseUrl}
-            onChange={(event) => updateSetting('apiBaseUrl', event.target.value)}
-            placeholder="https://api.example.com/v1"
-            maxHeight={220}
-          />
-        </label>
-
-        <label className="field">
-          <span>API Key</span>
-          <ChatInputBox
-            className="settings-chat-input"
-            value={settings.apiKey}
-            onChange={(event) => updateSetting('apiKey', event.target.value.replace(/\r?\n/g, ''))}
-            placeholder="sk-..."
-            maxHeight={64}
-            style={{ WebkitTextSecurity: 'disc' } as CSSProperties}
-          />
-        </label>
-      </section>
-
-      <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">模型设置</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
-
-        <div className="model-tools">
-          <button type="button" onClick={() => void fetchModels()} disabled={isFetchingModels}>
-            {isFetchingModels ? '加载中...' : '拉取模型列表'}
+        <div className="settings-entry-list">
+          <button
+            type="button"
+            className="settings-entry-button"
+            onClick={() => navigateSettingsView('providers')}
+          >
+            <span className="settings-entry-title">服务商管理</span>
+            <span className="settings-entry-meta">
+              {settings.providers.length === 0
+                ? '暂无服务商，请先添加。'
+                : `已配置 ${settings.providers.length} 个服务商，已启用 ${enabledModelOptions.length} 个模型${
+                    settings.currentModel ? `，当前 ${settings.currentModel}` : ''
+                  }`}
+            </span>
           </button>
-        </div>
-
-        <div className="model-add-row">
-          <ChatInputBox
-            className="settings-chat-input"
-            value={manualModel}
-            onChange={(event) => setManualModel(event.target.value)}
-            onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
-              if (event.key !== 'Enter' || event.shiftKey) {
-                return
-              }
-              event.preventDefault()
-              addManualModel()
-            }}
-            placeholder="手动添加模型，例如 gpt-4o-mini"
-            maxHeight={140}
-          />
-          <button type="button" onClick={addManualModel}>
-            添加
-          </button>
-        </div>
-
-        <div className="model-list">
-          {models.length === 0 ? (
-            <p className="summary-muted">暂无模型，请先拉取或手动添加。</p>
-          ) : (
-            models.map((modelId) => (
-              <div
-                key={modelId}
-                className={`model-row ${settings.currentModel === modelId ? 'active' : ''}`}
-                onClick={() => updateSetting('currentModel', modelId)}
-              >
-                <span className="model-row-label">{modelId}</span>
-                <button
-                  type="button"
-                  className={`model-health-button model-${modelHealth[modelId] ?? 'untested'}`}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    void testModel(modelId)
-                  }}
-                  disabled={modelHealth[modelId] === 'testing'}
-                >
-                  {modelHealthLabel(modelHealth[modelId])}
-                </button>
-              </div>
-            ))
-          )}
         </div>
       </section>
 
@@ -4211,6 +4784,461 @@ function App() {
     </>
   )
 
+  const renderProvidersSettings = () => (
+    <>
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">服务商管理</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+
+        <div className="model-tools">
+          <button type="button" onClick={addProvider}>
+            添加服务商
+          </button>
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">已配置服务商</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+
+        <div className="settings-entity-list">
+          {settings.providers.length === 0 ? (
+            <p className="summary-muted">暂无服务商，请先添加。</p>
+          ) : (
+            settings.providers.map((provider) => {
+              const enabledCount = provider.models.filter((model) => model.enabled).length
+              const isCurrent = provider.id === settings.currentProviderId
+              return (
+                <article key={provider.id} className="settings-entity-card">
+                  <div className="settings-entity-main">
+                    <div className="settings-entity-title-row">
+                      <strong>{provider.name.trim() || '未命名服务商'}</strong>
+                      <div className="summary-bar">
+                        <span>{provider.models.length} 个模型</span>
+                        <span>{enabledCount} 个启用</span>
+                        {isCurrent ? <span>当前服务商</span> : null}
+                        {isCurrent && settings.currentModel ? <span>{settings.currentModel}</span> : null}
+                      </div>
+                    </div>
+
+                    <p className="summary-muted">
+                      {provider.apiBaseUrl.trim() || '尚未填写 URL'}
+                    </p>
+                  </div>
+
+                  <div className="settings-entity-actions">
+                    <div className="settings-inline-buttons">
+                      <button
+                        type="button"
+                        className="tiny-button"
+                        onClick={() => openProviderDetail(provider.id)}
+                      >
+                        编辑
+                      </button>
+                      <button
+                        type="button"
+                        className="tiny-button danger-button"
+                        onClick={() => requestDeleteProvider(provider.id)}
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              )
+            })
+          )}
+        </div>
+      </section>
+    </>
+  )
+
+  const renderProviderDetailSettings = () => (
+    <>
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">当前服务商</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+
+        {providerDetailTarget ? (
+          <div className="settings-entry-list">
+            <div className="settings-static-card">
+              <div className="settings-entry-title">{providerDetailTarget.name.trim() || '未命名服务商'}</div>
+              <div className="summary-bar">
+                <span>{providerDetailTarget.models.length} 个模型</span>
+                <span>{providerDetailTarget.models.filter((model) => model.enabled).length} 个启用</span>
+                {providerDetailTarget.id === settings.currentProviderId && settings.currentModel ? (
+                  <span>当前 {settings.currentModel}</span>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="summary-muted">未找到目标服务商。</p>
+        )}
+      </section>
+
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">接口配置</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+
+        {providerDetailTarget ? (
+          <>
+            <label className="field">
+              <span>服务商名称</span>
+              <ChatInputBox
+                className="settings-chat-input"
+                value={providerDetailTarget.name}
+                onChange={(event) => updateProviderField(providerDetailTarget.id, 'name', event.target.value)}
+                placeholder="例如 OpenAI"
+                maxHeight={140}
+              />
+            </label>
+
+            <label className="field">
+              <span>API Base URL</span>
+              <ChatInputBox
+                className="settings-chat-input"
+                value={providerDetailTarget.apiBaseUrl}
+                onChange={(event) =>
+                  updateProviderField(providerDetailTarget.id, 'apiBaseUrl', event.target.value)
+                }
+                placeholder="https://api.example.com/v1"
+                maxHeight={220}
+              />
+            </label>
+
+            <label className="field">
+              <span>API Key</span>
+              <ChatInputBox
+                className="settings-chat-input"
+                value={providerDetailTarget.apiKey}
+                onChange={(event) =>
+                  updateProviderField(
+                    providerDetailTarget.id,
+                    'apiKey',
+                    event.target.value.replace(/\r?\n/g, ''),
+                  )
+                }
+                placeholder="sk-..."
+                maxHeight={64}
+                style={{ WebkitTextSecurity: 'disc' } as CSSProperties}
+              />
+            </label>
+          </>
+        ) : (
+          <p className="summary-muted">未找到目标服务商。</p>
+        )}
+      </section>
+
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">模型设置</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+
+        {providerDetailTarget ? (
+          <>
+            <div className="model-tools">
+              <button
+                type="button"
+                onClick={() => void fetchProviderModels(providerDetailTarget.id)}
+                disabled={isFetchingModelsByProviderId[providerDetailTarget.id] === true}
+              >
+                {isFetchingModelsByProviderId[providerDetailTarget.id] === true
+                  ? '加载中...'
+                  : '拉取模型列表'}
+              </button>
+            </div>
+
+            <div className="model-add-row">
+              <ChatInputBox
+                className="settings-chat-input"
+                value={manualModelDraft}
+                onChange={(event) => setManualModelDraft(event.target.value)}
+                onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
+                  if (event.key !== 'Enter' || event.shiftKey) {
+                    return
+                  }
+                  event.preventDefault()
+                  addManualProviderModel()
+                }}
+                placeholder="手动添加模型，例如 gpt-4o-mini"
+                maxHeight={140}
+              />
+              <button type="button" onClick={addManualProviderModel}>
+                添加
+              </button>
+            </div>
+
+            <label className="field field-compact">
+              <span>搜索模型</span>
+              <ChatInputBox
+                className="settings-chat-input settings-chat-input-compact"
+                value={providerModelSearch}
+                onChange={(event) => setProviderModelSearch(event.target.value)}
+                placeholder="输入模型名筛选"
+                maxHeight={140}
+              />
+            </label>
+
+            <div className="model-list">
+              {providerDetailTarget.models.length === 0 ? (
+                <p className="summary-muted">暂无模型，请先拉取或手动添加。</p>
+              ) : filteredProviderModels.length === 0 ? (
+                <p className="summary-muted">没有匹配的模型。</p>
+              ) : (
+                filteredProviderModels.map((model) => {
+                  const healthKey = createProviderModelKey(providerDetailTarget.id, model.id)
+                  const isActive =
+                    settings.currentProviderId === providerDetailTarget.id &&
+                    settings.currentModel === model.id
+                  return (
+                    <div
+                      key={healthKey}
+                      className={`model-row ${isActive ? 'active' : ''} ${
+                        model.enabled ? '' : 'is-disabled'
+                      }`}
+                      onClick={() => {
+                        if (!model.enabled) {
+                          pushNotice('请先启用该模型。', 'info')
+                          return
+                        }
+                        selectCurrentModel(providerDetailTarget.id, model.id)
+                      }}
+                    >
+                      <span className="model-row-label">{model.id}</span>
+                      <div className="model-row-actions">
+                        <button
+                          type="button"
+                          className={`model-health-button model-${modelHealth[healthKey] ?? 'untested'}`}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            void testProviderModel(providerDetailTarget.id, model.id)
+                          }}
+                          disabled={modelHealth[healthKey] === 'testing'}
+                        >
+                          {modelHealthLabel(modelHealth[healthKey])}
+                        </button>
+                        <button
+                          type="button"
+                          className={`model-toggle-button ${model.enabled ? 'is-enabled' : ''}`}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setProviderModelEnabled(providerDetailTarget.id, model.id, !model.enabled)
+                          }}
+                        >
+                          {model.enabled ? '已启用' : '启用'}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </>
+        ) : (
+          <p className="summary-muted">未找到目标服务商。</p>
+        )}
+      </section>
+
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">提示词覆盖</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+
+        {providerDetailTarget ? (
+          <>
+            <p className="summary-muted">留空时使用全局默认提示词。</p>
+
+            <div className="settings-prompt-panels">
+              <section
+                className={`reasoning-panel settings-prompt-panel ${
+                  openProviderPromptEditors.systemPrompt ? 'is-open' : ''
+                }`}
+              >
+                <button
+                  type="button"
+                  className="reasoning-toggle"
+                  onClick={() => toggleProviderPromptEditor('systemPrompt')}
+                >
+                  <span>系统提示词</span>
+                  <span className={`arrow ${openProviderPromptEditors.systemPrompt ? 'open' : ''}`}>▾</span>
+                </button>
+                <div className="reasoning-body">
+                  <div className="settings-prompt-content">
+                    <ChatInputBox
+                      className="settings-chat-input settings-chat-input-card settings-prompt-input"
+                      radiusMode="card"
+                      value={providerDetailTarget.systemPrompt ?? ''}
+                      onChange={(event) =>
+                        updateProviderPromptOverride(
+                          providerDetailTarget.id,
+                          'systemPrompt',
+                          event.target.value,
+                        )
+                      }
+                      placeholder="留空时使用全局系统提示词"
+                      maxHeight={420}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section
+                className={`reasoning-panel settings-prompt-panel ${
+                  openProviderPromptEditors.skillCallSystemPrompt ? 'is-open' : ''
+                }`}
+              >
+                <button
+                  type="button"
+                  className="reasoning-toggle"
+                  onClick={() => toggleProviderPromptEditor('skillCallSystemPrompt')}
+                >
+                  <span>Skill Call 系统提示词</span>
+                  <span className={`arrow ${openProviderPromptEditors.skillCallSystemPrompt ? 'open' : ''}`}>▾</span>
+                </button>
+                <div className="reasoning-body">
+                  <div className="settings-prompt-content">
+                    <ChatInputBox
+                      className="settings-chat-input settings-chat-input-card settings-prompt-input"
+                      radiusMode="card"
+                      value={providerDetailTarget.skillCallSystemPrompt ?? ''}
+                      onChange={(event) =>
+                        updateProviderPromptOverride(
+                          providerDetailTarget.id,
+                          'skillCallSystemPrompt',
+                          event.target.value,
+                        )
+                      }
+                      placeholder="留空时使用全局 Skill Call 提示词"
+                      maxHeight={420}
+                    />
+                  </div>
+                </div>
+              </section>
+            </div>
+          </>
+        ) : (
+          <p className="summary-muted">未找到目标服务商。</p>
+        )}
+      </section>
+
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">生成参数覆盖</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+
+        {providerDetailTarget ? (
+          <>
+            <p className="summary-muted">留空时使用全局默认生成参数。</p>
+
+            <div className="field-grid">
+              <label className="field">
+                <span>Temperature (0-2)</span>
+                <ChatInputBox
+                  className="settings-chat-input settings-chat-input-compact"
+                  value={providerNumericSettingDrafts.temperature}
+                  inputMode="decimal"
+                  placeholder={String(settings.temperature)}
+                  onChange={(event) =>
+                    handleProviderNumericSettingChange('temperature', event.target.value)
+                  }
+                  onBlur={() => finalizeProviderNumericSettingDraft('temperature')}
+                  maxHeight={140}
+                />
+              </label>
+
+              <label className="field">
+                <span>Top P (0-1)</span>
+                <ChatInputBox
+                  className="settings-chat-input settings-chat-input-compact"
+                  value={providerNumericSettingDrafts.topP}
+                  inputMode="decimal"
+                  placeholder={String(settings.topP)}
+                  onChange={(event) => handleProviderNumericSettingChange('topP', event.target.value)}
+                  onBlur={() => finalizeProviderNumericSettingDraft('topP')}
+                  maxHeight={140}
+                />
+              </label>
+
+              <label className="field">
+                <span>Max Tokens</span>
+                <ChatInputBox
+                  className="settings-chat-input settings-chat-input-compact"
+                  value={providerNumericSettingDrafts.maxTokens}
+                  inputMode="numeric"
+                  placeholder={String(settings.maxTokens)}
+                  onChange={(event) =>
+                    handleProviderNumericSettingChange('maxTokens', event.target.value)
+                  }
+                  onBlur={() => finalizeProviderNumericSettingDraft('maxTokens')}
+                  maxHeight={140}
+                />
+              </label>
+
+              <label className="field">
+                <span>Presence Penalty (-2~2)</span>
+                <ChatInputBox
+                  className="settings-chat-input settings-chat-input-compact"
+                  value={providerNumericSettingDrafts.presencePenalty}
+                  inputMode="decimal"
+                  placeholder={String(settings.presencePenalty)}
+                  onChange={(event) =>
+                    handleProviderNumericSettingChange('presencePenalty', event.target.value)
+                  }
+                  onBlur={() => finalizeProviderNumericSettingDraft('presencePenalty')}
+                  maxHeight={140}
+                />
+              </label>
+
+              <label className="field">
+                <span>Frequency Penalty (-2~2)</span>
+                <ChatInputBox
+                  className="settings-chat-input settings-chat-input-compact"
+                  value={providerNumericSettingDrafts.frequencyPenalty}
+                  inputMode="decimal"
+                  placeholder={String(settings.frequencyPenalty)}
+                  onChange={(event) =>
+                    handleProviderNumericSettingChange('frequencyPenalty', event.target.value)
+                  }
+                  onBlur={() => finalizeProviderNumericSettingDraft('frequencyPenalty')}
+                  maxHeight={140}
+                />
+              </label>
+
+              <label className="field">
+                <span>模型错误最大重试次数</span>
+                <ChatInputBox
+                  className="settings-chat-input settings-chat-input-compact"
+                  value={providerNumericSettingDrafts.maxModelRetryCount}
+                  inputMode="numeric"
+                  placeholder={String(settings.maxModelRetryCount)}
+                  onChange={(event) =>
+                    handleProviderNumericSettingChange('maxModelRetryCount', event.target.value)
+                  }
+                  onBlur={() => finalizeProviderNumericSettingDraft('maxModelRetryCount')}
+                  maxHeight={140}
+                />
+              </label>
+            </div>
+          </>
+        ) : (
+          <p className="summary-muted">未找到目标服务商。</p>
+        )}
+      </section>
+    </>
+  )
+
   const renderSkillsSettings = () => (
     <>
       <section className="settings-section">
@@ -4513,7 +5541,11 @@ function App() {
 
   const renderSettingsPage = () => {
     const title =
-      settingsView === 'skills'
+      settingsView === 'providers'
+        ? '服务商管理'
+        : settingsView === 'provider-detail'
+          ? providerDetailTarget?.name?.trim() || '服务商配置'
+        : settingsView === 'skills'
         ? 'Skills 管理'
         : settingsView === 'skill-config'
           ? 'Skill 配置'
@@ -4525,6 +5557,10 @@ function App() {
     const settingsContent =
       settingsView === 'main'
         ? renderMainSettings()
+        : settingsView === 'providers'
+          ? renderProvidersSettings()
+          : settingsView === 'provider-detail'
+            ? renderProviderDetailSettings()
         : settingsView === 'skills'
           ? renderSkillsSettings()
           : settingsView === 'skill-config'
@@ -5262,6 +6298,28 @@ function App() {
                 取消
               </button>
               <button type="button" className="danger-button" onClick={confirmDeleteConversation}>
+                删除
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {deleteDialogProvider ? (
+        <div className="delete-dialog-overlay" onClick={closeDeleteDialog}>
+          <section className="delete-dialog" onClick={(event) => event.stopPropagation()}>
+            <h3>删除提醒</h3>
+            <p className="delete-dialog-text">
+              确认删除「{deleteDialogProvider.name.trim() || '未命名服务商'}」吗？
+            </p>
+            <p className="delete-dialog-hint">
+              该服务商下的接口配置、模型列表和参数覆盖都会一并删除。
+            </p>
+            <div className="delete-dialog-actions">
+              <button type="button" className="ghost-button" onClick={closeDeleteDialog}>
+                取消
+              </button>
+              <button type="button" className="danger-button" onClick={confirmDeleteProvider}>
                 删除
               </button>
             </div>
