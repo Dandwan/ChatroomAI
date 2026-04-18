@@ -81,7 +81,7 @@ export const DEFAULT_SKILL_CALL_SYSTEM_PROMPT = `
 9. 常见工作流是：
    - 你可以先进行分析（可选）
    - 再输出 1 到 2 句面向用户的说明文本
-   - 如果需要调取skill文档，则使用<skill_read>{...}</skill_read>进行调用，如果已经调用过了你需要的skill文档，一定要跳过此步骤，避免重复调用同一个skill的文档。不要连续输出多行对同一个skill文档的调用。
+   - 如果需要调取skill文档，则使用<skill_read>{...}</skill_read>进行调用，如果已经调用过了你需要的skill文档，一定要跳过此步骤，避免重复调用同一个skill的文档。
    - 如果你需要使用skill内部的脚本，你可以按照skill文档的指示，使用<skill_call>{...}</skill_call>
    - 拿到结果后，如果还需要别的动作，就在下一轮继续；不需要时，再直接用普通文本给出最终答复并附上链接
 10. 如果当前上下文里已经有 skill_result 或 skill error，就基于这些信息继续决策。

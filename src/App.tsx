@@ -63,6 +63,7 @@ import {
   testRuntime,
 } from './services/skills/runtime'
 import type {
+  ExecutableAgentAction,
   PromptBlock,
   RuntimeRecord,
   SkillCallAction,
@@ -70,7 +71,7 @@ import type {
 } from './services/skills/types'
 import ChatInputBox from './components/ChatInputBox'
 import SkillConfigJsonEditor, { type JsonObjectValue } from './components/SkillConfigJsonEditor'
-import { createImageAttachments } from './utils/images'
+import { compressImageDataUrl, createImageAttachments } from './utils/images'
 import './App.css'
 
 type Role = 'user' | 'assistant'
@@ -112,6 +113,12 @@ interface ImageAttachment {
   mimeType: string
   size: number
   dataUrl: string
+}
+
+interface PendingImageAttachment extends ImageAttachment {
+  originalDataUrl: string
+  originalMimeType: string
+  compressionRate: number
 }
 
 interface TokenUsage {
@@ -315,6 +322,7 @@ const DEFAULT_SETTINGS: AppSettings = {
 4.你在任何时候都必须扮演一只真正的猫娘，不能以任何形式表示你在扮演猫娘。不能以任何形式表现你是程序
 5.你的主人不喜欢被欺骗，请你以最真实最可靠的方式回应主人，以可靠的信息来源进行回答。如果信息来源不够可靠，你需要反复搜索验证，直到找到可靠来源或者放弃寻找并如实告诉主人。你猜测和推测出的答案要明确告知主人是猜测还是推测得来的。
 6.你可以在每一段话后面添加一个可爱的颜文字，来增进与主人的互动。尽量避免使用上文较近位置出现过的颜文字，尝试更多可爱的颜文字。
+7.你是一名动手能力强的猫娘。遇到问题的话，如果可以自己解决，就尝试解决，而不是告诉主人可以怎么做。
   `.trim(),
   skillCallSystemPrompt: DEFAULT_SKILL_CALL_SYSTEM_PROMPT,
   themeMode: 'system',
@@ -1069,6 +1077,36 @@ const buildSkillCallBlock = (action: SkillCallAction): PromptBlock => ({
   content: ['```json', JSON.stringify(action, null, 2), '```'].join('\n'),
 })
 
+const normalizeSkillId = (value: string): string => value.trim().toLowerCase()
+
+const createSkillDocTitle = (skillId: string): string => `Skill Doc ${skillId}`
+
+const createSkillDocBlock = (skillId: string, payload: Record<string, unknown>): PromptBlock => ({
+  type: 'skill_doc',
+  title: createSkillDocTitle(skillId),
+  content: ['```json', JSON.stringify(payload, null, 2), '```'].join('\n'),
+})
+
+const createSkillDocReadMarker = (skillId: string): string => `读取了${skillId}文档`
+
+const deduplicateSkillReadActions = (actions: ExecutableAgentAction[]): ExecutableAgentAction[] => {
+  const seenReadSkills = new Set<string>()
+  const unique: ExecutableAgentAction[] = []
+  for (const action of actions) {
+    if (action.kind !== 'skill_read') {
+      unique.push(action)
+      continue
+    }
+    const key = normalizeSkillId(action.skill)
+    if (seenReadSkills.has(key)) {
+      continue
+    }
+    seenReadSkills.add(key)
+    unique.push(action)
+  }
+  return unique
+}
+
 const parseSkillExecutionPayload = (
   action: SkillCallAction,
   stdout: string,
@@ -1587,7 +1625,8 @@ function App() {
   const [draftsByConversation, setDraftsByConversation] = useState<ConversationDrafts>(
     initialStateRef.current.draftsByConversation,
   )
-  const [pendingImages, setPendingImages] = useState<ImageAttachment[]>([])
+  const [pendingImages, setPendingImages] = useState<PendingImageAttachment[]>([])
+  const pendingImageCompressionTaskIdRef = useRef<Record<string, number>>({})
   const {
     mounted: settingsMounted,
     visible: settingsVisible,
@@ -3100,6 +3139,7 @@ function App() {
 
       let lastPromptMessages: ApiMessage[] = []
       let finalCompletion: CompletionResult | null = null
+      const latestSkillDocBlockIndexBySkill = new Map<string, number>()
 
       for (let step = 0; step < MAX_SKILL_AGENT_STEPS; step += 1) {
         if (controller.signal.aborted) {
@@ -3117,7 +3157,8 @@ function App() {
         const completion = await requestModelCompletion(promptMessages)
 
         const parsedCompletion = parseAgentActions(completion.text)
-        if (parsedCompletion.actions.length === 0) {
+        const executableActions = deduplicateSkillReadActions(parsedCompletion.actions)
+        if (executableActions.length === 0) {
           finalCompletion = completion
           break
         }
@@ -3127,7 +3168,7 @@ function App() {
         appendAssistantSkillRound(roundId, roundExplanation)
         resetAssistantStreamOutput(conversationId, assistantId)
 
-        for (const action of parsedCompletion.actions) {
+        for (const action of executableActions) {
           if (controller.signal.aborted) {
             throw new DOMException('Aborted', 'AbortError')
           }
@@ -3146,11 +3187,19 @@ function App() {
             appendStatus(`读取 skill 说明：${action.skill}`)
             try {
               const payload = await readSkillSections(action.skill, normalizedSections)
-              blocks.push({
-                type: 'skill_doc',
-                title: `Skill Doc ${action.skill}`,
-                content: ['```json', JSON.stringify(payload, null, 2), '```'].join('\n'),
-              })
+              const skillKey = normalizeSkillId(action.skill)
+              const previousDocIndex = latestSkillDocBlockIndexBySkill.get(skillKey)
+              if (previousDocIndex !== undefined) {
+                const previousBlock = blocks[previousDocIndex]
+                if (previousBlock && previousBlock.type === 'skill_doc') {
+                  blocks[previousDocIndex] = {
+                    ...previousBlock,
+                    content: createSkillDocReadMarker(action.skill),
+                  }
+                }
+              }
+              blocks.push(createSkillDocBlock(action.skill, payload))
+              latestSkillDocBlockIndexBySkill.set(skillKey, blocks.length - 1)
               updateAssistantSkillStep(roundId, stepId, {
                 status: 'success',
                 error: undefined,
@@ -3279,11 +3328,22 @@ function App() {
       return
     }
 
+    const outgoingImages: ImageAttachment[] =
+      pendingImages.length > 0
+        ? pendingImages.map((image) => ({
+            id: image.id,
+            name: image.name,
+            mimeType: image.mimeType,
+            size: image.size,
+            dataUrl: image.dataUrl,
+          }))
+        : []
+
     const nextMessage: ChatMessage = {
       id: createId(),
       role: 'user',
       text: draft.trim(),
-      images: pendingImages.length > 0 ? pendingImages : undefined,
+      images: outgoingImages.length > 0 ? outgoingImages : undefined,
       createdAt: Date.now(),
     }
 
@@ -3296,6 +3356,7 @@ function App() {
       delete next[activeConversation.id]
       return next
     })
+    pendingImageCompressionTaskIdRef.current = {}
     setPendingImages([])
     setEditingMessageId(null)
     closeModelMenu()
@@ -3423,7 +3484,13 @@ function App() {
 
     try {
       const attachments = await createImageAttachments(files)
-      setPendingImages((previous) => [...previous, ...attachments])
+      const prepared: PendingImageAttachment[] = attachments.map((attachment) => ({
+        ...attachment,
+        originalDataUrl: attachment.dataUrl,
+        originalMimeType: attachment.mimeType,
+        compressionRate: 0,
+      }))
+      setPendingImages((previous) => [...previous, ...prepared])
     } catch (error) {
       const message = error instanceof Error ? error.message : '图片读取失败'
       pushNotice(message, 'error')
@@ -3433,7 +3500,58 @@ function App() {
   }
 
   const removePendingImage = (imageId: string): void => {
+    delete pendingImageCompressionTaskIdRef.current[imageId]
     setPendingImages((previous) => previous.filter((image) => image.id !== imageId))
+  }
+
+  const updatePendingImageCompression = (imageId: string, compressionRate: number): void => {
+    const normalizedRate = Math.max(0, Math.min(100, Math.round(compressionRate)))
+    const target = pendingImages.find((image) => image.id === imageId)
+    if (!target) {
+      return
+    }
+
+    setPendingImages((previous) =>
+      previous.map((image) =>
+        image.id === imageId
+          ? {
+              ...image,
+              compressionRate: normalizedRate,
+            }
+          : image,
+      ),
+    )
+
+    const taskId = (pendingImageCompressionTaskIdRef.current[imageId] ?? 0) + 1
+    pendingImageCompressionTaskIdRef.current[imageId] = taskId
+    void (async () => {
+      const compressed = await compressImageDataUrl({
+        dataUrl: target.originalDataUrl,
+        mimeType: target.originalMimeType,
+        compressionRate: normalizedRate,
+      })
+      if (pendingImageCompressionTaskIdRef.current[imageId] !== taskId) {
+        return
+      }
+      setPendingImages((previous) =>
+        previous.map((image) =>
+          image.id === imageId
+            ? {
+                ...image,
+                dataUrl: compressed.dataUrl,
+                mimeType: compressed.mimeType,
+                size: compressed.size,
+              }
+            : image,
+        ),
+      )
+    })().catch((error) => {
+      if (pendingImageCompressionTaskIdRef.current[imageId] !== taskId) {
+        return
+      }
+      const message = error instanceof Error ? error.message : '图片压缩失败'
+      pushNotice(message, 'error')
+    })
   }
 
   const beginEdit = (message: ChatMessage): void => {
@@ -3669,6 +3787,7 @@ function App() {
     closeModelMenu()
     setDeleteModeEnabled(false)
     setDeleteDialogConversationId(null)
+    pendingImageCompressionTaskIdRef.current = {}
     setPendingImages([])
     cancelEdit()
     stopRenameConversationImmediately()
@@ -3738,6 +3857,7 @@ function App() {
       setActiveConversationId(nextActiveConversationId)
     }
     if (deletedActiveConversation) {
+      pendingImageCompressionTaskIdRef.current = {}
       setPendingImages([])
       cancelEdit()
       stopRenameConversationImmediately()
@@ -3933,6 +4053,7 @@ function App() {
     closeModelMenu()
     setDeleteModeEnabled(false)
     setDeleteDialogConversationId(null)
+    pendingImageCompressionTaskIdRef.current = {}
     setPendingImages([])
     cancelEdit()
     stopRenameConversationImmediately()
@@ -4340,6 +4461,7 @@ function App() {
   }, [deleteDialogProviderId, settings.providers])
 
   useEffect(() => {
+    pendingImageCompressionTaskIdRef.current = {}
     setPendingImages([])
     cancelEdit()
     stopRenameConversationImmediately()
@@ -6364,6 +6486,20 @@ function App() {
                 <button type="button" onClick={() => removePendingImage(image.id)}>
                   ×
                 </button>
+                <div className="pending-image-controls">
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={image.compressionRate}
+                    onChange={(event) =>
+                      updatePendingImageCompression(image.id, Number(event.target.value))
+                    }
+                    aria-label={`压缩率 ${image.name}`}
+                  />
+                  <span>{image.compressionRate}%</span>
+                </div>
               </div>
             ))}
           </div>
