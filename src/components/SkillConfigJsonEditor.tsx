@@ -835,7 +835,7 @@ function JsonTypePicker({ onChange, value }: JsonTypePickerProps) {
 
               <div
                 ref={popoverRef}
-                className={`model-popover json-type-popover ${
+                className={`model-popover json-type-popover frosted-surface ${
                   layout.placement === 'below' ? 'is-below' : 'is-above'
                 } ${visible ? 'is-open' : 'is-closing'}`}
                 role="listbox"

@@ -1,14 +1,45 @@
-:root {
+:root,
+:root[data-theme='light'] {
   --native-top-inset: 0px;
   --safe-top-inset: max(env(safe-area-inset-top), var(--native-top-inset));
-  --text-primary: #e2e8f0;
-  --text-secondary: #94a3b8;
-  --border-color: rgba(148, 163, 184, 0.34);
-  --glass-bg: rgba(15, 23, 42, 0.55);
-  --btn-bg: rgba(30, 41, 59, 0.7);
-  --accent-2: rgba(56, 189, 248, 0.85);
-  --shadow-soft: 0 16px 30px rgba(2, 6, 23, 0.28);
-  --radius-card: 20px;
+  --text-primary: #1a1f3d;
+  --text-secondary: #626c93;
+  --border-color: rgba(116, 128, 196, 0.4);
+  --glass-bg: #ffffff;
+  --btn-bg: #f4f7ff;
+  --accent-2: #6a72f4;
+  --accent-cute: #df7fb8;
+  --surface-panel: #f3f6ff;
+  --surface-card: #ffffff;
+  --surface-card-strong: #fff3fa;
+  --surface-popover: #ffffff;
+  --surface-overlay: #e2e9ff;
+  --surface-overlay-strong: #d4deff;
+  --surface-active: #e2e8ff;
+  --surface-field: #ffffff;
+  --surface-option: #f7f9ff;
+  --surface-muted: #eef3ff;
+  --line-muted: rgba(116, 128, 196, 0.36);
+  --assistant-dot: var(--accent-cute);
+  --focus-ring: 0 0 0 2px rgba(106, 114, 244, 0.28);
+  --toggle-off-bg: rgba(148, 163, 184, 0.32);
+  --toggle-on-bg: rgba(106, 114, 244, 0.6);
+  --toggle-on-border: rgba(106, 114, 244, 0.84);
+  --status-info-bg: rgba(106, 114, 244, 0.16);
+  --status-success: #10b981;
+  --status-success-bg: rgba(16, 185, 129, 0.14);
+  --status-success-border: rgba(16, 185, 129, 0.42);
+  --status-danger: #ef4444;
+  --status-danger-bg: rgba(239, 68, 68, 0.14);
+  --status-danger-border: rgba(239, 68, 68, 0.5);
+  --shadow-soft: 0 12px 28px rgba(44, 63, 124, 0.16);
+  --shadow-elevated: 0 18px 36px rgba(44, 63, 124, 0.2);
+  --glass-blur: 0px;
+  --glass-saturate: 1;
+  --glass-edge: rgba(255, 255, 255, 0.56);
+  --glass-edge-strong: rgba(120, 132, 205, 0.52);
+  --glass-shadow: 0 12px 28px rgba(44, 63, 124, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  --radius-card: 22px;
   --radius-pill: 999px;
   --size-pill-tag: 20px;
   --size-pill-control: 40px;
@@ -16,8 +47,26 @@
   --stats-pill-height: var(--size-pill-tag);
   --stats-pill-radius: var(--radius-pill);
   --control-height: var(--size-pill-control);
+  --app-background:
+    radial-gradient(circle at 0% 0%, rgba(106, 114, 244, 0.24), transparent 38%),
+    radial-gradient(circle at 100% 0%, rgba(223, 127, 184, 0.2), transparent 36%),
+    radial-gradient(circle at 50% 100%, rgba(56, 189, 248, 0.12), transparent 48%),
+    #edf2ff;
+  --center-edge-highlight: rgba(255, 255, 255, 0.92);
+  --center-edge-mask-glow: radial-gradient(
+    1050px 760px at 50vw 50vh,
+    rgba(255, 255, 255, 1),
+    rgba(255, 255, 255, 0) 72%
+  );
+  --center-light-glow-color: rgba(255, 255, 255, 0.32);
+  --center-light-glow: radial-gradient(
+    1050px 760px at 50vw 50vh,
+    var(--center-light-glow-color),
+    rgba(255, 255, 255, 0) 56%
+  );
 
   font-family:
+    'Plus Jakarta Sans',
     Inter,
     'PingFang SC',
     'Noto Sans CJK SC',
@@ -25,11 +74,71 @@
     Roboto,
     sans-serif;
   color: var(--text-primary);
-  background: #020617;
+  background: #edf2ff;
+  color-scheme: light;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+:root[data-theme='dark'] {
+  --text-primary: #edf1ff;
+  --text-secondary: #adb7e4;
+  --border-color: rgba(145, 158, 229, 0.46);
+  --glass-bg: #1a2242;
+  --btn-bg: #25305a;
+  --accent-2: #9aa0ff;
+  --accent-cute: #d48ab6;
+  --surface-panel: #151d3a;
+  --surface-card: #1d274b;
+  --surface-card-strong: #252f58;
+  --surface-popover: #1f294e;
+  --surface-overlay: #0d1326;
+  --surface-overlay-strong: #0a1020;
+  --surface-active: #303b6c;
+  --surface-field: #1d274b;
+  --surface-option: #263159;
+  --surface-muted: #182141;
+  --line-muted: rgba(145, 158, 229, 0.42);
+  --assistant-dot: var(--accent-cute);
+  --focus-ring: 0 0 0 2px rgba(154, 160, 255, 0.38);
+  --toggle-off-bg: rgba(100, 116, 139, 0.5);
+  --toggle-on-bg: rgba(154, 160, 255, 0.68);
+  --toggle-on-border: rgba(154, 160, 255, 0.92);
+  --status-info-bg: rgba(154, 160, 255, 0.24);
+  --status-success: #34d399;
+  --status-success-bg: rgba(52, 211, 153, 0.2);
+  --status-success-border: rgba(52, 211, 153, 0.55);
+  --status-danger: #f87171;
+  --status-danger-bg: rgba(248, 113, 113, 0.2);
+  --status-danger-border: rgba(248, 113, 113, 0.6);
+  --shadow-soft: 0 18px 36px rgba(2, 6, 23, 0.52);
+  --shadow-elevated: 0 24px 48px rgba(2, 6, 23, 0.62);
+  --glass-blur: 0px;
+  --glass-saturate: 1;
+  --glass-edge: rgba(221, 229, 255, 0.12);
+  --glass-edge-strong: rgba(142, 156, 235, 0.52);
+  --glass-shadow: 0 18px 36px rgba(2, 6, 23, 0.52), inset 0 1px 0 rgba(221, 229, 255, 0.14);
+  --app-background:
+    radial-gradient(circle at 0% 0%, rgba(106, 114, 244, 0.3), transparent 37%),
+    radial-gradient(circle at 100% 0%, rgba(212, 138, 182, 0.24), transparent 34%),
+    radial-gradient(circle at 50% 100%, rgba(56, 189, 248, 0.16), transparent 48%),
+    #080d1d;
+  --center-edge-highlight: rgba(227, 235, 255, 0.72);
+  --center-edge-mask-glow: radial-gradient(
+    1150px 820px at 50vw 50vh,
+    rgba(227, 235, 255, 0.95),
+    rgba(227, 235, 255, 0) 70%
+  );
+  --center-light-glow-color: rgba(211, 220, 255, 0.26);
+  --center-light-glow: radial-gradient(
+    1150px 820px at 50vw 50vh,
+    var(--center-light-glow-color),
+    rgba(211, 220, 255, 0) 56%
+  );
+  background: #080d1d;
+  color-scheme: dark;
 }
 
 *,
@@ -48,11 +157,7 @@ body,
 }
 
 body {
-  background:
-    radial-gradient(circle at 0% 0%, rgba(59, 130, 246, 0.2), transparent 36%),
-    radial-gradient(circle at 100% 0%, rgba(168, 85, 247, 0.22), transparent 34%),
-    radial-gradient(circle at 50% 100%, rgba(14, 165, 233, 0.16), transparent 45%),
-    #020617;
+  background: var(--app-background);
 }
 
 button,

@@ -44,6 +44,64 @@
   }
 }
 
+@keyframes icon-bob {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-1.5px) scale(1.08);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes icon-tilt {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    transform: rotate(-10deg) scale(1.08);
+  }
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+}
+
+@keyframes icon-wiggle {
+  0% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-8deg);
+  }
+  75% {
+    transform: rotate(8deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+.frosted-surface {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.frosted-surface::before {
+  content: none;
+}
+
+.frosted-surface::after {
+  content: none;
+}
+
+.frosted-surface > * {
+  position: relative;
+  z-index: 1;
+}
+
 .app-shell {
   width: min(100%, 980px);
   height: 100%;
@@ -93,24 +151,31 @@
   justify-content: center;
   gap: 4px;
   border: none;
-  border-radius: var(--radius-pill);
+  border-radius: 0;
   background: transparent;
-  padding: 0 6px;
+  box-shadow: none;
+  padding: 0;
   cursor: pointer;
-  transition: background 0.2s ease, transform 0.18s ease;
+  transition: color 0.2s ease, transform 0.18s ease;
 }
 
 .menu-button:hover {
-  background: rgba(148, 163, 184, 0.12);
-  transform: translateY(-1px);
+  background: transparent;
+  transform: none;
 }
 
 .menu-button span {
   display: block;
-  width: 100%;
+  width: 18px;
   height: 2px;
-  background: var(--text-primary);
+  background: var(--accent-2);
   border-radius: 999px;
+  margin: 0 auto;
+}
+
+.menu-button span:nth-child(2) {
+  width: 13px;
+  background: var(--accent-cute);
 }
 
 .header-center {
@@ -184,10 +249,12 @@
   align-items: center;
   justify-content: center;
   color: var(--text-secondary);
-  font-size: 16px;
-  font-weight: 650;
-  line-height: 1;
   opacity: var(--pen-start-opacity);
+}
+
+.title-transition-pen svg {
+  width: 16px;
+  height: 16px;
 }
 
 .title-transition-pen.is-playing {
@@ -250,6 +317,7 @@
 
 .title-text {
   display: block;
+  margin: 0;
   text-overflow: ellipsis;
   overflow: hidden;
   white-space: nowrap;
@@ -260,16 +328,21 @@
 .icon-inline-button {
   width: 24px;
   height: 24px;
-  border: none;
-  border-radius: 0;
-  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--surface-muted);
   color: var(--text-secondary);
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: color 0.18s ease, transform 0.18s ease;
+  transition: color 0.18s ease, transform 0.18s ease, border-color 0.2s ease;
+}
+
+.icon-inline-button svg {
+  width: 14px;
+  height: 14px;
 }
 
 .title-rename-button {
@@ -277,6 +350,18 @@
   left: calc(100% + 6px);
   top: 50%;
   transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-secondary);
+}
+
+.title-rename-button svg {
+  width: 16px;
+  height: 16px;
 }
 
 .title-editor {
@@ -897,11 +982,12 @@ button:not(:disabled):hover {
 .field input:not([type='checkbox']):not([type='radio']),
 .model-add-row input,
 .composer-input,
+.theme-mode-select,
 .json-type-select,
 .json-add-row select {
   width: 100%;
   border: 1px solid var(--border-color);
-  background: rgba(15, 23, 42, 0.6);
+  background: var(--surface-field);
   color: var(--text-primary);
 }
 
@@ -915,6 +1001,7 @@ button:not(:disabled):hover {
 .field input:not([type='checkbox']):not([type='radio']),
 .model-add-row input,
 .composer-input,
+.theme-mode-select,
 .json-type-select,
 .json-add-row select {
   border-radius: var(--radius-pill);
@@ -927,12 +1014,14 @@ button:not(:disabled):hover {
 
 .field input:not([type='checkbox']):not([type='radio']),
 .model-add-row input,
+.theme-mode-select,
 .json-type-select,
 .json-add-row select {
   min-height: var(--control-height);
   padding: 0 14px;
 }
 
+.theme-mode-select,
 .json-type-select,
 .json-add-row select {
   appearance: none;
@@ -958,10 +1047,11 @@ button:not(:disabled):hover {
 .field input:not([type='checkbox']):not([type='radio']):focus,
 .model-add-row input:focus,
 .composer-input:focus,
+.theme-mode-select:focus,
 .json-type-select:focus,
 .json-add-row select:focus {
-  border-color: rgba(226, 232, 240, 0.92);
-  box-shadow: 0 0 0 1px rgba(226, 232, 240, 0.16);
+  border-color: var(--accent-2);
+  box-shadow: var(--focus-ring);
 }
 
 textarea.chat-input-box,
@@ -1123,10 +1213,10 @@ textarea.settings-chat-input.settings-chat-input-compact {
   min-width: 190px;
   max-height: 230px;
   overflow: auto;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--glass-edge-strong, var(--border-color));
   border-radius: var(--radius-card);
-  background: rgba(2, 6, 23, 0.98);
-  box-shadow: var(--shadow-soft);
+  background: var(--surface-popover);
+  box-shadow: var(--glass-shadow, var(--shadow-soft));
   padding: 7px;
   display: flex;
   flex-direction: column;
@@ -1140,14 +1230,16 @@ textarea.settings-chat-input.settings-chat-input-compact {
 }
 
 .composer-model-popover {
-  bottom: 100%;
-  transform: translateY(14px) scale(0.985);
+  inset: auto auto calc(100% + 8px) 0;
+  top: auto !important;
+  bottom: calc(100% + 8px) !important;
+  transform: translateY(8px) scale(0.985);
   transform-origin: center bottom;
-  z-index: 1;
+  z-index: 24;
 }
 
 .composer-model-popover.is-closing {
-  transform: translateY(14px) scale(0.985);
+  transform: translateY(8px) scale(0.985);
 }
 
 .model-popover.is-open {
@@ -1159,6 +1251,14 @@ textarea.settings-chat-input.settings-chat-input-compact {
 .model-popover.is-closing {
   opacity: 0;
   transform: translateY(14px) scale(0.96);
+}
+
+.model-popover.composer-model-popover.is-open {
+  transform: translateY(0) scale(1);
+}
+
+.model-popover.composer-model-popover.is-closing {
+  transform: translateY(8px) scale(0.985);
 }
 
 .model-option {
@@ -1196,22 +1296,24 @@ textarea.settings-chat-input.settings-chat-input-compact {
   height: var(--control-height);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-pill);
-  background: var(--btn-bg);
-  color: var(--text-primary);
+  background: var(--surface-card);
+  color: var(--accent-2);
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: transform 0.18s ease, border-color 0.2s ease;
+  transition: transform 0.18s ease, border-color 0.2s ease, background 0.2s ease;
+  box-shadow: var(--shadow-soft);
 }
 
 .icon-button svg {
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
 }
 
 .icon-button:hover {
+  background: var(--surface-active);
   transform: translateY(-1px);
 }
 
@@ -1246,4 +1348,408 @@ textarea.settings-chat-input.settings-chat-input-compact {
   color: #fff;
   padding: 0;
   cursor: pointer;
+}
+
+/* Cute pastel theme refinements */
+.header-card,
+.notice,
+.empty-state,
+.summary-bar span,
+.message-actions button,
+.skill-step-card,
+.skill-step-result-panel,
+.reasoning-panel,
+.markdown-content pre,
+.message-card.user,
+.model-popover,
+.composer-row > button,
+.model-trigger,
+.icon-button,
+textarea.chat-input-box,
+textarea.settings-chat-input,
+.editor textarea,
+.field textarea,
+.field input:not([type='checkbox']):not([type='radio']),
+.model-add-row input,
+.composer-input,
+.json-type-select,
+.json-add-row select {
+  background: var(--surface-field);
+  border-color: var(--glass-edge-strong, var(--border-color));
+  box-shadow: var(--glass-shadow, var(--shadow-soft));
+}
+
+.header-card {
+  box-shadow: var(--shadow-elevated);
+}
+
+.summary-bar span {
+  color: var(--text-primary);
+}
+
+.message-card.user {
+  background: var(--surface-card-strong);
+  border-color: var(--glass-edge-strong, var(--border-color));
+}
+
+.model-popover {
+  background: var(--surface-popover);
+}
+
+.header-card,
+.message-card.user,
+.conversation-item,
+.drawer-panel,
+.delete-dialog,
+.settings-entry-button,
+.settings-static-card,
+.settings-entity-card,
+.json-node-card,
+.json-add-panel,
+.model-list,
+.model-row,
+.model-health-button,
+.model-toggle-button,
+.drawer-action-button,
+.settings-nav-button,
+.model-option,
+.reasoning-panel,
+.settings-prompt-panel,
+.skill-config-warning-card,
+.skill-config-raw-field,
+.skill-config-layout,
+.model-trigger,
+.icon-button,
+.composer-row > button,
+.tiny-button,
+.danger-button,
+.message-actions button,
+.metric-tag,
+.settings-screen button,
+.settings-screen .tiny-button,
+.settings-screen .model-tools button,
+.conversation-group-toggle,
+.message-model,
+.chat-input-box,
+.settings-chat-input,
+.editor-message-input,
+.field textarea,
+.field select,
+.field input:not([type='checkbox']):not([type='radio']),
+.model-add-row input,
+.json-type-select,
+.json-add-row select {
+  position: relative;
+}
+
+.header-card::after,
+.message-card.user::after,
+.conversation-item::after,
+.drawer-panel::after,
+.delete-dialog::after,
+.settings-entry-button::after,
+.settings-static-card::after,
+.settings-entity-card::after,
+.json-node-card::after,
+.json-add-panel::after,
+.model-list::after,
+.model-row::after,
+.model-health-button::after,
+.model-toggle-button::after,
+.drawer-action-button::after,
+.settings-nav-button::after,
+.model-option::after,
+.reasoning-panel::after,
+.settings-prompt-panel::after,
+.skill-config-warning-card::after,
+.skill-config-raw-field::after,
+.skill-config-layout::after,
+.model-trigger::after,
+.icon-button::after,
+.composer-row > button::after,
+.tiny-button::after,
+.danger-button::after,
+.message-actions button::after,
+.metric-tag::after,
+.settings-screen button::after,
+.settings-screen .tiny-button::after,
+.settings-screen .model-tools button::after,
+.conversation-group-toggle::after,
+.message-model::after,
+.chat-input-box::after,
+.settings-chat-input::after,
+.editor-message-input::after,
+.field textarea::after,
+.field select::after,
+.field input:not([type='checkbox']):not([type='radio'])::after,
+.model-add-row input::after,
+.json-type-select::after,
+.json-add-row select::after {
+  content: none;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  pointer-events: none;
+  z-index: 20;
+  background: var(--center-edge-mask-glow);
+  opacity: 1;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+.header-card::after,
+.message-card.user::after,
+.conversation-item::after,
+.drawer-panel::after,
+.delete-dialog::after,
+.settings-entry-button::after,
+.settings-static-card::after,
+.settings-entity-card::after,
+.json-node-card::after,
+.json-add-panel::after,
+.model-list::after,
+.model-row::after,
+.reasoning-panel::after,
+.settings-prompt-panel::after,
+.skill-config-warning-card::after,
+.skill-config-raw-field::after,
+.skill-config-layout::after {
+  padding: 1.9px;
+  filter: brightness(1.14);
+}
+
+.skill-config-loaded-content {
+  animation: fade-up 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.model-option {
+  background: var(--surface-option);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+.model-option.active {
+  border-color: var(--accent-2);
+  background: var(--surface-active);
+}
+
+.assistant-loading span {
+  background: var(--assistant-dot);
+}
+
+.pending-image-item button {
+  background: var(--surface-overlay-strong);
+}
+
+.message-actions button:hover,
+.icon-button:hover,
+.icon-inline-button:hover,
+.drawer-action-button:hover,
+.settings-nav-button:hover,
+.composer-row > button:hover,
+.model-trigger:hover {
+  border-color: var(--accent-2);
+  background: var(--surface-active);
+  color: var(--accent-2);
+  transform: translateY(-1px);
+}
+
+.title-rename-button:hover {
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent-cute);
+  transform: translateY(calc(-50% - 1px));
+}
+
+.title-rename-button:active {
+  border-color: transparent;
+  background: transparent;
+  transform: translateY(-50%) scale(0.94);
+}
+
+.editor textarea:focus,
+.field textarea:focus,
+.field input:not([type='checkbox']):not([type='radio']):focus,
+.model-add-row input:focus,
+.composer-input:focus,
+.theme-mode-select:focus,
+.json-type-select:focus,
+.json-add-row select:focus,
+textarea.chat-input-box:focus,
+textarea.settings-chat-input:focus {
+  border-color: var(--accent-2);
+  box-shadow: var(--focus-ring);
+}
+
+/* Modern + cute refinement pass (ui-ux-pro-max inspired) */
+.header-card {
+  background: var(--surface-panel);
+}
+
+.menu-button:hover {
+  background: transparent;
+}
+
+.title-save-button,
+.title-editor .title-save-button {
+  color: var(--status-success);
+}
+
+.danger-button {
+  background: var(--status-danger-bg) !important;
+  border-color: var(--status-danger-border) !important;
+}
+
+.notice-info {
+  background: var(--status-info-bg);
+}
+
+.notice-success {
+  background: var(--status-success-bg);
+}
+
+.notice-error {
+  background: var(--status-danger-bg);
+}
+
+.summary-bar span,
+.message-actions button {
+  background: var(--surface-muted);
+}
+
+.empty-state {
+  background: var(--surface-muted);
+  border-color: var(--line-muted);
+}
+
+.empty-state-divider,
+.skill-round-divider,
+.skill-final-divider {
+  border-top-color: var(--line-muted);
+}
+
+.message-card.user:hover,
+.metric-tag:hover,
+.summary-bar span:hover {
+  border-color: var(--accent-2);
+}
+
+.skill-step-card,
+.reasoning-panel,
+.skill-step-result-panel {
+  background: var(--surface-card);
+  border-color: var(--glass-edge-strong, var(--border-color));
+  box-shadow: var(--glass-shadow, var(--shadow-soft));
+}
+
+.skill-step-card.is-running,
+.skill-step-result-panel.is-open,
+.reasoning-panel.is-open {
+  border-color: var(--accent-2);
+}
+
+.skill-step-card.is-success {
+  border-color: var(--status-success-border);
+}
+
+.skill-step-card.is-error {
+  border-color: var(--status-danger-border);
+  background: var(--status-danger-bg);
+}
+
+.markdown-content pre {
+  background: var(--surface-popover);
+}
+
+.markdown-content code {
+  background: var(--surface-muted);
+}
+
+textarea.chat-input-box,
+textarea.settings-chat-input {
+  background: var(--surface-field);
+}
+
+textarea.chat-input-box::placeholder,
+textarea.settings-chat-input::placeholder,
+.editor textarea::placeholder,
+.composer-input::placeholder,
+.field textarea::placeholder,
+.field input:not([type='checkbox']):not([type='radio'])::placeholder,
+.model-add-row input::placeholder {
+  color: var(--text-secondary);
+}
+
+.icon-button svg,
+.icon-inline-button svg,
+.conversation-delete-button svg,
+.drawer-action-button svg,
+.settings-nav-button svg {
+  transition: transform 0.22s ease;
+  transform-origin: center;
+}
+
+.icon-button:hover svg {
+  animation: icon-bob 220ms ease-out;
+}
+
+.icon-inline-button:hover svg {
+  animation: icon-tilt 240ms ease-out;
+}
+
+.conversation-delete-button:hover svg {
+  animation: icon-wiggle 260ms ease-out;
+}
+
+.drawer-settings-button:hover svg,
+.settings-nav-button.is-back:hover svg {
+  animation: icon-tilt 240ms ease-out;
+}
+
+.drawer-new-chat-button:hover svg {
+  animation: icon-bob 220ms ease-out;
+}
+
+.settings-nav-button.is-close:hover svg {
+  animation: icon-wiggle 260ms ease-out;
+}
+
+.icon-button:active svg,
+.icon-inline-button:active svg,
+.drawer-action-button:active svg,
+.settings-nav-button:active svg {
+  transform: scale(0.92);
+}
+
+.menu-button span {
+  transition: transform 0.2s ease, width 0.2s ease, background-color 0.2s ease;
+}
+
+.menu-button:hover span:nth-child(1) {
+  transform: translateX(1px);
+}
+
+.menu-button:hover span:nth-child(2) {
+  width: 82%;
+}
+
+.menu-button:hover span:nth-child(3) {
+  transform: translateX(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-button svg,
+  .icon-inline-button svg,
+  .conversation-delete-button svg,
+  .drawer-action-button svg,
+  .settings-nav-button svg,
+  .menu-button span {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
 }

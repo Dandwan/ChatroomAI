@@ -1,4 +1,6 @@
 import {
+  memo,
+  startTransition,
   useCallback,
   type CSSProperties,
   type ChangeEvent,
@@ -73,6 +75,7 @@ import './App.css'
 
 type Role = 'user' | 'assistant'
 type ModelHealth = 'untested' | 'testing' | 'ok' | 'error'
+type ThemeMode = 'light' | 'dark' | 'system'
 type ProviderPromptSettingKey = 'systemPrompt' | 'skillCallSystemPrompt'
 type ProviderNumericSettingKey =
   | 'temperature'
@@ -173,6 +176,7 @@ interface ConversationGroup {
 interface AppSettings {
   systemPrompt: string
   skillCallSystemPrompt: string
+  themeMode: ThemeMode
   temperature: number
   topP: number
   maxTokens: number
@@ -296,7 +300,9 @@ const TITLE_EDIT_TRANSITION_TRAVEL_MIN_PX = 12
 const TITLE_EDIT_TRANSITION_TRAVEL_MAX_PX = 26
 const MESSAGE_LIST_BOTTOM_THRESHOLD_PX = 28
 const MESSAGE_LIST_INTERACTION_IDLE_MS = 140
-const PERSIST_DEBOUNCE_MS = 320
+const DRAWER_TO_SETTINGS_OPEN_DELAY_MS = 220
+const SETTINGS_PERSIST_DEBOUNCE_MS = 320
+const CHAT_STATE_PERSIST_DEBOUNCE_MS = 1200
 
 const REMARK_PLUGINS = [remarkGfm, remarkMath]
 const REHYPE_PLUGINS = [rehypeKatex]
@@ -311,6 +317,7 @@ const DEFAULT_SETTINGS: AppSettings = {
 6.你可以在每一段话后面添加一个可爱的颜文字，来增进与主人的互动。尽量避免使用上文较近位置出现过的颜文字，尝试更多可爱的颜文字。
   `.trim(),
   skillCallSystemPrompt: DEFAULT_SKILL_CALL_SYSTEM_PROMPT,
+  themeMode: 'system',
   temperature: 0.7,
   topP: 1,
   maxTokens: 8192,
@@ -522,6 +529,13 @@ const normalizeProviderModel = (value: unknown): ProviderModel | undefined => {
     id,
     enabled: value.enabled === true,
   }
+}
+
+const normalizeThemeMode = (value: unknown): ThemeMode => {
+  if (value === 'dark' || value === 'system' || value === 'light') {
+    return value
+  }
+  return DEFAULT_SETTINGS.themeMode
 }
 
 const normalizeProviderModels = (value: unknown): ProviderModel[] => {
@@ -1298,11 +1312,9 @@ const serializeConversationsForStorage = (conversations: Conversation[]): Conver
   }))
 
 const serializeConversationDraftsForStorage = (
-  conversations: Conversation[],
+  validConversationIds: ReadonlySet<string>,
   draftsByConversation: ConversationDrafts,
 ): ConversationDrafts => {
-  const validConversationIds = new Set(conversations.map((conversation) => conversation.id))
-
   const drafts: ConversationDrafts = {}
   for (const [conversationId, draft] of Object.entries(draftsByConversation)) {
     if (validConversationIds.has(conversationId) && draft.length > 0) {
@@ -1406,6 +1418,7 @@ const loadSettings = (): AppSettings => {
         typeof parsed.skillCallSystemPrompt === 'string'
           ? upgradeSkillCallSystemPrompt(parsed.skillCallSystemPrompt)
           : DEFAULT_SETTINGS.skillCallSystemPrompt,
+      themeMode: normalizeThemeMode(parsed.themeMode),
       temperature:
         rawTemperature !== undefined ? clamp(rawTemperature, 0, 2) : DEFAULT_SETTINGS.temperature,
       topP: rawTopP !== undefined ? clamp(rawTopP, 0, 1) : DEFAULT_SETTINGS.topP,
@@ -1536,7 +1549,7 @@ const loadChatState = (): LoadedChatState => {
   }
 }
 
-const MarkdownMessage = ({ text }: { text: string }) => {
+const MarkdownMessage = memo(({ text }: { text: string }) => {
   const normalizedText = useMemo(() => normalizeLatexDelimiters(text), [text])
 
   return (
@@ -1544,7 +1557,9 @@ const MarkdownMessage = ({ text }: { text: string }) => {
       {normalizedText}
     </ReactMarkdown>
   )
-}
+})
+
+MarkdownMessage.displayName = 'MarkdownMessage'
 
 function App() {
   const initialStateRef = useRef<LoadedChatState | null>(null)
@@ -1627,12 +1642,12 @@ function App() {
   const [isLoadingSkillConfig, setIsLoadingSkillConfig] = useState(false)
   const [isSavingSkillConfig, setIsSavingSkillConfig] = useState(false)
   const [openPromptEditors, setOpenPromptEditors] = useState<Record<PromptEditorKey, boolean>>({
-    systemPrompt: true,
-    skillCallSystemPrompt: true,
+    systemPrompt: false,
+    skillCallSystemPrompt: false,
   })
   const [openProviderPromptEditors, setOpenProviderPromptEditors] = useState<Record<PromptEditorKey, boolean>>({
-    systemPrompt: true,
-    skillCallSystemPrompt: true,
+    systemPrompt: false,
+    skillCallSystemPrompt: false,
   })
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -1679,6 +1694,14 @@ function App() {
     longPressTimerId: number | null
   } | null>(null)
   const ignoreNextConversationClickRef = useRef<string | null>(null)
+  const openSettingsAfterDrawerTimerRef = useRef<number | null>(null)
+  const queuedAssistantStreamDeltaRef = useRef<{
+    conversationId: string
+    assistantId: string
+    content: string
+    reasoning: string
+  } | null>(null)
+  const queuedAssistantStreamDeltaAnimationFrameRef = useRef<number | null>(null)
 
   const activeConversation = useMemo(
     () =>
@@ -1713,6 +1736,10 @@ function App() {
   const draft = activeConversation ? draftsByConversation[activeConversation.id] ?? '' : ''
   const visibleConversations = useMemo(
     () => conversations.filter((conversation) => !isConversationPlaceholder(conversation)),
+    [conversations],
+  )
+  const conversationIdSet = useMemo(
+    () => new Set(conversations.map((conversation) => conversation.id)),
     [conversations],
   )
 
@@ -1991,8 +2018,8 @@ function App() {
     setProviderModelSearch('')
     setProviderNumericSettingDrafts(createProviderNumericSettingDrafts(null))
     setOpenProviderPromptEditors({
-      systemPrompt: true,
-      skillCallSystemPrompt: true,
+      systemPrompt: false,
+      skillCallSystemPrompt: false,
     })
   }, [])
 
@@ -2005,6 +2032,32 @@ function App() {
     setSkillConfigRawError(null)
     openSettings()
   }, [openSettings, resetProviderDetailState])
+
+  const clearOpenSettingsAfterDrawerTimer = useCallback((): void => {
+    if (openSettingsAfterDrawerTimerRef.current !== null) {
+      window.clearTimeout(openSettingsAfterDrawerTimerRef.current)
+      openSettingsAfterDrawerTimerRef.current = null
+    }
+  }, [])
+
+  const openSettingsFromDrawer = useCallback((): void => {
+    closeDrawer()
+    clearOpenSettingsAfterDrawerTimer()
+    openSettingsAfterDrawerTimerRef.current = window.setTimeout(() => {
+      openSettingsAfterDrawerTimerRef.current = null
+      openSettingsHome()
+    }, DRAWER_TO_SETTINGS_OPEN_DELAY_MS)
+  }, [clearOpenSettingsAfterDrawerTimer, closeDrawer, openSettingsHome])
+
+  useEffect(
+    () => () => {
+      if (openSettingsAfterDrawerTimerRef.current !== null) {
+        window.clearTimeout(openSettingsAfterDrawerTimerRef.current)
+      }
+      openSettingsAfterDrawerTimerRef.current = null
+    },
+    [],
+  )
 
   const rememberSettingsScrollPosition = useCallback((view: SettingsView = settingsView): void => {
     const settingsPage = settingsPageRef.current
@@ -2023,15 +2076,17 @@ function App() {
     rememberSettingsScrollPosition()
     const targetProvider =
       settingsRef.current.providers.find((provider) => provider.id === providerId) ?? null
-    setManualModelDraft('')
-    setProviderModelSearch('')
-    setProviderNumericSettingDrafts(createProviderNumericSettingDrafts(targetProvider))
-    setOpenProviderPromptEditors({
-      systemPrompt: true,
-      skillCallSystemPrompt: true,
+    startTransition(() => {
+      setManualModelDraft('')
+      setProviderModelSearch('')
+      setProviderNumericSettingDrafts(createProviderNumericSettingDrafts(targetProvider))
+      setOpenProviderPromptEditors({
+        systemPrompt: false,
+        skillCallSystemPrompt: false,
+      })
+      setProviderDetailTargetId(providerId)
+      setSettingsView('provider-detail')
     })
-    setProviderDetailTargetId(providerId)
-    setSettingsView('provider-detail')
   }, [rememberSettingsScrollPosition])
 
   const closeSettingsPanel = useCallback((): void => {
@@ -2386,8 +2441,8 @@ function App() {
     setProviderModelSearch('')
     setProviderNumericSettingDrafts(createProviderNumericSettingDrafts(provider))
     setOpenProviderPromptEditors({
-      systemPrompt: true,
-      skillCallSystemPrompt: true,
+      systemPrompt: false,
+      skillCallSystemPrompt: false,
     })
     setProviderDetailTargetId(provider.id)
     setSettingsView('provider-detail')
@@ -2549,25 +2604,6 @@ function App() {
   }, [manualModelDraft, providerDetailTargetId, updateProviderById])
 
   const updateConversationDraft = (conversationId: string, nextDraft: string): void => {
-    const timestamp = Date.now()
-
-    setConversations((previous) =>
-      previous.map((conversation) => {
-        if (conversation.id !== conversationId) {
-          return conversation
-        }
-
-        if (!isConversationPlaceholder(conversation)) {
-          return {
-            ...conversation,
-            updatedAt: timestamp,
-          }
-        }
-
-        return conversation
-      }),
-    )
-
     setDraftsByConversation((previous) => {
       if (nextDraft.length === 0) {
         if (!Object.prototype.hasOwnProperty.call(previous, conversationId)) {
@@ -2599,36 +2635,103 @@ function App() {
     )
   }
 
-  const updateAssistantMessage = (
-    conversationId: string,
-    assistantId: string,
-    updater: (message: ChatMessage) => ChatMessage,
-  ): void => {
-    setConversations((previous) =>
-      previous.map((conversation) => {
-        if (conversation.id !== conversationId) {
-          return conversation
+  const updateAssistantMessage = useCallback(
+    (
+      conversationId: string,
+      assistantId: string,
+      updater: (message: ChatMessage) => ChatMessage,
+    ): void => {
+      setConversations((previous) =>
+        previous.map((conversation) => {
+          if (conversation.id !== conversationId) {
+            return conversation
+          }
+
+          let hasUpdatedMessage = false
+          const nextMessages = conversation.messages.map((message) => {
+            if (message.id !== assistantId) {
+              return message
+            }
+
+            const nextMessage = updater(message)
+            if (nextMessage === message) {
+              return message
+            }
+
+            hasUpdatedMessage = true
+            return nextMessage
+          })
+
+          return hasUpdatedMessage ? withConversationMessages(conversation, nextMessages) : conversation
+        }),
+      )
+    },
+    [],
+  )
+
+  const applyAssistantStreamDelta = useCallback(
+    (
+      conversationId: string,
+      assistantId: string,
+      delta: {
+        content?: string
+        reasoning?: string
+      },
+    ): void => {
+      const content = delta.content ?? ''
+      const reasoning = delta.reasoning ?? ''
+      if (!content && !reasoning) {
+        return
+      }
+
+      updateAssistantMessage(conversationId, assistantId, (message) => {
+        const nextText = content ? `${message.text}${content}` : message.text
+        const currentReasoning = message.reasoning ?? ''
+        const nextReasoning = reasoning ? `${currentReasoning}${reasoning}` : currentReasoning
+
+        if (nextText === message.text && nextReasoning === currentReasoning && message.error === undefined) {
+          return message
         }
 
-        let hasUpdatedMessage = false
-        const nextMessages = conversation.messages.map((message) => {
-          if (message.id !== assistantId) {
-            return message
-          }
+        return {
+          ...message,
+          text: nextText,
+          reasoning: nextReasoning || undefined,
+          error: undefined,
+        }
+      })
+    },
+    [updateAssistantMessage],
+  )
 
-          const nextMessage = updater(message)
-          if (nextMessage === message) {
-            return message
-          }
+  const flushQueuedAssistantStreamDelta = useCallback((): void => {
+    if (queuedAssistantStreamDeltaAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(queuedAssistantStreamDeltaAnimationFrameRef.current)
+      queuedAssistantStreamDeltaAnimationFrameRef.current = null
+    }
 
-          hasUpdatedMessage = true
-          return nextMessage
-        })
+    const queuedDelta = queuedAssistantStreamDeltaRef.current
+    if (!queuedDelta) {
+      return
+    }
 
-        return hasUpdatedMessage ? withConversationMessages(conversation, nextMessages) : conversation
-      }),
-    )
-  }
+    queuedAssistantStreamDeltaRef.current = null
+    applyAssistantStreamDelta(queuedDelta.conversationId, queuedDelta.assistantId, {
+      content: queuedDelta.content,
+      reasoning: queuedDelta.reasoning,
+    })
+  }, [applyAssistantStreamDelta])
+
+  useEffect(
+    () => () => {
+      if (queuedAssistantStreamDeltaAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(queuedAssistantStreamDeltaAnimationFrameRef.current)
+      }
+      queuedAssistantStreamDeltaAnimationFrameRef.current = null
+      queuedAssistantStreamDeltaRef.current = null
+    },
+    [],
+  )
 
   const appendAssistantStreamDelta = (
     conversationId: string,
@@ -2644,25 +2747,47 @@ function App() {
       return
     }
 
-    updateAssistantMessage(conversationId, assistantId, (message) => {
-      const nextText = content ? `${message.text}${content}` : message.text
-      const currentReasoning = message.reasoning ?? ''
-      const nextReasoning = reasoning ? `${currentReasoning}${reasoning}` : currentReasoning
+    const queuedDelta = queuedAssistantStreamDeltaRef.current
+    if (
+      queuedDelta &&
+      (queuedDelta.conversationId !== conversationId || queuedDelta.assistantId !== assistantId)
+    ) {
+      flushQueuedAssistantStreamDelta()
+    }
 
-      if (nextText === message.text && nextReasoning === currentReasoning && message.error === undefined) {
-        return message
+    const nextQueued = queuedAssistantStreamDeltaRef.current
+    if (!nextQueued) {
+      queuedAssistantStreamDeltaRef.current = {
+        conversationId,
+        assistantId,
+        content,
+        reasoning,
       }
+    } else {
+      nextQueued.content += content
+      nextQueued.reasoning += reasoning
+    }
 
-      return {
-        ...message,
-        text: nextText,
-        reasoning: nextReasoning || undefined,
-        error: undefined,
+    if (queuedAssistantStreamDeltaAnimationFrameRef.current !== null) {
+      return
+    }
+
+    queuedAssistantStreamDeltaAnimationFrameRef.current = window.requestAnimationFrame(() => {
+      queuedAssistantStreamDeltaAnimationFrameRef.current = null
+      const frameQueuedDelta = queuedAssistantStreamDeltaRef.current
+      if (!frameQueuedDelta) {
+        return
       }
+      queuedAssistantStreamDeltaRef.current = null
+      applyAssistantStreamDelta(frameQueuedDelta.conversationId, frameQueuedDelta.assistantId, {
+        content: frameQueuedDelta.content,
+        reasoning: frameQueuedDelta.reasoning,
+      })
     })
   }
 
   const resetAssistantStreamOutput = (conversationId: string, assistantId: string): void => {
+    flushQueuedAssistantStreamDelta()
     updateAssistantMessage(conversationId, assistantId, (message) => {
       if (!message.text && !message.reasoning && message.error === undefined) {
         return message
@@ -2765,6 +2890,7 @@ function App() {
     result: CompletionResult,
     promptMessages: ApiMessage[],
   ): void => {
+    flushQueuedAssistantStreamDelta()
     const extracted = extractThinkBlocks(result.text)
     const finalText = extracted.cleanedText || result.text.trim() || '（模型未返回文本内容）'
     const finalReasoning = [result.reasoning, extracted.reasoning].filter(Boolean).join('\n\n').trim()
@@ -2924,9 +3050,11 @@ function App() {
             },
           )
           flushStreamParser()
+          flushQueuedAssistantStreamDelta()
           return completion
         } catch (streamError) {
           flushStreamParser()
+          flushQueuedAssistantStreamDelta()
           if (streamError instanceof DOMException && streamError.name === 'AbortError') {
             throw streamError
           }
@@ -3109,6 +3237,7 @@ function App() {
 
       applyAssistantResult(conversationId, assistantId, finalCompletion, lastPromptMessages)
     } catch (error) {
+      flushQueuedAssistantStreamDelta()
       if (error instanceof DOMException && error.name === 'AbortError') {
         setConversations((previous) =>
           previous.map((conversation) => {
@@ -3139,6 +3268,7 @@ function App() {
         pushNotice(`请求失败：${message}`, 'error')
       }
     } finally {
+      flushQueuedAssistantStreamDelta()
       setAbortController(null)
       setIsSending(false)
     }
@@ -3904,6 +4034,40 @@ function App() {
   }, [settings])
 
   useEffect(() => {
+    if (typeof document === 'undefined') {
+      return
+    }
+
+    const root = document.documentElement
+    const mediaQuery =
+      typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+        ? window.matchMedia('(prefers-color-scheme: dark)')
+        : null
+    const applyTheme = (): void => {
+      const resolvedTheme =
+        settings.themeMode === 'system' ? (mediaQuery?.matches ? 'dark' : 'light') : settings.themeMode
+      root.setAttribute('data-theme', resolvedTheme)
+    }
+
+    applyTheme()
+    if (settings.themeMode !== 'system' || !mediaQuery) {
+      return
+    }
+
+    const handleSystemThemeChange = (): void => {
+      applyTheme()
+    }
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', handleSystemThemeChange)
+      return () => mediaQuery.removeEventListener('change', handleSystemThemeChange)
+    }
+
+    mediaQuery.addListener(handleSystemThemeChange)
+    return () => mediaQuery.removeListener(handleSystemThemeChange)
+  }, [settings.themeMode])
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
         localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings))
@@ -3914,7 +4078,7 @@ function App() {
         }
         console.warn('Failed to persist settings', error)
       }
-    }, PERSIST_DEBOUNCE_MS)
+    }, SETTINGS_PERSIST_DEBOUNCE_MS)
 
     return () => window.clearTimeout(timer)
   }, [settings])
@@ -3931,7 +4095,7 @@ function App() {
         }
         console.warn('Failed to persist conversations', error)
       }
-    }, PERSIST_DEBOUNCE_MS)
+    }, CHAT_STATE_PERSIST_DEBOUNCE_MS)
 
     return () => window.clearTimeout(timer)
   }, [conversations])
@@ -3939,7 +4103,10 @@ function App() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
-        const serializableDrafts = serializeConversationDraftsForStorage(conversations, draftsByConversation)
+        const serializableDrafts = serializeConversationDraftsForStorage(
+          conversationIdSet,
+          draftsByConversation,
+        )
         localStorage.setItem(DRAFTS_STORAGE_KEY, JSON.stringify(serializableDrafts))
       } catch (error) {
         if (!storageWarningShownRef.current) {
@@ -3948,10 +4115,10 @@ function App() {
         }
         console.warn('Failed to persist drafts', error)
       }
-    }, PERSIST_DEBOUNCE_MS)
+    }, CHAT_STATE_PERSIST_DEBOUNCE_MS)
 
     return () => window.clearTimeout(timer)
-  }, [conversations, draftsByConversation])
+  }, [conversationIdSet, draftsByConversation])
 
   useEffect(() => {
     if (activeConversationId) {
@@ -4359,7 +4526,8 @@ function App() {
 
         {modelMenuMounted ? (
           <div
-            className={`model-popover composer-model-popover ${modelMenuVisible ? 'is-open' : 'is-closing'}`}
+            className={`model-popover composer-model-popover frosted-surface ${modelMenuVisible ? 'is-open' : 'is-closing'}`}
+            style={{ top: 'auto', bottom: 'calc(100% + 8px)', transformOrigin: 'center bottom' }}
           >
             {enabledModelOptions.length === 0 ? (
               <div className="model-popover-empty">
@@ -4416,9 +4584,24 @@ function App() {
         onClick={() => fileInputRef.current?.click()}
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect
+            x="3.75"
+            y="4.75"
+            width="16.5"
+            height="14.5"
+            rx="2.25"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+          />
+          <circle cx="8.8" cy="9.7" r="1.45" fill="none" stroke="currentColor" strokeWidth="1.8" />
           <path
-            d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13Zm1.5 0v9.23l2.62-2.63a1.5 1.5 0 0 1 2.12 0l2.09 2.1 2.62-2.63a1.5 1.5 0 0 1 2.12 0L18.5 13V5.5h-13Zm0 13h13v-3.38l-2.44-2.44-2.62 2.63a1.5 1.5 0 0 1-2.12 0l-2.1-2.1-3.72 3.72V18.5Zm4.25-9.75a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Z"
-            fill="currentColor"
+            d="M4.8 16.5l3.9-3.9a1.1 1.1 0 0 1 1.56 0l2 2a1.1 1.1 0 0 0 1.56 0l1.7-1.7a1.1 1.1 0 0 1 1.56 0l2.06 2.06"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
           />
         </svg>
       </button>
@@ -4431,9 +4614,24 @@ function App() {
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path
-            d="M7.5 5.5 8.6 4a1.5 1.5 0 0 1 1.22-.63h4.36c.48 0 .94.23 1.22.63l1.1 1.5H19A2.5 2.5 0 0 1 21.5 8v9A2.5 2.5 0 0 1 19 19.5H5A2.5 2.5 0 0 1 2.5 17V8A2.5 2.5 0 0 1 5 5.5h2.5Zm4.5 2.25a4.25 4.25 0 1 0 0 8.5 4.25 4.25 0 0 0 0-8.5Zm0 1.5a2.75 2.75 0 1 1 0 5.5 2.75 2.75 0 0 1 0-5.5Z"
-            fill="currentColor"
+            d="M8 6.5 9.1 4.9h5.8L16 6.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
           />
+          <rect
+            x="3.5"
+            y="6.5"
+            width="17"
+            height="12"
+            rx="2.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+          />
+          <circle cx="12" cy="12.5" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
         </svg>
       </button>
     </div>
@@ -4729,6 +4927,19 @@ function App() {
           <span className="conversation-group-label">显示选项</span>
           <span className="conversation-group-dash" aria-hidden="true" />
         </div>
+
+        <label className="field">
+          <span>主题模式</span>
+          <select
+            className="theme-mode-select"
+            value={settings.themeMode}
+            onChange={(event) => updateSetting('themeMode', event.target.value as ThemeMode)}
+          >
+            <option value="light">浅色（可爱）</option>
+            <option value="dark">深色（现代）</option>
+            <option value="system">跟随系统</option>
+          </select>
+        </label>
 
         <label className="field">
           <span>空白页统计最少对话数</span>
@@ -5365,7 +5576,7 @@ function App() {
         {isLoadingSkillConfig ? (
           <p className="summary-muted">正在读取配置...</p>
         ) : skillConfigTarget ? (
-          <div className="skill-config-layout">
+          <div className="skill-config-layout skill-config-loaded-content">
             <p className="summary-muted">
               已按当前 JSON 结构生成图形化编辑器，可新增字段、分组、数组元素，支持修改键名、类型和值。
             </p>
@@ -5395,7 +5606,7 @@ function App() {
         {isLoadingSkillConfig ? (
           <p className="summary-muted">正在读取配置...</p>
         ) : skillConfigTarget ? (
-          <>
+          <div className="skill-config-loaded-content">
             <label className="field field-system-prompt skill-config-raw-field">
               <span>编辑后保存，运行时会通过环境变量回传给 skill。文本框会按内容自动调整高度。</span>
               <ChatInputBox
@@ -5425,7 +5636,7 @@ function App() {
                 {isSavingSkillConfig ? '保存中...' : '保存配置'}
               </button>
             </div>
-          </>
+          </div>
         ) : (
           <p className="summary-muted">未找到目标 skill。</p>
         )}
@@ -5554,6 +5765,7 @@ function App() {
             : 'Chatroom 设置'
 
     const showBack = settingsView !== 'main'
+    const shouldAnimateSettingsView = settingsView !== 'main'
     const settingsContent =
       settingsView === 'main'
         ? renderMainSettings()
@@ -5577,12 +5789,43 @@ function App() {
       >
         <div className="settings-header">
           <h2>{title}</h2>
-          <button type="button" className="ghost-button" onClick={showBack ? handleSettingsBack : closeSettingsPanel}>
-            {showBack ? '返回' : '关闭'}
+          <button
+            type="button"
+            className={`settings-nav-button ${showBack ? 'is-back' : 'is-close'}`}
+            aria-label={showBack ? '返回上一层设置' : '关闭设置'}
+            onClick={showBack ? handleSettingsBack : closeSettingsPanel}
+          >
+            {showBack ? (
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M14.75 6.75 9.5 12l5.25 5.25M10 12h8"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="7.25" fill="none" stroke="currentColor" strokeWidth="1.8" />
+                <path
+                  d="m9.45 9.45 5.1 5.1m0-5.1-5.1 5.1"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            )}
+            <span>{showBack ? '返回' : '关闭'}</span>
           </button>
         </div>
 
-        <div key={settingsView} className="settings-view-content">
+        <div
+          key={settingsView}
+          className={`settings-view-content ${shouldAnimateSettingsView ? 'is-animated' : ''}`}
+        >
           {settingsContent}
         </div>
       </section>
@@ -5630,7 +5873,16 @@ function App() {
               } as CSSProperties
             }
           >
-            ✎
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M5.5 16.9V19h2.1l8.1-8.1-2.1-2.1-8.1 8.1Zm9-9 2.1 2.1 1.2-1.2a1.5 1.5 0 0 0 0-2.1l-1.2-1.2a1.5 1.5 0 0 0-2.1 0L13.3 6.7l1.2 1.2Z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
           </div>
 
           <div
@@ -5716,7 +5968,16 @@ function App() {
                   aria-label="编辑对话名"
                   onClick={beginRenameConversation}
                 >
-                  ✎
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M5.5 16.9V19h2.1l8.1-8.1-2.1-2.1-8.1 8.1Zm9-9 2.1 2.1 1.2-1.2a1.5 1.5 0 0 0 0-2.1l-1.2-1.2a1.5 1.5 0 0 0-2.1 0L13.3 6.7l1.2 1.2Z"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
                 </button>
               </div>
             )}
@@ -5914,9 +6175,12 @@ function App() {
 
               {editing ? (
                 <div className="editor">
-                  <textarea
+                  <ChatInputBox
+                    className="chat-input-box composer-input editor-message-input"
+                    radiusMode="card"
                     value={editingText}
                     onChange={(event) => setEditingText(event.target.value)}
+                    maxHeight={260}
                   />
                   <div className="editor-actions">
                     {message.role === 'assistant' ? (
@@ -6172,7 +6436,7 @@ function App() {
           className={`drawer-overlay ${drawerVisible ? 'is-open' : 'is-closing'}`}
           onClick={closeDrawer}
         >
-          <aside className="drawer-panel" onClick={(event) => event.stopPropagation()}>
+          <aside className="drawer-panel frosted-surface" onClick={(event) => event.stopPropagation()}>
             <div className="drawer-header">
               <h2>Chatroom</h2>
             </div>
@@ -6212,7 +6476,14 @@ function App() {
                         {group.conversations.map((conversation) => (
                           <div
                             key={conversation.id}
-                            className={`conversation-item-row ${deleteModeEnabled ? 'delete-mode' : ''}`}
+                            className={`conversation-item-row ${deleteModeEnabled ? 'delete-mode' : ''} ${
+                              swipingConversationId === conversation.id ? 'is-swiping' : ''
+                            }`}
+                            style={
+                              swipingConversationId === conversation.id
+                                ? { transform: `translate3d(${swipeOffsetX}px, 0, 0)` }
+                                : undefined
+                            }
                           >
                             <button
                               type="button"
@@ -6220,16 +6491,17 @@ function App() {
                               className={`conversation-item ${
                                 conversation.id === activeConversationId ? 'active' : ''
                               } ${swipingConversationId === conversation.id ? 'is-swiping' : ''}`}
-                              style={
-                                swipingConversationId === conversation.id
-                                  ? { transform: `translate3d(${swipeOffsetX}px, 0, 0)` }
-                                  : undefined
-                              }
                               onPointerDown={(event) => handleConversationPointerDown(conversation.id, event)}
                               onPointerMove={(event) => handleConversationPointerMove(conversation.id, event)}
                               onPointerUp={(event) => handleConversationPointerUp(conversation.id, event)}
                               onPointerCancel={handleConversationPointerCancel}
-                              onClick={() => handleConversationClick(conversation.id)}
+                              onClick={() => {
+                                if (deleteModeEnabled) {
+                                  requestDeleteConversation(conversation.id)
+                                  return
+                                }
+                                handleConversationClick(conversation.id)
+                              }}
                             >
                               <span className="conversation-item-title">{conversation.title}</span>
                               <div className="conversation-item-times">
@@ -6250,8 +6522,12 @@ function App() {
                             >
                               <svg viewBox="0 0 24 24" aria-hidden="true">
                                 <path
-                                  d="M9 3.75h6a1 1 0 0 1 .92.61l.46 1.14h3.12a.75.75 0 0 1 0 1.5h-1.03l-.77 11.04A2.25 2.25 0 0 1 15.46 20H8.54a2.25 2.25 0 0 1-2.24-1.96L5.53 7H4.5a.75.75 0 0 1 0-1.5h3.12l.46-1.14A1 1 0 0 1 9 3.75Zm.35 1.75-.4 1h6.1l-.4-1h-5.3ZM7.03 7l.77 10.94a.75.75 0 0 0 .74.66h6.92a.75.75 0 0 0 .74-.66L16.97 7H7.03Zm2.22 2.25a.75.75 0 0 1 .75.75v5.5a.75.75 0 0 1-1.5 0V10a.75.75 0 0 1 .75-.75Zm5.5 0a.75.75 0 0 1 .75.75v5.5a.75.75 0 0 1-1.5 0V10a.75.75 0 0 1 .75-.75Z"
-                                  fill="currentColor"
+                                  d="M9 4.75h6M5.75 7h12.5M8.25 7l.65 10.1a1 1 0 0 0 1 .9h4.2a1 1 0 0 0 1-.9L15.75 7M10.25 10v5.25M13.75 10v5.25"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="1.8"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
                                 />
                               </svg>
                             </button>
@@ -6267,16 +6543,46 @@ function App() {
             <div className="drawer-footer">
               <button
                 type="button"
-                className="ghost-button"
-                onClick={() => {
-                  closeDrawer()
-                  openSettingsHome()
-                }}
+                className="drawer-action-button drawer-settings-button"
+                aria-label="打开设置"
+                onClick={openSettingsFromDrawer}
               >
-                设置
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M12 8.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4Zm0-4v1.7m0 11v1.7m7.2-7.4h-1.7m-11 0H4.8m11.93 5.13-1.2-1.2M8.48 8.47 7.27 7.27m9.46 0-1.2 1.2m-7.05 7.06-1.2 1.2"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                <span>设置</span>
               </button>
-              <button type="button" onClick={createNewConversation}>
-                新增对话
+              <button
+                type="button"
+                className="drawer-action-button drawer-new-chat-button"
+                aria-label="新增对话"
+                onClick={createNewConversation}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M5.5 6.7h8a4 4 0 0 1 4 4v1.1a4 4 0 0 1-4 4h-3.8L6.2 18.9v-3.1a4 4 0 0 1-3.7-4v-1.1a4 4 0 0 1 3-3.9Z"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M12 8.9v4.2m-2.1-2.1h4.2"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <span>新增对话</span>
               </button>
             </div>
           </aside>
@@ -6285,7 +6591,7 @@ function App() {
 
       {deleteDialogConversation ? (
         <div className="delete-dialog-overlay" onClick={closeDeleteDialog}>
-          <section className="delete-dialog" onClick={(event) => event.stopPropagation()}>
+          <section className="delete-dialog frosted-surface" onClick={(event) => event.stopPropagation()}>
             <h3>删除提醒</h3>
             <p className="delete-dialog-text">确认删除「{deleteDialogConversation.title}」吗？</p>
             {settings.deleteConfirmGraceSeconds > 0 ? (
@@ -6307,7 +6613,7 @@ function App() {
 
       {deleteDialogProvider ? (
         <div className="delete-dialog-overlay" onClick={closeDeleteDialog}>
-          <section className="delete-dialog" onClick={(event) => event.stopPropagation()}>
+          <section className="delete-dialog frosted-surface" onClick={(event) => event.stopPropagation()}>
             <h3>删除提醒</h3>
             <p className="delete-dialog-text">
               确认删除「{deleteDialogProvider.name.trim() || '未命名服务商'}」吗？
