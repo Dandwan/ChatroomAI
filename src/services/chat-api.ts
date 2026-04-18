@@ -10,7 +10,7 @@ interface ApiMessage {
   content: string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>
 }
 
-interface RequestSettings {
+export interface RequestSettings {
   apiBaseUrl: string
   apiKey: string
   currentModel: string
