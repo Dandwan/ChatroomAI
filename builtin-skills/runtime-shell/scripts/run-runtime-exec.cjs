@@ -127,6 +127,51 @@ const buildRuntimeLaunch = (runtime, commandText) => {
   throw new Error('runtime must be node or python')
 }
 
+const prependPath = (baseValue, prependValue) => {
+  if (!prependValue) {
+    return baseValue || ''
+  }
+  return baseValue ? `${prependValue}:${baseValue}` : prependValue
+}
+
+const buildRuntimeEnvironment = (executable, baseEnv) => {
+  const nextEnv = { ...baseEnv }
+  const runtimeBinDir = path.dirname(executable)
+  const runtimeRoot = path.dirname(runtimeBinDir)
+  const runtimeLibDir = path.join(runtimeRoot, 'lib')
+  const certFile = path.join(runtimeRoot, 'etc', 'tls', 'cert.pem')
+  const opensslConf = path.join(runtimeRoot, 'etc', 'tls', 'openssl.cnf')
+  const certDir = path.join(runtimeRoot, 'etc', 'ssl', 'certs')
+
+  nextEnv.PATH = prependPath(nextEnv.PATH, runtimeBinDir)
+  if (fs.existsSync(runtimeLibDir)) {
+    nextEnv.LD_LIBRARY_PATH = prependPath(nextEnv.LD_LIBRARY_PATH, runtimeLibDir)
+  }
+  if (fs.existsSync(certFile)) {
+    nextEnv.SSL_CERT_FILE = certFile
+    nextEnv.NODE_EXTRA_CA_CERTS = certFile
+  }
+  if (fs.existsSync(opensslConf)) {
+    nextEnv.OPENSSL_CONF = opensslConf
+  }
+  if (fs.existsSync(certDir)) {
+    nextEnv.SSL_CERT_DIR = certDir
+  }
+  return nextEnv
+}
+
+const wrapWithAndroidLinker = (executable, args) => {
+  const linkerCandidates = ['/system/bin/linker64', '/apex/com.android.runtime/bin/linker64']
+  const linker = linkerCandidates.find((candidate) => fs.existsSync(candidate))
+  if (!linker) {
+    return { executable, args }
+  }
+  return {
+    executable: linker,
+    args: [executable, ...args],
+  }
+}
+
 const buildSessionFiles = (runtime, label) => {
   const fileToken = `${sanitizePart(runtime)}-${sanitizePart(label || '__default__')}`
   return {
@@ -175,11 +220,12 @@ const run = async () => {
 
     const stdoutFd = fs.openSync(files.stdoutPath, 'a')
     const stderrFd = fs.openSync(files.stderrPath, 'a')
-    const child = spawn(launch.executable, launch.args, {
+    const launchCommand = wrapWithAndroidLinker(launch.executable, launch.args)
+    const child = spawn(launchCommand.executable, launchCommand.args, {
       cwd: process.cwd(),
       detached: true,
       stdio: ['ignore', stdoutFd, stderrFd],
-      env: { ...process.env },
+      env: buildRuntimeEnvironment(launch.executable, process.env),
     })
     child.unref()
     fs.closeSync(stdoutFd)
