@@ -1493,8 +1493,7 @@ const requestLocationPermission = async (): Promise<boolean> => {
   if (requestResult === 'denied') {
     return false
   }
-  const stateAfter = await queryPermissionState('geolocation')
-  return stateAfter === 'granted'
+  return true
 }
 
 const requestMediaPermission = async (kind: 'camera' | 'microphone'): Promise<boolean> => {
