@@ -2167,15 +2167,35 @@ function App() {
     if (!silent) {
       setIsLoadingExtensions(true)
     }
+    const errors: string[] = []
     try {
-      await Promise.all([initializeSkillHost(), initializeRuntimeHost()])
-      const [nextSkills, nextRuntimes] = await Promise.all([listSkills(), listRuntimes()])
-      setSkillRecords(nextSkills)
-      setRuntimeRecords(nextRuntimes)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '加载扩展能力失败'
-      setNotice({ text: `加载扩展能力失败：${message}`, type: 'error' })
+      const initializeResults = await Promise.allSettled([initializeSkillHost(), initializeRuntimeHost()])
+      for (const result of initializeResults) {
+        if (result.status === 'rejected') {
+          errors.push(result.reason instanceof Error ? result.reason.message : '初始化扩展能力失败')
+        }
+      }
+
+      const [skillsResult, runtimesResult] = await Promise.allSettled([listSkills(), listRuntimes()])
+      if (skillsResult.status === 'fulfilled') {
+        setSkillRecords(skillsResult.value)
+      } else {
+        errors.push(
+          skillsResult.reason instanceof Error ? skillsResult.reason.message : '加载 skills 失败',
+        )
+      }
+
+      if (runtimesResult.status === 'fulfilled') {
+        setRuntimeRecords(runtimesResult.value)
+      } else {
+        errors.push(
+          runtimesResult.reason instanceof Error ? runtimesResult.reason.message : '加载 runtimes 失败',
+        )
+      }
     } finally {
+      if (errors.length > 0) {
+        setNotice({ text: `加载扩展能力失败：${errors.join('；')}`, type: 'error' })
+      }
       if (!silent) {
         setIsLoadingExtensions(false)
       }
