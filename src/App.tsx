@@ -15,6 +15,7 @@ import {
 } from 'react'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
+import { Geolocation } from '@capacitor/geolocation'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
 import ReactMarkdown from 'react-markdown'
 import rehypeKatex from 'rehype-katex'
@@ -1473,6 +1474,18 @@ const queryPermissionState = async (name: string): Promise<PermissionState | nul
 }
 
 const requestLocationPermission = async (): Promise<boolean> => {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const status = await Geolocation.checkPermissions()
+      if (status.location === 'granted' || status.coarseLocation === 'granted') {
+        return true
+      }
+      const requested = await Geolocation.requestPermissions()
+      return requested.location !== 'denied' || requested.coarseLocation !== 'denied'
+    } catch {
+      return false
+    }
+  }
   if (typeof navigator === 'undefined' || !navigator.geolocation) {
     return false
   }

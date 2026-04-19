@@ -1,3 +1,6 @@
+import { Capacitor } from '@capacitor/core'
+import { Geolocation } from '@capacitor/geolocation'
+import { nativeGetLastKnownLocation } from './native-runtime'
 import type { SkillCallAction, SkillExecutionResult } from './types'
 
 const DEFAULT_LOCATION_TIMEOUT_MS = 5000
@@ -34,6 +37,47 @@ const readOrientation = (): Record<string, unknown> => {
 }
 
 const readLocation = async (timeoutMs: number): Promise<Record<string, unknown>> => {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const position = await Geolocation.getCurrentPosition({
+        enableHighAccuracy: false,
+        timeout: Math.max(500, timeoutMs),
+        maximumAge: 10_000,
+      })
+      return {
+        available: true,
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracyMeters: position.coords.accuracy,
+        altitude: position.coords.altitude,
+        altitudeAccuracy: position.coords.altitudeAccuracy,
+        heading: position.coords.heading,
+        speed: position.coords.speed,
+        timestamp: position.timestamp,
+        provider: 'capacitor-geolocation',
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      try {
+        const fallback = await nativeGetLastKnownLocation()
+        if (fallback.available) {
+          return {
+            ...fallback,
+            provider: fallback.provider ?? 'native-last-known-location',
+            source: 'native-fallback',
+          }
+        }
+      } catch {
+        // Keep primary geolocation failure details when native fallback is unavailable.
+      }
+      return {
+        available: false,
+        reason: message || 'location-unavailable',
+        provider: 'capacitor-geolocation',
+      }
+    }
+  }
+
   if (typeof navigator === 'undefined' || !navigator.geolocation) {
     return {
       available: false,

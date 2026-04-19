@@ -39,12 +39,26 @@ interface TestRuntimeResult {
   exitCode: number
 }
 
+interface LastKnownLocationResult {
+  available: boolean
+  reason?: string
+  provider?: string
+  latitude?: number
+  longitude?: number
+  accuracyMeters?: number | null
+  altitude?: number | null
+  speed?: number | null
+  bearing?: number | null
+  timestamp?: number
+}
+
 interface NativeRuntimePlugin {
   preparePath(options: PreparePathOptions): Promise<void>
   installBundledRuntime(options: InstallBundledRuntimeOptions): Promise<void>
   inspectRuntime(options: InspectRuntimeOptions): Promise<InspectRuntimeResult>
   executeProcess(options: ExecuteProcessOptions): Promise<SkillExecutionResult>
   testRuntime(options: TestRuntimeOptions): Promise<TestRuntimeResult>
+  getLastKnownLocation(): Promise<LastKnownLocationResult>
   addListener(eventName: string, listenerFunc: (data: unknown) => void): Promise<PluginListenerHandle>
   removeAllListeners(): Promise<void>
 }
@@ -65,6 +79,12 @@ const NativeRuntime = registerPlugin<NativeRuntimePlugin>('SkillRuntime', {
     },
     async testRuntime() {
       throw new Error('当前平台不支持运行时测试。')
+    },
+    async getLastKnownLocation() {
+      return {
+        available: false,
+        reason: 'not-supported-on-web',
+      }
     },
     async addListener() {
       return {
@@ -110,3 +130,6 @@ export const nativeTestRuntime = async (
   executablePath: string,
   args: string[] = [],
 ): Promise<TestRuntimeResult> => NativeRuntime.testRuntime({ executablePath, args })
+
+export const nativeGetLastKnownLocation = async (): Promise<LastKnownLocationResult> =>
+  NativeRuntime.getLastKnownLocation()
