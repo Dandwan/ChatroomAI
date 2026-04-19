@@ -8,8 +8,10 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.BufferedReader;
+import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -25,6 +27,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -107,6 +111,59 @@ public class SkillRuntimePlugin extends Plugin {
                 result.put("stdout", processResult.stdout);
                 result.put("stderr", processResult.stderr);
                 result.put("exitCode", processResult.exitCode);
+                call.resolve(result);
+            } catch (Exception ex) {
+                call.reject(ex.getMessage(), ex);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void installBundledRuntime(PluginCall call) {
+        execute(() -> {
+            try {
+                String assetPath = call.getString("assetPath");
+                String runtimeId = call.getString("runtimeId");
+                if (assetPath == null || assetPath.trim().isEmpty()) {
+                    call.reject("assetPath is required");
+                    return;
+                }
+                if (runtimeId == null || runtimeId.trim().isEmpty()) {
+                    call.reject("runtimeId is required");
+                    return;
+                }
+                if (runtimeId.contains("/") || runtimeId.contains("\\") || runtimeId.contains("..")) {
+                    call.reject("runtimeId is invalid");
+                    return;
+                }
+
+                String normalizedAssetPath = assetPath.startsWith("/")
+                    ? assetPath.substring(1)
+                    : assetPath;
+                File runtimesRoot = resolveAppRelativePath("skill-host/runtimes");
+                if (!runtimesRoot.exists() && !runtimesRoot.mkdirs()) {
+                    call.reject("Failed to create runtimes directory");
+                    return;
+                }
+
+                File runtimeRoot = new File(runtimesRoot, runtimeId).getCanonicalFile();
+                String runtimesRootPath = runtimesRoot.getCanonicalPath();
+                if (!runtimeRoot.getAbsolutePath().startsWith(runtimesRootPath + File.separator)) {
+                    call.reject("runtimeId escapes runtimes directory");
+                    return;
+                }
+
+                deleteRecursively(runtimeRoot);
+                if (!runtimeRoot.mkdirs()) {
+                    call.reject("Failed to create runtime directory");
+                    return;
+                }
+
+                unzipAssetToDirectory(normalizedAssetPath, runtimeId, runtimeRoot);
+                makeExecutableRecursive(runtimeRoot);
+
+                JSObject result = new JSObject();
+                result.put("relativePath", "skill-host/runtimes/" + runtimeId);
                 call.resolve(result);
             } catch (Exception ex) {
                 call.reject(ex.getMessage(), ex);
@@ -216,6 +273,76 @@ public class SkillRuntimePlugin extends Plugin {
         file.setReadable(true, false);
         file.setWritable(true, true);
         file.setExecutable(true, false);
+    }
+
+    private void deleteRecursively(File file) throws IOException {
+        if (file == null || !file.exists()) {
+            return;
+        }
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    deleteRecursively(child);
+                }
+            }
+        }
+        if (!file.delete()) {
+            throw new IOException("Failed to delete " + file.getAbsolutePath());
+        }
+    }
+
+    private void unzipAssetToDirectory(String assetPath, String runtimeId, File destinationRoot) throws IOException {
+        String expectedPrefix = runtimeId + "/";
+        byte[] buffer = new byte[8192];
+        try (
+            InputStream assetStream = getContext().getAssets().open(assetPath);
+            ZipInputStream zipInputStream = new ZipInputStream(new BufferedInputStream(assetStream))
+        ) {
+            ZipEntry entry;
+            while ((entry = zipInputStream.getNextEntry()) != null) {
+                String entryName = entry.getName().replace('\\', '/');
+                if (!entryName.startsWith(expectedPrefix)) {
+                    zipInputStream.closeEntry();
+                    continue;
+                }
+                String relativePath = entryName.substring(expectedPrefix.length());
+                if (relativePath.isEmpty()) {
+                    zipInputStream.closeEntry();
+                    continue;
+                }
+
+                File target = new File(destinationRoot, relativePath).getCanonicalFile();
+                String destinationPath = destinationRoot.getCanonicalPath();
+                if (!target.getAbsolutePath().startsWith(destinationPath + File.separator)) {
+                    zipInputStream.closeEntry();
+                    throw new IOException("Archive entry escapes runtime root: " + entryName);
+                }
+
+                if (entry.isDirectory()) {
+                    if (!target.exists() && !target.mkdirs()) {
+                        zipInputStream.closeEntry();
+                        throw new IOException("Failed to create directory: " + target.getAbsolutePath());
+                    }
+                    zipInputStream.closeEntry();
+                    continue;
+                }
+
+                File parent = target.getParentFile();
+                if (parent != null && !parent.exists() && !parent.mkdirs()) {
+                    zipInputStream.closeEntry();
+                    throw new IOException("Failed to create directory: " + parent.getAbsolutePath());
+                }
+
+                try (FileOutputStream outputStream = new FileOutputStream(target)) {
+                    int read;
+                    while ((read = zipInputStream.read(buffer)) != -1) {
+                        outputStream.write(buffer, 0, read);
+                    }
+                }
+                zipInputStream.closeEntry();
+            }
+        }
     }
 
     private RuntimeInspection inspectRuntimeRoot(File root) throws Exception {
