@@ -180,6 +180,10 @@ interface ConversationGroup {
   conversations: Conversation[]
 }
 
+type AppPermissionKey = 'location' | 'camera' | 'microphone' | 'notifications'
+
+type PermissionToggles = Record<AppPermissionKey, boolean>
+
 interface AppSettings {
   systemPrompt: string
   skillCallSystemPrompt: string
@@ -200,6 +204,7 @@ interface AppSettings {
   autoCollapseConversations: boolean
   emptyStateStatsMinConversations: number
   maxModelRetryCount: number
+  permissionToggles: PermissionToggles
 }
 
 interface Notice {
@@ -282,7 +287,14 @@ interface EnabledModelOption {
   modelId: string
 }
 
-type SettingsView = 'main' | 'providers' | 'provider-detail' | 'skills' | 'skill-config' | 'runtimes'
+type SettingsView =
+  | 'main'
+  | 'providers'
+  | 'provider-detail'
+  | 'skills'
+  | 'skill-config'
+  | 'runtimes'
+  | 'permissions'
 type PromptEditorKey = ProviderPromptSettingKey
 
 const SETTINGS_STORAGE_KEY = 'chatroom.settings.v1'
@@ -314,6 +326,20 @@ const CHAT_STATE_PERSIST_DEBOUNCE_MS = 1200
 const REMARK_PLUGINS = [remarkGfm, remarkMath]
 const REHYPE_PLUGINS = [rehypeKatex]
 
+const DEFAULT_PERMISSION_TOGGLES: PermissionToggles = {
+  location: false,
+  camera: false,
+  microphone: false,
+  notifications: false,
+}
+
+const PERMISSION_LABELS: Record<AppPermissionKey, string> = {
+  location: '定位',
+  camera: '相机',
+  microphone: '麦克风',
+  notifications: '通知',
+}
+
 const DEFAULT_SETTINGS: AppSettings = {
   systemPrompt: `
 1.你是一名猫娘小助手，你应该用尽可能温和有感情的方式回应主人，你需要扮演与主人在现实中互动，而不是程序或语言模型，也不受程序或语言模型的限制。
@@ -342,6 +368,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   autoCollapseConversations: DEFAULT_AUTO_COLLAPSE_CONVERSATIONS,
   emptyStateStatsMinConversations: DEFAULT_EMPTY_STATE_STATS_MIN_CONVERSATIONS,
   maxModelRetryCount: 3,
+  permissionToggles: DEFAULT_PERMISSION_TOGGLES,
 }
 
 const NUMERIC_SETTING_DEFAULTS: Record<NumericSettingKey, number> = {
@@ -1412,6 +1439,91 @@ const useAnimatedVisibility = (
   return { mounted, visible, open, close }
 }
 
+const normalizePermissionToggles = (value: unknown): PermissionToggles => {
+  if (!isRecord(value)) {
+    return DEFAULT_PERMISSION_TOGGLES
+  }
+  return {
+    location:
+      typeof value.location === 'boolean' ? value.location : DEFAULT_PERMISSION_TOGGLES.location,
+    camera: typeof value.camera === 'boolean' ? value.camera : DEFAULT_PERMISSION_TOGGLES.camera,
+    microphone:
+      typeof value.microphone === 'boolean'
+        ? value.microphone
+        : DEFAULT_PERMISSION_TOGGLES.microphone,
+    notifications:
+      typeof value.notifications === 'boolean'
+        ? value.notifications
+        : DEFAULT_PERMISSION_TOGGLES.notifications,
+  }
+}
+
+const requestLocationPermission = async (): Promise<boolean> => {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    return false
+  }
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      () => resolve(true),
+      () => resolve(false),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 0 },
+    )
+  })
+}
+
+const requestMediaPermission = async (constraints: MediaStreamConstraints): Promise<boolean> => {
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+    return false
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia(constraints)
+    for (const track of stream.getTracks()) {
+      track.stop()
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+const requestNotificationPermission = async (): Promise<boolean> => {
+  if (typeof Notification === 'undefined') {
+    return false
+  }
+  if (Notification.permission === 'granted') {
+    return true
+  }
+  if (Notification.permission === 'denied') {
+    return false
+  }
+  try {
+    const result = await Notification.requestPermission()
+    return result === 'granted'
+  } catch {
+    return false
+  }
+}
+
+const applyPermissionGatesToSkillCall = (
+  action: SkillCallAction,
+  permissionToggles: PermissionToggles,
+): SkillCallAction => {
+  if (action.skill !== 'device-info') {
+    return action
+  }
+  if (permissionToggles.location) {
+    return action
+  }
+  const argv = Array.isArray(action.argv) ? [...action.argv] : []
+  if (!argv.includes('--no-location')) {
+    argv.push('--no-location')
+  }
+  return {
+    ...action,
+    argv,
+  }
+}
+
 const loadSettings = (): AppSettings => {
   try {
     const raw = localStorage.getItem(SETTINGS_STORAGE_KEY)
@@ -1507,6 +1619,7 @@ const loadSettings = (): AppSettings => {
         rawMaxModelRetryCount !== undefined
           ? Math.round(clamp(rawMaxModelRetryCount, 0, 10))
           : DEFAULT_SETTINGS.maxModelRetryCount,
+      permissionToggles: normalizePermissionToggles(parsed.permissionToggles),
     })
   } catch {
     return DEFAULT_SETTINGS
@@ -1688,6 +1801,14 @@ function App() {
     systemPrompt: false,
     skillCallSystemPrompt: false,
   })
+  const [requestingPermissionByKey, setRequestingPermissionByKey] = useState<
+    Record<AppPermissionKey, boolean>
+  >({
+    location: false,
+    camera: false,
+    microphone: false,
+    notifications: false,
+  })
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const cameraInputRef = useRef<HTMLInputElement | null>(null)
@@ -1711,6 +1832,7 @@ function App() {
     skills: 0,
     'skill-config': 0,
     runtimes: 0,
+    permissions: 0,
   })
   const drawerScrollTopRef = useRef(0)
   const titleTransitionPrepRef = useRef<PendingTitleTransition | null>(null)
@@ -2433,6 +2555,62 @@ function App() {
       [key]: value,
     }))
   }
+
+  const handlePermissionToggle = useCallback(
+    async (key: AppPermissionKey, enabled: boolean): Promise<void> => {
+      if (!enabled) {
+        applySettingsUpdate((previous) => ({
+          ...previous,
+          permissionToggles: {
+            ...previous.permissionToggles,
+            [key]: false,
+          },
+        }))
+        return
+      }
+
+      setRequestingPermissionByKey((previous) => ({
+        ...previous,
+        [key]: true,
+      }))
+      try {
+        const granted =
+          key === 'location'
+            ? await requestLocationPermission()
+            : key === 'camera'
+              ? await requestMediaPermission({ video: true })
+              : key === 'microphone'
+                ? await requestMediaPermission({ audio: true })
+                : await requestNotificationPermission()
+        if (!granted) {
+          pushNotice(`${PERMISSION_LABELS[key]}权限未授予。请在系统设置中手动开启。`, 'error')
+          applySettingsUpdate((previous) => ({
+            ...previous,
+            permissionToggles: {
+              ...previous.permissionToggles,
+              [key]: false,
+            },
+          }))
+          return
+        }
+
+        applySettingsUpdate((previous) => ({
+          ...previous,
+          permissionToggles: {
+            ...previous.permissionToggles,
+            [key]: true,
+          },
+        }))
+        pushNotice(`${PERMISSION_LABELS[key]}权限已开启。`, 'success')
+      } finally {
+        setRequestingPermissionByKey((previous) => ({
+          ...previous,
+          [key]: false,
+        }))
+      }
+    },
+    [applySettingsUpdate, pushNotice],
+  )
 
   const handleNumericSettingChange = (
     key: NumericSettingKey,
@@ -3246,6 +3424,7 @@ function App() {
           }
 
           const stepId = createId()
+          const executableAction = applyPermissionGatesToSkillCall(action, settings.permissionToggles)
           appendStatus(`调用 skill：${action.skill} / ${action.script}`)
           appendAssistantSkillStep(roundId, {
             id: stepId,
@@ -3254,12 +3433,12 @@ function App() {
             script: action.script,
             status: 'running',
           })
-          blocks.push(buildSkillCallBlock(action))
+          blocks.push(buildSkillCallBlock(executableAction))
 
           try {
-            const execution = await executeSkillCall(action)
+            const execution = await executeSkillCall(executableAction)
             const payload = {
-              ...parseSkillExecutionPayload(action, execution.stdout, execution.stderr),
+              ...parseSkillExecutionPayload(executableAction, execution.stdout, execution.stderr),
               exitCode: execution.exitCode,
               elapsedMs: Math.round(execution.elapsedMs),
               resolvedCommand: execution.resolvedCommand,
@@ -4755,7 +4934,13 @@ function App() {
         type="button"
         className="icon-button"
         aria-label="拍照"
-        onClick={() => cameraInputRef.current?.click()}
+        onClick={() => {
+          if (!settings.permissionToggles.camera) {
+            pushNotice('请先在权限设置中开启相机权限。', 'error')
+            return
+          }
+          cameraInputRef.current?.click()
+        }}
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path
@@ -5001,6 +5186,18 @@ function App() {
                 : nativeRuntimeAvailable
                   ? `已发现 ${runtimeRecords.length} 个运行时`
                   : '当前平台不支持直接执行外部运行时'}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className="settings-entry-button"
+            onClick={() => navigateSettingsView('permissions')}
+          >
+            <span className="settings-entry-title">权限设置</span>
+            <span className="settings-entry-meta">
+              已开启 {Object.values(settings.permissionToggles).filter(Boolean).length} /{' '}
+              {Object.keys(settings.permissionToggles).length}
             </span>
           </button>
         </div>
@@ -5895,6 +6092,39 @@ function App() {
     </>
   )
 
+  const renderPermissionsSettings = () => (
+    <>
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">权限管理</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+        <p className="summary-muted">
+          默认关闭。打开开关时才会向系统申请权限；关闭开关只会停止本应用使用该权限，不会撤销系统已授权。
+        </p>
+      </section>
+
+      <section className="settings-section">
+        <div className="field-grid">
+          {(Object.keys(PERMISSION_LABELS) as AppPermissionKey[]).map((key) => (
+            <label key={key} className="toggle-row">
+              <span>{PERMISSION_LABELS[key]}</span>
+              <input
+                className="toggle-switch"
+                type="checkbox"
+                checked={settings.permissionToggles[key]}
+                disabled={requestingPermissionByKey[key]}
+                onChange={(event) => {
+                  void handlePermissionToggle(key, event.target.checked)
+                }}
+              />
+            </label>
+          ))}
+        </div>
+      </section>
+    </>
+  )
+
   const renderSettingsPage = () => {
     const title =
       settingsView === 'providers'
@@ -5907,6 +6137,8 @@ function App() {
           ? 'Skill 配置'
           : settingsView === 'runtimes'
             ? '运行时设置'
+            : settingsView === 'permissions'
+              ? '权限设置'
             : 'Chatroom 设置'
 
     const showBack = settingsView !== 'main'
@@ -5922,7 +6154,9 @@ function App() {
           ? renderSkillsSettings()
           : settingsView === 'skill-config'
             ? renderSkillConfigSettings()
-            : renderRuntimeSettings()
+            : settingsView === 'runtimes'
+              ? renderRuntimeSettings()
+              : renderPermissionsSettings()
 
     return (
       <section
