@@ -1,6 +1,6 @@
 ---
 name: union-search
-description: 聚合网页搜索、平台站内搜索、图片搜索、URL 抽取和 RSS 检索。当问题需要最新信息、外部来源、跨平台交叉验证或站点限定搜索时使用。改自https://github.com/runningZ1/union-search-skill。
+description: "聚合网页搜索、平台站内搜索、图片搜索、URL 抽取和 RSS 检索。当问题需要最新信息、外部来源、跨平台交叉验证或站点限定搜索时使用。改自 https://github.com/runningZ1/union-search-skill。"
 author: ChatroomAI
 version: "0.2.0"
 ---

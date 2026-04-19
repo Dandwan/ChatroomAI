@@ -1,6 +1,6 @@
 ---
 name: device-info
-description: 获取当前设备时间、日期、位置与方向信息。
+description: "获取当前设备时间、日期、位置与方向信息。"
 author: ChatroomAI
 version: "0.1.0"
 ---
