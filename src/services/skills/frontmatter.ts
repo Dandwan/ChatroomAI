@@ -10,7 +10,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 export const parseSkillDocument = (content: string): SkillDocument => {
   const match = content.match(FRONTMATTER_PATTERN)
   const body = (match ? content.slice(match[0].length) : content).trim()
-  const parsed = match ? (parse(match[1]) as unknown) : {}
+  let parsed: unknown = {}
+  if (match) {
+    try {
+      parsed = parse(match[1]) as unknown
+    } catch {
+      parsed = {}
+    }
+  }
   const frontmatterRaw = isRecord(parsed) ? parsed : {}
   const headingName = body.match(/^#\s+(.+?)\s*$/m)?.[1]?.trim()
   const frontmatter: SkillFrontmatter = {
