@@ -71,7 +71,15 @@ const toBuiltinFiles = (files: Record<string, string>, prefix: string): Record<s
         if (markerIndex === -1) {
           return null
         }
-        return [path.slice(markerIndex + marker.length), content] as const
+        const relativePath = path
+          .slice(markerIndex + marker.length)
+          .replace(/\\/g, '/')
+          .replace(/^\/+/, '')
+          .replace(/\?.*$/, '')
+        if (!relativePath) {
+          return null
+        }
+        return [relativePath, content] as const
       })
       .filter((entry): entry is [string, string] => entry !== null),
   )
