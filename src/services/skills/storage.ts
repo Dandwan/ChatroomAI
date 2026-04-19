@@ -144,6 +144,10 @@ export const listDirectory = async (path: string): Promise<string[]> => {
 export const installZipDirectory = async (
   file: File,
   targetRoot: string,
+  options?: {
+    allowFlatRoot?: boolean
+    fallbackRootFolder?: string
+  },
 ): Promise<{
   rootFolder: string
   replacedExisting: boolean
@@ -154,24 +158,40 @@ export const installZipDirectory = async (
   const archive = await JSZip.loadAsync(await file.arrayBuffer())
   const files = Object.values(archive.files).filter((entry) => !entry.dir && !entry.name.startsWith('__MACOSX/'))
   const roots = new Set<string>()
+  const normalizedEntries = files.map((entry) => ensureSafeRelativePath(entry.name))
 
-  for (const entry of files) {
-    const normalized = ensureSafeRelativePath(entry.name)
+  for (const normalized of normalizedEntries) {
     const [root] = normalized.split('/')
     if (root) {
       roots.add(root)
     }
   }
 
-  if (roots.size !== 1) {
+  const hasFlatSkillRoot = normalizedEntries.includes('SKILL.md')
+  const hasRootLevelEntries = normalizedEntries.some((entry) => !entry.includes('/'))
+  const shouldUseFlatRoot = options?.allowFlatRoot === true && hasFlatSkillRoot && hasRootLevelEntries
+
+  if (roots.size !== 1 && !shouldUseFlatRoot) {
     throw new Error('Skill 或 runtime 压缩包必须只包含一个顶层目录。')
   }
 
-  const [rootFolder] = Array.from(roots)
-  const skillMarkdownEntry = archive.file(`${rootFolder}/SKILL.md`)
+  const fallbackRootFolder = (options?.fallbackRootFolder ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
+  const [wrappedRootFolder] = Array.from(roots)
+  const rootFolder = shouldUseFlatRoot ? fallbackRootFolder || 'skill' : wrappedRootFolder
+
+  const skillMarkdownEntry = shouldUseFlatRoot
+    ? archive.file('SKILL.md')
+    : archive.file(`${rootFolder}/SKILL.md`)
   const skillMarkdown = skillMarkdownEntry ? await skillMarkdownEntry.async('text') : undefined
   let configTemplate: Record<string, unknown> | null = null
-  const configTemplateEntry = archive.file(`${rootFolder}/config-template.json`)
+  const configTemplateEntry = shouldUseFlatRoot
+    ? archive.file('config-template.json')
+    : archive.file(`${rootFolder}/config-template.json`)
   if (configTemplateEntry) {
     try {
       configTemplate = JSON.parse(await configTemplateEntry.async('text')) as Record<string, unknown>
@@ -188,10 +208,10 @@ export const installZipDirectory = async (
   const writtenEntries: string[] = []
   for (const entry of files) {
     const normalized = ensureSafeRelativePath(entry.name)
-    if (!normalized.startsWith(`${rootFolder}/`)) {
+    if (!shouldUseFlatRoot && !normalized.startsWith(`${rootFolder}/`)) {
       continue
     }
-    const relative = normalized.slice(rootFolder.length + 1)
+    const relative = shouldUseFlatRoot ? normalized : normalized.slice(rootFolder.length + 1)
     const destination = joinRelativePath(targetPath, relative)
     const data = await entry.async('uint8array')
     await writeBinaryFile(destination, data)

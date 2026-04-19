@@ -552,6 +552,22 @@ button:not(:disabled):hover {
   animation: fade-up 0.25s ease;
 }
 
+.empty-state-mode-card {
+  margin-top: 8px;
+  background: var(--surface-card);
+  border-style: solid;
+}
+
+.empty-state-mode-card h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 16px;
+}
+
+.empty-state-mode-toggle {
+  padding: 0;
+}
+
 .empty-state h2 {
   margin: 0;
   color: var(--text-primary);
