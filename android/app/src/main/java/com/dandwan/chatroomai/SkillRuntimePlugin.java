@@ -1,5 +1,9 @@
 package com.dandwan.chatroomai;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.location.Location;
+import android.location.LocationManager;
 import android.os.Build;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -7,6 +11,7 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import androidx.core.content.ContextCompat;
 import java.io.BufferedReader;
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
@@ -228,6 +233,75 @@ public class SkillRuntimePlugin extends Plugin {
                 result.put("resolvedCommand", JSArray.from(processResult.command.toArray(new String[0])));
                 result.put("inferredRuntime", resolution.runtimeType);
                 call.resolve(result);
+            } catch (Exception ex) {
+                call.reject(ex.getMessage(), ex);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void getLastKnownLocation(PluginCall call) {
+        execute(() -> {
+            try {
+                boolean hasFinePermission =
+                    ContextCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_FINE_LOCATION) ==
+                    PackageManager.PERMISSION_GRANTED;
+                boolean hasCoarsePermission =
+                    ContextCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                    PackageManager.PERMISSION_GRANTED;
+
+                if (!hasFinePermission && !hasCoarsePermission) {
+                    JSObject denied = new JSObject();
+                    denied.put("available", false);
+                    denied.put("reason", "location-permission-denied");
+                    call.resolve(denied);
+                    return;
+                }
+
+                LocationManager locationManager = (LocationManager) getContext().getSystemService(LocationManager.class);
+                if (locationManager == null) {
+                    JSObject unavailable = new JSObject();
+                    unavailable.put("available", false);
+                    unavailable.put("reason", "location-manager-unavailable");
+                    call.resolve(unavailable);
+                    return;
+                }
+
+                Location newest = null;
+                String newestProvider = null;
+                List<String> providers = locationManager.getProviders(true);
+                for (String provider : providers) {
+                    Location candidate = locationManager.getLastKnownLocation(provider);
+                    if (candidate == null) {
+                        continue;
+                    }
+                    if (newest == null || candidate.getTime() > newest.getTime()) {
+                        newest = candidate;
+                        newestProvider = provider;
+                    }
+                }
+
+                if (newest == null) {
+                    JSObject missing = new JSObject();
+                    missing.put("available", false);
+                    missing.put("reason", "last-known-location-missing");
+                    call.resolve(missing);
+                    return;
+                }
+
+                JSObject result = new JSObject();
+                result.put("available", true);
+                result.put("provider", newestProvider);
+                result.put("latitude", newest.getLatitude());
+                result.put("longitude", newest.getLongitude());
+                result.put("accuracyMeters", newest.hasAccuracy() ? newest.getAccuracy() : JSONObject.NULL);
+                result.put("altitude", newest.hasAltitude() ? newest.getAltitude() : JSONObject.NULL);
+                result.put("speed", newest.hasSpeed() ? newest.getSpeed() : JSONObject.NULL);
+                result.put("bearing", newest.hasBearing() ? newest.getBearing() : JSONObject.NULL);
+                result.put("timestamp", newest.getTime());
+                call.resolve(result);
+            } catch (SecurityException ex) {
+                call.reject(ex.getMessage(), ex);
             } catch (Exception ex) {
                 call.reject(ex.getMessage(), ex);
             }
