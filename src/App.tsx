@@ -1458,31 +1458,63 @@ const normalizePermissionToggles = (value: unknown): PermissionToggles => {
   }
 }
 
+const queryPermissionState = async (name: string): Promise<PermissionState | null> => {
+  if (typeof navigator === 'undefined' || !navigator.permissions?.query) {
+    return null
+  }
+  try {
+    const status = await navigator.permissions.query({
+      name: name as PermissionName,
+    })
+    return status.state
+  } catch {
+    return null
+  }
+}
+
 const requestLocationPermission = async (): Promise<boolean> => {
   if (typeof navigator === 'undefined' || !navigator.geolocation) {
     return false
   }
-  return new Promise((resolve) => {
+  const stateBefore = await queryPermissionState('geolocation')
+  if (stateBefore === 'granted') {
+    return true
+  }
+  const requestResult = await new Promise<'granted' | 'denied' | 'unknown'>((resolve) => {
     navigator.geolocation.getCurrentPosition(
-      () => resolve(true),
-      () => resolve(false),
+      () => resolve('granted'),
+      (error) => resolve(error.code === 1 ? 'denied' : 'unknown'),
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 0 },
     )
   })
+  if (requestResult === 'granted') {
+    return true
+  }
+  if (requestResult === 'denied') {
+    return false
+  }
+  const stateAfter = await queryPermissionState('geolocation')
+  return stateAfter === 'granted'
 }
 
-const requestMediaPermission = async (constraints: MediaStreamConstraints): Promise<boolean> => {
+const requestMediaPermission = async (kind: 'camera' | 'microphone'): Promise<boolean> => {
   if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
     return false
   }
+  const stateBefore = await queryPermissionState(kind)
+  if (stateBefore === 'granted') {
+    return true
+  }
   try {
+    const constraints: MediaStreamConstraints = kind === 'camera' ? { video: true } : { audio: true }
     const stream = await navigator.mediaDevices.getUserMedia(constraints)
     for (const track of stream.getTracks()) {
       track.stop()
     }
     return true
   } catch {
-    return false
+    const stateAfter = await queryPermissionState(kind)
+    return stateAfter === 'granted'
   }
 }
 
@@ -2578,9 +2610,9 @@ function App() {
           key === 'location'
             ? await requestLocationPermission()
             : key === 'camera'
-              ? await requestMediaPermission({ video: true })
+              ? await requestMediaPermission('camera')
               : key === 'microphone'
-                ? await requestMediaPermission({ audio: true })
+                ? await requestMediaPermission('microphone')
                 : await requestNotificationPermission()
         if (!granted) {
           pushNotice(`${PERMISSION_LABELS[key]}权限未授予。请在系统设置中手动开启。`, 'error')
