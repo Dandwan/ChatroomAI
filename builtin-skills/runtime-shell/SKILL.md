@@ -3,7 +3,6 @@ name: runtime-shell
 description: 通过已安装运行时直接执行 Node/Python 命令，并支持命令输出持续查看。
 author: ChatroomAI
 version: "0.1.0"
-requires-read-before-call: true
 ---
 
 # Runtime Shell
