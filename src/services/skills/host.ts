@@ -79,11 +79,11 @@ const toBuiltinFiles = (files: Record<string, string>, prefix: string): Record<s
 const createBuiltinSkillDefinition = (
   id: string,
   files: Record<string, string>,
-): BuiltinSkillDefinition => {
+): BuiltinSkillDefinition | null => {
   const fileMap = toBuiltinFiles(files, `builtin-skills/${id}`)
   const markdown = fileMap['SKILL.md']
   if (!markdown) {
-    throw new Error(`内置 skill 缺少 SKILL.md：${id}`)
+    return null
   }
   return {
     id,
@@ -99,7 +99,7 @@ const BUILTIN_SKILLS: BuiltinSkillDefinition[] = [
   createBuiltinSkillDefinition('union-search', builtinUnionSearchFiles),
   createBuiltinSkillDefinition('device-info', builtinDeviceInfoFiles),
   createBuiltinSkillDefinition('runtime-shell', builtinRuntimeShellFiles),
-]
+].filter((skill): skill is BuiltinSkillDefinition => skill !== null)
 
 export const getBuiltinSkillRoot = (skillId: string): string =>
   joinRelativePath(SKILL_DIRECTORIES.builtin, skillId)
@@ -128,7 +128,12 @@ const loadBuiltinRecord = async (
     return null
   }
 
-  const document = parseSkillDocument(skill.markdown)
+  let document: SkillDocument
+  try {
+    document = parseSkillDocument(skill.markdown)
+  } catch {
+    return null
+  }
   return {
     id: skill.id,
     source: 'builtin',
@@ -156,7 +161,12 @@ const readInstalledSkillRecord = async (
   }
 
   const content = await readTextFile(markdownPath)
-  const document = parseSkillDocument(content)
+  let document: SkillDocument
+  try {
+    document = parseSkillDocument(content)
+  } catch {
+    return null
+  }
   const stat = Date.now()
   let configTemplate: Record<string, unknown> | null = null
   const configTemplatePath = joinRelativePath(INSTALLED_SKILLS_PATH, safeId, 'config-template.json')
