@@ -1089,20 +1089,6 @@ const createSkillDocBlock = (skillId: string, payload: Record<string, unknown>):
 
 const createSkillDocReadMarker = (skillId: string): string => `读取了${skillId}文档`
 
-const hasSkillDocForSkill = (blocks: PromptBlock[], skillId: string): boolean => {
-  const key = normalizeSkillId(skillId)
-  return blocks.some((block) => {
-    if (block.type !== 'skill_doc') {
-      return false
-    }
-    const title = block.title.trim()
-    if (!title.startsWith('Skill Doc ')) {
-      return false
-    }
-    return normalizeSkillId(title.slice('Skill Doc '.length)) === key
-  })
-}
-
 const deduplicateSkillReadActions = (actions: ExecutableAgentAction[]): ExecutableAgentAction[] => {
   const seenReadSkills = new Set<string>()
   const unique: ExecutableAgentAction[] = []
@@ -3246,24 +3232,6 @@ function App() {
             status: 'running',
           })
           blocks.push(buildSkillCallBlock(action))
-
-          if (!hasSkillDocForSkill(blocks, action.skill)) {
-            const message = `调用 ${action.skill}/${action.script} 前必须先读取该 skill 文档（skill_read）。`
-            const payload = {
-              id: action.id,
-              skill: action.skill,
-              script: action.script,
-              error: message,
-            }
-            blocks.push(formatSkillErrorBlock(`${action.skill}/${action.script}`, payload))
-            updateAssistantSkillStep(roundId, stepId, {
-              status: 'error',
-              error: message,
-              result: formatSkillStepResult(payload),
-            })
-            appendStatus(`skill 失败：${action.skill} / ${action.script}`)
-            continue
-          }
 
           try {
             const execution = await executeSkillCall(action)
