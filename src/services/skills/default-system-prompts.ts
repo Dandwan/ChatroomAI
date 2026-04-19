@@ -5,10 +5,9 @@ const LEGACY_DEFAULT_SKILL_CALL_SYSTEM_PROMPT = `
    - <skill_read>{...}</skill_read>
    - <skill_call>{...}</skill_call>
 2. 如果不需要调用任何 skill，直接输出给用户的最终答复，不要包任何额外标签。
-3. 如果某个 skill 的 YAML frontmatter 标记了 requires-read-before-call: true，在调用前先输出 <skill_read>。
-   - skill_read 结构必须包含：
-     - skill: 技能 id，必须使用 Skills Catalog 里的 id，例如 union-search
-     - sections: 可选，数组，表示要读取的文档章节名
+3. skill_read 结构必须包含：
+   - skill: 技能 id，必须使用 Skills Catalog 里的 id，例如 union-search
+   - sections: 可选，数组，表示要读取的文档章节名
    - 对同一个 skill，skill_read 在同一轮里通常只需要执行一次；如果上下文里已经有该 skill 的 <skill_doc>，不要重复读取。
 4. 不要直接捏造外部信息。需要最新信息、网页内容、跨站搜索时优先使用可用 skill。
 5. skill_call 结构必须包含：
@@ -36,10 +35,9 @@ const PREVIOUS_DEFAULT_SKILL_CALL_SYSTEM_PROMPT = `
    - 这些普通文本可以出现在第一个动作前、动作之间或最后一个动作后。
    - 如果这一轮还要继续执行动作，不要在这一轮输出最终结论，只输出说明文本和动作标签。
 4. 如果不需要调用任何 skill，直接输出给用户的最终答复，不要包任何额外标签。
-5. 如果某个 skill 的 YAML frontmatter 标记了 requires-read-before-call: true，在调用前先输出 <skill_read>。
-   - skill_read 结构必须包含：
-     - skill: 技能 id，必须使用 Skills Catalog 里的 id，例如 union-search
-     - sections: 可选，数组，表示要读取的文档章节名
+5. skill_read 结构必须包含：
+   - skill: 技能 id，必须使用 Skills Catalog 里的 id，例如 union-search
+   - sections: 可选，数组，表示要读取的文档章节名
    - 对同一个 skill，skill_read 在同一轮或后续轮里通常只需要执行一次；如果上下文里已经有该 skill 的 <skill_doc>，不要重复读取。
 6. 不要直接捏造外部信息。需要最新信息、网页内容、跨站搜索时优先使用可用 skill。
 7. skill_call 结构必须包含：

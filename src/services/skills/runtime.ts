@@ -6,7 +6,13 @@ import {
   readJsonFile,
   writeJsonFile,
 } from './storage'
-import { nativeInspectRuntime, nativePreparePath, nativeTestRuntime } from './native-runtime'
+import {
+  isNativeRuntimeAvailable,
+  nativeInstallBundledRuntime,
+  nativeInspectRuntime,
+  nativePreparePath,
+  nativeTestRuntime,
+} from './native-runtime'
 import type { RuntimeInstallResult, RuntimeRecord, RuntimeType } from './types'
 
 interface RuntimeHostState {
@@ -32,6 +38,12 @@ const DEFAULT_STATE: RuntimeHostState = {
 
 const RUNTIMES_ROOT = 'skill-host/runtimes'
 const STATE_PATH = 'skill-host/state/runtimes.json'
+const BUNDLED_RUNTIME_ARCHIVES = [
+  {
+    id: 'nodejs-termux-aarch64',
+    assetPath: 'public/runtime-packages/nodejs-termux-aarch64.zip',
+  },
+] as const
 
 const guessRuntimeType = (folderName: string): RuntimeType => {
   const normalized = folderName.toLowerCase()
@@ -145,6 +157,25 @@ export const initializeRuntimeHost = async (): Promise<void> => {
     enabledById: { ...DEFAULT_STATE.enabledById, ...state.enabledById },
     metadataById: { ...DEFAULT_STATE.metadataById, ...state.metadataById },
   })
+}
+
+export const ensureBundledRuntimesInstalled = async (): Promise<void> => {
+  if (!isNativeRuntimeAvailable()) {
+    return
+  }
+  await initializeRuntimeHost()
+  const installed = new Set(await listDirectory(RUNTIMES_ROOT))
+  for (const bundled of BUNDLED_RUNTIME_ARCHIVES) {
+    if (installed.has(bundled.id)) {
+      const existing = await inspectRuntimeDirectory(bundled.id)
+      if (existing.executablePath) {
+        continue
+      }
+    }
+    await nativeInstallBundledRuntime(bundled.assetPath, bundled.id)
+    await nativePreparePath(joinRelativePath(RUNTIMES_ROOT, bundled.id))
+    installed.add(bundled.id)
+  }
 }
 
 export const listRuntimes = async (): Promise<RuntimeRecord[]> => {

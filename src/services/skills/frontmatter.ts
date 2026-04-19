@@ -9,16 +9,21 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 export const parseSkillDocument = (content: string): SkillDocument => {
   const match = content.match(FRONTMATTER_PATTERN)
-  if (!match) {
-    throw new Error('SKILL.md 缺少 YAML frontmatter。')
+  const body = (match ? content.slice(match[0].length) : content).trim()
+  const parsed = match ? (parse(match[1]) as unknown) : {}
+  const frontmatterRaw = isRecord(parsed) ? parsed : {}
+  const headingName = body.match(/^#\s+(.+?)\s*$/m)?.[1]?.trim()
+  const frontmatter: SkillFrontmatter = {
+    ...frontmatterRaw,
+    name:
+      typeof frontmatterRaw.name === 'string' && frontmatterRaw.name.trim()
+        ? frontmatterRaw.name.trim()
+        : headingName || 'unnamed-skill',
+    description:
+      typeof frontmatterRaw.description === 'string' && frontmatterRaw.description.trim()
+        ? frontmatterRaw.description.trim()
+        : '未提供描述。',
   }
-
-  const parsed = parse(match[1]) as unknown
-  if (!isRecord(parsed) || typeof parsed.name !== 'string' || typeof parsed.description !== 'string') {
-    throw new Error('SKILL.md frontmatter 至少需要包含 name 和 description。')
-  }
-
-  const body = content.slice(match[0].length).trim()
   const sections: Record<string, string> = {}
 
   const headings = [...body.matchAll(HEADING_PATTERN)]
@@ -36,7 +41,7 @@ export const parseSkillDocument = (content: string): SkillDocument => {
   }
 
   return {
-    frontmatter: parsed as SkillFrontmatter,
+    frontmatter,
     body,
     content,
     sections,

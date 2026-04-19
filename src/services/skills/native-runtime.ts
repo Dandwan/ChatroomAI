@@ -5,6 +5,11 @@ interface PreparePathOptions {
   relativePath: string
 }
 
+interface InstallBundledRuntimeOptions {
+  assetPath: string
+  runtimeId: string
+}
+
 interface InspectRuntimeOptions {
   relativePath: string
 }
@@ -36,6 +41,7 @@ interface TestRuntimeResult {
 
 interface NativeRuntimePlugin {
   preparePath(options: PreparePathOptions): Promise<void>
+  installBundledRuntime(options: InstallBundledRuntimeOptions): Promise<void>
   inspectRuntime(options: InspectRuntimeOptions): Promise<InspectRuntimeResult>
   executeProcess(options: ExecuteProcessOptions): Promise<SkillExecutionResult>
   testRuntime(options: TestRuntimeOptions): Promise<TestRuntimeResult>
@@ -47,6 +53,9 @@ const NativeRuntime = registerPlugin<NativeRuntimePlugin>('SkillRuntime', {
   web: () => ({
     async preparePath() {
       return
+    },
+    async installBundledRuntime() {
+      throw new Error('当前平台不支持内置运行时安装。')
     },
     async inspectRuntime() {
       throw new Error('当前平台不支持外部运行时。')
@@ -75,6 +84,19 @@ export const nativePreparePath = async (relativePath: string): Promise<void> => 
     return
   }
   await NativeRuntime.preparePath({ relativePath })
+}
+
+export const nativeInstallBundledRuntime = async (
+  assetPath: string,
+  runtimeId: string,
+): Promise<void> => {
+  if (!isNativeRuntimeAvailable()) {
+    return
+  }
+  await NativeRuntime.installBundledRuntime({
+    assetPath,
+    runtimeId,
+  })
 }
 
 export const nativeInspectRuntime = async (relativePath: string): Promise<InspectRuntimeResult> =>

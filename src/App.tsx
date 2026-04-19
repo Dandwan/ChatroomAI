@@ -55,7 +55,7 @@ import {
 } from './services/skills/default-system-prompts'
 import {
   deleteRuntime,
-  initializeRuntimeHost,
+  ensureBundledRuntimesInstalled,
   installRuntimePackage,
   listRuntimes,
   setDefaultRuntime,
@@ -2169,7 +2169,10 @@ function App() {
     }
     const errors: string[] = []
     try {
-      const initializeResults = await Promise.allSettled([initializeSkillHost(), initializeRuntimeHost()])
+      const initializeResults = await Promise.allSettled([
+        initializeSkillHost(),
+        ensureBundledRuntimesInstalled(),
+      ])
       for (const result of initializeResults) {
         if (result.status === 'rejected') {
           errors.push(result.reason instanceof Error ? result.reason.message : '初始化扩展能力失败')
