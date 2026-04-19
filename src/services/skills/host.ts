@@ -62,6 +62,19 @@ type BuiltinSkillDefinition = {
   files: Record<string, string>
 }
 
+const createFallbackSkillDocument = (skillId: string, markdown: string): SkillDocument => {
+  const body = markdown.replace(/^---[\s\S]*?\r?\n---\s*\r?\n?/, '').trim()
+  return {
+    frontmatter: {
+      name: skillId,
+      description: `${skillId} 的 SKILL.md 解析失败，已使用降级元数据。`,
+    },
+    body,
+    content: markdown,
+    sections: body ? { Overview: body } : {},
+  }
+}
+
 const toBuiltinFiles = (files: Record<string, string>, prefix: string): Record<string, string> =>
   Object.fromEntries(
     Object.entries(files)
@@ -140,7 +153,7 @@ const loadBuiltinRecord = async (
   try {
     document = parseSkillDocument(skill.markdown)
   } catch {
-    return null
+    document = createFallbackSkillDocument(skill.id, skill.markdown)
   }
   return {
     id: skill.id,
@@ -198,11 +211,16 @@ export const initializeSkillHost = async (): Promise<void> => {
   await initializeStorage()
   await Promise.all(BUILTIN_SKILLS.map((skill) => materializeBuiltinSkill(skill)))
   const state = await readState()
+  const deletedBuiltinIds = Array.isArray(state.deletedBuiltinIds)
+    ? state.deletedBuiltinIds.filter((item) => BUILTIN_SKILLS.some((skill) => skill.id === item))
+    : []
+  const hasAllBuiltinsDeleted =
+    BUILTIN_SKILLS.length > 0 && BUILTIN_SKILLS.every((skill) => deletedBuiltinIds.includes(skill.id))
   await writeState({
     ...DEFAULT_STATE,
     ...state,
     enabledById: { ...DEFAULT_STATE.enabledById, ...state.enabledById },
-    deletedBuiltinIds: Array.isArray(state.deletedBuiltinIds) ? state.deletedBuiltinIds : [],
+    deletedBuiltinIds: hasAllBuiltinsDeleted ? [] : deletedBuiltinIds,
     metadataById: { ...DEFAULT_STATE.metadataById, ...state.metadataById },
   })
 }
@@ -240,7 +258,11 @@ export const getSkillDocument = async (skillId: string): Promise<SkillDocument> 
 
   const builtin = BUILTIN_SKILLS.find((item) => item.id === skillId)
   if (builtin) {
-    return parseSkillDocument(builtin.markdown)
+    try {
+      return parseSkillDocument(builtin.markdown)
+    } catch {
+      return createFallbackSkillDocument(builtin.id, builtin.markdown)
+    }
   }
 
   throw new Error(`未找到 skill：${skillId}`)
