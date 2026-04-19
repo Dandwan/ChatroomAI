@@ -309,9 +309,14 @@ export const deleteSkill = async (skillId: string): Promise<void> => {
 
 export const installSkillPackage = async (file: File): Promise<SkillInstallResult> => {
   await initializeSkillHost()
+  const fallbackRootFolder = file.name.replace(/\.zip$/i, '')
   const { rootFolder, replacedExisting, skillMarkdown, configTemplate } = await installZipDirectory(
     file,
     INSTALLED_SKILLS_PATH,
+    {
+      allowFlatRoot: true,
+      fallbackRootFolder,
+    },
   )
   if (!skillMarkdown) {
     throw new Error('Skill 压缩包必须包含顶层 SKILL.md。')

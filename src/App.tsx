@@ -189,6 +189,7 @@ interface AppSettings {
   systemPrompt: string
   skillCallSystemPrompt: string
   themeMode: ThemeMode
+  skillModeEnabled: boolean
   temperature: number
   topP: number
   maxTokens: number
@@ -353,6 +354,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   `.trim(),
   skillCallSystemPrompt: DEFAULT_SKILL_CALL_SYSTEM_PROMPT,
   themeMode: 'system',
+  skillModeEnabled: true,
   temperature: 0.7,
   topP: 1,
   maxTokens: 8192,
@@ -1613,6 +1615,10 @@ const loadSettings = (): AppSettings => {
           ? upgradeSkillCallSystemPrompt(parsed.skillCallSystemPrompt)
           : DEFAULT_SETTINGS.skillCallSystemPrompt,
       themeMode: normalizeThemeMode(parsed.themeMode),
+      skillModeEnabled:
+        typeof parsed.skillModeEnabled === 'boolean'
+          ? parsed.skillModeEnabled
+          : DEFAULT_SETTINGS.skillModeEnabled,
       temperature:
         rawTemperature !== undefined ? clamp(rawTemperature, 0, 2) : DEFAULT_SETTINGS.temperature,
       topP: rawTopP !== undefined ? clamp(rawTopP, 0, 1) : DEFAULT_SETTINGS.topP,
@@ -3364,6 +3370,13 @@ function App() {
     try {
       if (!currentUserMessage || currentUserMessage.role !== 'user') {
         throw new Error('当前对话无法定位本轮用户输入。')
+      }
+
+      if (!settings.skillModeEnabled) {
+        const promptMessages = buildApiMessages(history, settingsSnapshot.systemPrompt)
+        const completion = await requestModelCompletion(promptMessages)
+        applyAssistantResult(conversationId, assistantId, completion, promptMessages)
+        return
       }
 
       const blocks: PromptBlock[] = [
@@ -6433,120 +6446,137 @@ function App() {
         onWheelCapture={handleMessageListWheelCapture}
       >
         {activeMessages.length === 0 ? (
-          <section className="empty-state">
-            <h2>Chatroom</h2>
-            <p className="empty-state-line empty-state-intro">
-              我是<span className="empty-state-nowrap">ChatroomAI</span>！
-              <wbr />
-              欢迎找我聊天呀<span className="empty-state-emoticon">ʕ˶'༥'˶ʔ♡</span>
-            </p>
+          <>
+            <section className="empty-state">
+              <h2>Chatroom</h2>
+              <p className="empty-state-line empty-state-intro">
+                我是<span className="empty-state-nowrap">ChatroomAI</span>！
+                <wbr />
+                欢迎找我聊天呀<span className="empty-state-emoticon">ʕ˶'༥'˶ʔ♡</span>
+              </p>
 
-            {emptyStateStats.shouldShowMiddleSection ? (
-              <>
+              {emptyStateStats.shouldShowMiddleSection ? (
+                <>
+                  <div className="empty-state-divider" aria-hidden="true" />
+
+                  <div className="empty-state-body">
+                    <p className="empty-state-line">
+                      在过去的
+                      <span className="empty-state-nowrap">
+                        {emptyStateStats.daysSinceFirstConversation}天
+                      </span>
+                      里，
+                      <wbr />
+                      我们曾经有过
+                      <span className="empty-state-nowrap">
+                        {numberFormatter.format(emptyStateStats.totalConversationCount)}次对话
+                      </span>
+                      ，
+                      <wbr />
+                      你发送过
+                      <span className="empty-state-nowrap">
+                        {numberFormatter.format(emptyStateStats.totalPhotoCount)}张照片
+                      </span>
+                      ，
+                      <wbr />
+                      我们一起消耗了
+                      <span className="empty-state-nowrap">
+                        {formatTokenLabel(emptyStateStats.totalTokenCount)}
+                      </span>
+                      <span className="empty-state-emoticon">(՞˶･֊･˶՞)</span>
+                    </p>
+
+                    {emptyStateStats.earliestTimeRecord ? (
+                      <p className="empty-state-line">
+                        最早的时候，
+                        <wbr />
+                        你从
+                        <span className="empty-state-nowrap">
+                          {formatClockTime(emptyStateStats.earliestTimeRecord.timestamp)}
+                        </span>
+                        就开始与我聊天了，
+                        <wbr />
+                        在
+                        <span className="empty-state-nowrap">
+                          {formatChatDayMonthDay(emptyStateStats.earliestTimeRecord.timestamp, true)}
+                        </span>
+                        <span className="empty-state-emoticon"> ε٩(๑&gt; ₃ &lt;)۶з</span>
+                      </p>
+                    ) : null}
+
+                    {emptyStateStats.latestTimeRecord ? (
+                      <p className="empty-state-line">
+                        最晚的时候，
+                        <wbr />
+                        你在
+                        <span className="empty-state-nowrap">
+                          {formatClockTime(emptyStateStats.latestTimeRecord.timestamp)}时
+                        </span>
+                        还没有入睡，
+                        <wbr />
+                        在
+                        <span className="empty-state-nowrap">
+                          {formatChatDayMonthDay(emptyStateStats.latestTimeRecord.timestamp)}
+                        </span>
+                        ，
+                        <wbr />
+                        要注意身体哦<span className="empty-state-emoticon"> (๑• . •๑)</span>
+                      </p>
+                    ) : null}
+
+                    {emptyStateStats.busiestDay ? (
+                      <p className="empty-state-line">
+                        聊的最多的一天，
+                        <wbr />
+                        我们有过
+                        <span className="empty-state-nowrap">
+                          {numberFormatter.format(emptyStateStats.busiestDay.rounds)}次对话
+                        </span>
+                        ，
+                        <wbr />
+                        一起消耗了
+                        <span className="empty-state-nowrap">
+                          {formatTokenLabel(emptyStateStats.busiestDay.tokens)}
+                        </span>
+                        ，
+                        <wbr />
+                        在
+                        <span className="empty-state-nowrap">
+                          {formatCalendarMonthDay(emptyStateStats.busiestDay.timestamp, true)}
+                        </span>
+                        <span className="empty-state-emoticon">(｡•ㅅ•｡)♡</span>
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="empty-state-divider" aria-hidden="true" />
+                </>
+              ) : (
                 <div className="empty-state-divider" aria-hidden="true" />
+              )}
 
-                <div className="empty-state-body">
-                  <p className="empty-state-line">
-                    在过去的
-                    <span className="empty-state-nowrap">
-                      {emptyStateStats.daysSinceFirstConversation}天
-                    </span>
-                    里，
-                    <wbr />
-                    我们曾经有过
-                    <span className="empty-state-nowrap">
-                      {numberFormatter.format(emptyStateStats.totalConversationCount)}次对话
-                    </span>
-                    ，
-                    <wbr />
-                    你发送过
-                    <span className="empty-state-nowrap">
-                      {numberFormatter.format(emptyStateStats.totalPhotoCount)}张照片
-                    </span>
-                    ，
-                    <wbr />
-                    我们一起消耗了
-                    <span className="empty-state-nowrap">
-                      {formatTokenLabel(emptyStateStats.totalTokenCount)}
-                    </span>
-                    <span className="empty-state-emoticon">(՞˶･֊･˶՞)</span>
-                  </p>
-
-                  {emptyStateStats.earliestTimeRecord ? (
-                    <p className="empty-state-line">
-                      最早的时候，
-                      <wbr />
-                      你从
-                      <span className="empty-state-nowrap">
-                        {formatClockTime(emptyStateStats.earliestTimeRecord.timestamp)}
-                      </span>
-                      就开始与我聊天了，
-                      <wbr />
-                      在
-                      <span className="empty-state-nowrap">
-                        {formatChatDayMonthDay(emptyStateStats.earliestTimeRecord.timestamp, true)}
-                      </span>
-                      <span className="empty-state-emoticon"> ε٩(๑&gt; ₃ &lt;)۶з</span>
-                    </p>
-                  ) : null}
-
-                  {emptyStateStats.latestTimeRecord ? (
-                    <p className="empty-state-line">
-                      最晚的时候，
-                      <wbr />
-                      你在
-                      <span className="empty-state-nowrap">
-                        {formatClockTime(emptyStateStats.latestTimeRecord.timestamp)}时
-                      </span>
-                      还没有入睡，
-                      <wbr />
-                      在
-                      <span className="empty-state-nowrap">
-                        {formatChatDayMonthDay(emptyStateStats.latestTimeRecord.timestamp)}
-                      </span>
-                      ，
-                      <wbr />
-                      要注意身体哦<span className="empty-state-emoticon"> (๑• . •๑)</span>
-                    </p>
-                  ) : null}
-
-                  {emptyStateStats.busiestDay ? (
-                    <p className="empty-state-line">
-                      聊的最多的一天，
-                      <wbr />
-                      我们有过
-                      <span className="empty-state-nowrap">
-                        {numberFormatter.format(emptyStateStats.busiestDay.rounds)}次对话
-                      </span>
-                      ，
-                      <wbr />
-                      一起消耗了
-                      <span className="empty-state-nowrap">
-                        {formatTokenLabel(emptyStateStats.busiestDay.tokens)}
-                      </span>
-                      ，
-                      <wbr />
-                      在
-                      <span className="empty-state-nowrap">
-                        {formatCalendarMonthDay(emptyStateStats.busiestDay.timestamp, true)}
-                      </span>
-                      <span className="empty-state-emoticon">(｡•ㅅ•｡)♡</span>
-                    </p>
-                  ) : null}
-                </div>
-
-                <div className="empty-state-divider" aria-hidden="true" />
-              </>
-            ) : (
-              <div className="empty-state-divider" aria-hidden="true" />
-            )}
-
-            <p className="empty-state-line empty-state-outro">
-              接下来，
-              <wbr />
-              让我来回答你的问题吧<span className="empty-state-emoticon">(´,,•ω•,,)♡</span>
-            </p>
-          </section>
+              <p className="empty-state-line empty-state-outro">
+                接下来，
+                <wbr />
+                让我来回答你的问题吧<span className="empty-state-emoticon">(´,,•ω•,,)♡</span>
+              </p>
+            </section>
+            <section className="empty-state empty-state-mode-card">
+              <h3>对话模式设置</h3>
+              <p className="empty-state-line">
+                当前模式：{settings.skillModeEnabled ? '技能模式（可调用 Skills）' : '文本模式（仅文本回复）'}
+              </p>
+              <label className="toggle-row empty-state-mode-toggle">
+                <span>{settings.skillModeEnabled ? '关闭可切换为文本模式' : '打开可切换为技能模式'}</span>
+                <input
+                  className="toggle-switch"
+                  type="checkbox"
+                  checked={settings.skillModeEnabled}
+                  onChange={(event) => updateSetting('skillModeEnabled', event.target.checked)}
+                />
+              </label>
+            </section>
+          </>
         ) : null}
 
         {activeMessages.map((message) => {
