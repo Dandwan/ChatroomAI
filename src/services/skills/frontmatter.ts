@@ -7,13 +7,19 @@ const HEADING_PATTERN = /^##\s+(.+?)\s*$/gm
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
 
+const normalizeFrontmatterText = (value: string): string =>
+  value
+    .replace(/^\uFEFF/, '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+
 export const parseSkillDocument = (content: string): SkillDocument => {
   const match = content.match(FRONTMATTER_PATTERN)
   const body = (match ? content.slice(match[0].length) : content).trim()
   let parsed: unknown = {}
   if (match) {
     try {
-      parsed = parse(match[1]) as unknown
+      parsed = parse(normalizeFrontmatterText(match[1])) as unknown
     } catch {
       parsed = {}
     }
