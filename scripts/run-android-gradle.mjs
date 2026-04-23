@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const gradleArgs = process.argv.slice(2)
@@ -14,10 +14,28 @@ const currentDir = dirname(fileURLToPath(import.meta.url))
 const androidDir = resolve(currentDir, '..', 'android')
 const bundledJavaHome = '/opt/android-studio/jbr'
 const env = { ...process.env }
+const userProfile = env.USERPROFILE ?? ''
+
+const findWindowsJavaHome = () => {
+  const candidates = [
+    join(userProfile, 'scoop', 'apps', 'android-studio', 'current', 'jbr'),
+    join(userProfile, 'scoop', 'apps', 'openjdk21', 'current'),
+  ]
+
+  return candidates.find((candidate) => existsSync(resolve(candidate, 'bin', 'java.exe')))
+}
 
 if (!env.JAVA_HOME && existsSync(resolve(bundledJavaHome, 'bin', 'java'))) {
   env.JAVA_HOME = bundledJavaHome
   env.PATH = `${resolve(bundledJavaHome, 'bin')}:${env.PATH ?? ''}`
+}
+
+if (process.platform === 'win32') {
+  const windowsJavaHome = findWindowsJavaHome()
+  if (windowsJavaHome) {
+    env.JAVA_HOME = windowsJavaHome
+    env.PATH = `${resolve(windowsJavaHome, 'bin')};${env.PATH ?? ''}`
+  }
 }
 
 const command =

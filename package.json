@@ -1,7 +1,7 @@
 {
   "name": "chatroom",
   "private": true,
-  "version": "1.1.5",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,7 +11,7 @@
     "test:api": "node scripts/api-smoke-test.mjs",
     "runtime:package:node": "node scripts/package-node-runtime.mjs",
     "android:add": "npx cap add android",
-    "android:sync": "npm run build && npx cap sync android",
+    "android:sync": "npm run build && node scripts/cap-sync-android.mjs",
     "android:gradle": "node scripts/run-android-gradle.mjs",
     "android:build:debug": "npm run android:sync && npm run android:gradle -- assembleDebug",
     "android:build:release": "npm run android:sync && npm run android:gradle -- assembleRelease",

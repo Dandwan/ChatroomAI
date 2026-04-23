@@ -5,9 +5,14 @@ interface TokenUsage {
   reasoningTokens?: number
 }
 
-interface ApiMessage {
+export type ApiRole = 'system' | 'user' | 'assistant'
+export type ApiContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
+export interface ApiMessage {
   role: 'system' | 'user' | 'assistant'
-  content: string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>
+  content: string | ApiContentPart[]
 }
 
 export interface RequestSettings {

@@ -24,13 +24,32 @@ import remarkMath from 'remark-math'
 import {
   authHeaders,
   buildApiUrl,
-  normalizeUsage,
   readErrorMessage,
   requestNonStreamCompletion,
   requestStreamCompletion,
+  type ApiContentPart,
+  type ApiMessage,
+  type ApiRole,
   type RequestSettings,
 } from './services/chat-api'
-import { executeSkillCall, readSkillSections } from './services/skills/executor'
+import {
+  buildApiMessagesFromTranscript,
+  createConversationFromTranscript,
+  createUserMessageTranscriptEvent,
+  isTranscriptConversationWorkspacePlaceholder,
+  projectConversationMessages,
+  withConversationTranscript,
+  type AssistantMessageTranscriptEvent,
+  type HostMessageTranscriptEvent,
+  type ProjectedConversationMessage,
+  type TranscriptContentPart,
+  type TranscriptConversation,
+  type TranscriptEvent,
+  type TranscriptImageAttachment,
+  type TranscriptTokenUsage,
+  type UserMessageTranscriptEvent,
+} from './services/chat-transcript'
+import { executeReadAction, executeSkillCall } from './services/skills/executor'
 import {
   deleteSkill,
   initializeSkillHost,
@@ -43,17 +62,33 @@ import {
 import { isNativeRuntimeAvailable } from './services/skills/native-runtime'
 import {
   createAgentStreamParser,
+  createSkillActionPlaceholder,
   buildPromptBlocksText,
   buildRuntimeCatalogBlock,
   buildSkillsCatalogBlock,
-  formatSkillErrorBlock,
-  formatSkillResultBlock,
-  parseAgentActions,
+  formatStructuredMarkdown,
+  normalizeSkillAgentProtocolResponse,
+  type SkillActionStreamEvent,
 } from './services/skills/protocol'
 import {
+  DEFAULT_GENERAL_TAG_SYSTEM_PROMPT,
+  DEFAULT_READ_SYSTEM_PROMPT,
   DEFAULT_SKILL_CALL_SYSTEM_PROMPT,
-  upgradeSkillCallSystemPrompt,
+  DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT,
+  LEGACY_DEFAULT_TAG_SYSTEM_PROMPT,
+  migrateLegacyTagSystemPrompts,
 } from './services/skills/default-system-prompts'
+import {
+  DEFAULT_INFO_PROMPT_SETTINGS,
+  INFO_PROMPT_DEFINITIONS,
+  buildDeviceInfoPromptMarkdown,
+  buildWorkspaceInfoPromptMarkdown,
+  createDeviceInfoPromptSnapshot,
+  createWorkspaceInfoPromptSnapshot,
+  normalizeInfoPromptOverride,
+  type InfoPromptDefinition,
+  type InfoPromptSettingKey,
+} from './services/skills/info-system-prompts'
 import {
   deleteRuntime,
   ensureBundledRuntimesInstalled,
@@ -64,21 +99,46 @@ import {
   testRuntime,
 } from './services/skills/runtime'
 import type {
-  ExecutableAgentAction,
   PromptBlock,
   RuntimeRecord,
   SkillCallAction,
   SkillRecord,
 } from './services/skills/types'
 import ChatInputBox from './components/ChatInputBox'
+import ImageViewer, { type ImageViewerItem } from './components/ImageViewer'
 import SkillConfigJsonEditor, { type JsonObjectValue } from './components/SkillConfigJsonEditor'
+import {
+  appendAssistantFlowContent,
+  appendAssistantFlowDivider,
+  assistantFlowToPlainText,
+  clearAssistantFlowRound,
+  createAssistantTextFlow,
+  markAssistantFlowRoundError,
+  upsertAssistantFlowSkillNodeByToken,
+  type AssistantFlowNode,
+  type AssistantFlowSkillKind,
+  type AssistantFlowSkillNode,
+} from './utils/assistant-flow'
+import {
+  getChatStatePersistenceSignature,
+  loadChatState as loadStoredChatState,
+  loadStoredAttachmentDataUrl,
+  persistChatState,
+} from './services/chat-storage'
 import { compressImageDataUrl, createImageAttachments } from './utils/images'
 import './App.css'
 
-type Role = 'user' | 'assistant'
 type ModelHealth = 'untested' | 'testing' | 'ok' | 'error'
 type ThemeMode = 'light' | 'dark' | 'system'
-type ProviderPromptSettingKey = 'systemPrompt' | 'skillCallSystemPrompt'
+type TagPromptSettingKey =
+  | 'topLevelTagSystemPrompt'
+  | 'generalTagSystemPrompt'
+  | 'readSystemPrompt'
+  | 'skillCallSystemPrompt'
+type DeprecatedPromptSettingKey = 'deprecatedTagPrompts'
+type GlobalPromptSettingKey = 'systemPrompt' | TagPromptSettingKey
+type ProviderPromptSettingKey = GlobalPromptSettingKey
+type ProviderBooleanSettingKey = InfoPromptSettingKey
 type ProviderNumericSettingKey =
   | 'temperature'
   | 'topP'
@@ -99,7 +159,12 @@ interface ProviderConfig {
   apiKey: string
   models: ProviderModel[]
   systemPrompt?: string
+  topLevelTagSystemPrompt?: string
+  generalTagSystemPrompt?: string
+  readSystemPrompt?: string
   skillCallSystemPrompt?: string
+  deviceInfoPromptEnabled?: boolean
+  workspaceInfoPromptEnabled?: boolean
   temperature?: number
   topP?: number
   maxTokens?: number
@@ -108,13 +173,7 @@ interface ProviderConfig {
   maxModelRetryCount?: number
 }
 
-interface ImageAttachment {
-  id: string
-  name: string
-  mimeType: string
-  size: number
-  dataUrl: string
-}
+type ImageAttachment = TranscriptImageAttachment
 
 interface PendingImageAttachment extends ImageAttachment {
   originalDataUrl: string
@@ -122,63 +181,132 @@ interface PendingImageAttachment extends ImageAttachment {
   compressionRate: number
 }
 
-interface TokenUsage {
-  promptTokens: number
-  completionTokens: number
-  totalTokens: number
-  reasoningTokens?: number
+interface ImageViewerState {
+  items: ImageViewerItem[]
+  initialIndex: number
 }
 
-type SkillStepKind = 'skill_read' | 'skill_call'
+type TokenUsage = TranscriptTokenUsage
 
-interface SkillStep {
-  id: string
-  kind: SkillStepKind
-  skill: string
-  script?: string
-  sections?: string[]
-  explanation?: string
-  result?: string
-  status: 'running' | 'success' | 'error'
-  error?: string
-}
+type SkillStepKind = AssistantFlowSkillKind
 
-interface SkillRound {
-  id: string
-  explanation?: string
-  steps: SkillStep[]
-}
-
-interface ChatMessage {
-  id: string
-  role: Role
-  text: string
-  images?: ImageAttachment[]
-  reasoning?: string
-  skillRounds?: SkillRound[]
-  skillSteps?: SkillStep[]
-  createdAt: number
-  model?: string
-  usage?: TokenUsage
-  usageEstimated?: boolean
-  firstTokenLatencyMs?: number
-  totalTimeMs?: number
-  error?: string
-}
-
-interface Conversation {
-  id: string
-  title: string
-  titleManuallyEdited: boolean
-  messages: ChatMessage[]
-  createdAt: number
-  updatedAt: number
-}
+type ChatMessage = ProjectedConversationMessage
+type Conversation = TranscriptConversation
 
 interface ConversationGroup {
   id: string
   labelTime: number
   conversations: Conversation[]
+}
+
+const buildMessageImageViewerKey = (messageId: string, imageId: string): string =>
+  `message:${messageId}:${imageId}`
+
+const buildPendingImageViewerKey = (imageId: string): string => `pending:${imageId}`
+
+const toImageViewerItem = (
+  key: string,
+  image: Pick<ImageAttachment, 'name' | 'dataUrl'>,
+): ImageViewerItem | null => {
+  const dataUrl = image.dataUrl.trim()
+  if (!dataUrl) {
+    return null
+  }
+
+  return {
+    key,
+    name: image.name.trim() || '图片预览',
+    dataUrl,
+  }
+}
+
+const collectConversationImageViewerItems = (
+  messages: ChatMessage[],
+  pendingImages: PendingImageAttachment[],
+): ImageViewerItem[] => {
+  const items: ImageViewerItem[] = []
+
+  for (const message of messages) {
+    for (const image of message.images ?? []) {
+      const item = toImageViewerItem(buildMessageImageViewerKey(message.id, image.id), image)
+      if (item) {
+        items.push(item)
+      }
+    }
+  }
+
+  for (const image of pendingImages) {
+    const item = toImageViewerItem(buildPendingImageViewerKey(image.id), image)
+    if (item) {
+      items.push(item)
+    }
+  }
+
+  return items
+}
+
+const applyAssignedImageStorageKeys = (
+  conversations: Conversation[],
+  assignments: Array<{
+    conversationId: string
+    messageId: string
+    imageId: string
+    storageKey: string
+  }>,
+): Conversation[] => {
+  if (assignments.length === 0) {
+    return conversations
+  }
+
+  return conversations.map((conversation) => {
+    const conversationAssignments = assignments.filter((item) => item.conversationId === conversation.id)
+    if (conversationAssignments.length === 0) {
+      return conversation
+    }
+
+    let conversationChanged = false
+    const nextTranscript = conversation.transcript.map((event) => {
+      if (event.kind !== 'user_message') {
+        return event
+      }
+
+      const messageAssignments = conversationAssignments.filter((item) => item.messageId === event.id)
+      if (messageAssignments.length === 0) {
+        return event
+      }
+
+      let eventChanged = false
+      const nextContent = event.content.map((part) => {
+        if (part.type !== 'image') {
+          return part
+        }
+        const matched = messageAssignments.find((item) => item.imageId === part.image.id)
+        if (!matched || part.image.storageKey === matched.storageKey) {
+          return part
+        }
+        eventChanged = true
+        return {
+          type: 'image' as const,
+          image: {
+            ...part.image,
+            storageKey: matched.storageKey,
+          },
+        }
+      })
+
+      if (!eventChanged) {
+        return event
+      }
+
+      conversationChanged = true
+      return {
+        ...event,
+        content: nextContent,
+      }
+    })
+
+    return conversationChanged ? { ...conversation, transcript: nextTranscript } : conversation
+  })
 }
 
 type AppPermissionKey = 'location' | 'camera' | 'microphone' | 'notifications'
@@ -187,7 +315,13 @@ type PermissionToggles = Record<AppPermissionKey, boolean>
 
 interface AppSettings {
   systemPrompt: string
+  topLevelTagSystemPrompt: string
+  generalTagSystemPrompt: string
+  readSystemPrompt: string
   skillCallSystemPrompt: string
+  deviceInfoPromptEnabled: boolean
+  workspaceInfoPromptEnabled: boolean
+  deprecatedTagPrompts: string
   themeMode: ThemeMode
   skillModeEnabled: boolean
   temperature: number
@@ -253,14 +387,6 @@ type NumericSettingKey =
   | 'emptyStateStatsMinConversations'
   | 'maxModelRetryCount'
 
-type ApiRole = 'system' | 'user' | 'assistant'
-type ApiContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
-
-interface ApiMessage {
-  role: ApiRole
-  content: string | ApiContentPart[]
-}
-
 interface CompletionResult {
   text: string
   reasoning: string
@@ -279,7 +405,12 @@ interface ActiveProviderRequestSettings extends RequestSettings {
   providerId: string
   providerName: string
   systemPrompt: string
+  topLevelTagSystemPrompt: string
+  generalTagSystemPrompt: string
+  readSystemPrompt: string
   skillCallSystemPrompt: string
+  deviceInfoPromptEnabled: boolean
+  workspaceInfoPromptEnabled: boolean
   maxModelRetryCount: number
 }
 
@@ -291,22 +422,24 @@ interface EnabledModelOption {
 
 type SettingsView =
   | 'main'
+  | 'tag-prompts'
   | 'providers'
   | 'provider-detail'
+  | 'provider-tag-prompts'
   | 'skills'
   | 'skill-config'
   | 'runtimes'
   | 'permissions'
-type PromptEditorKey = ProviderPromptSettingKey
+type PromptEditorKey = GlobalPromptSettingKey
+type TagPromptEditorKey = PromptEditorKey | DeprecatedPromptSettingKey
 
 const SETTINGS_STORAGE_KEY = 'chatroom.settings.v1'
-const LEGACY_MESSAGES_STORAGE_KEY = 'chatroom.messages.v1'
-const CONVERSATIONS_STORAGE_KEY = 'chatroom.conversations.v2'
-const DRAFTS_STORAGE_KEY = 'chatroom.drafts.v1'
-const ACTIVE_CONVERSATION_STORAGE_KEY = 'chatroom.active-conversation.v2'
+const DEBUG_SKILL_ROUND_LOG_STORAGE_KEY = 'chatroom.debug.skill-round-log.v1'
+const DEBUG_OBJECT_FLOW_LOG_STORAGE_KEY = 'chatroom.debug.object-flow-log.v1'
+const DEBUG_LOG_ENTRY_LIMIT = 240
+const DEBUG_LOG_TEXT_LIMIT = 6000
 
-const MAX_STORED_MESSAGES = 100
-const MAX_STORED_CONVERSATIONS = 40
+const MAX_EMPTY_STATE_STATS_MIN_CONVERSATIONS = 9999
 const DEFAULT_DELETE_CONFIRM_GRACE_SECONDS = 30
 const DEFAULT_CONVERSATION_GROUP_GAP_MINUTES = 30
 const DEFAULT_AUTO_COLLAPSE_CONVERSATIONS = true
@@ -324,6 +457,102 @@ const MESSAGE_LIST_INTERACTION_IDLE_MS = 140
 const DRAWER_TO_SETTINGS_OPEN_DELAY_MS = 220
 const SETTINGS_PERSIST_DEBOUNCE_MS = 320
 const CHAT_STATE_PERSIST_DEBOUNCE_MS = 1200
+
+const truncateDebugLogText = (value: string, limit = DEBUG_LOG_TEXT_LIMIT): string =>
+  value.length <= limit ? value : `${value.slice(0, limit)}…(truncated ${value.length - limit})`
+
+const normalizePromptMessagesForDebug = (
+  messages: ApiMessage[],
+): Array<{ role: ApiRole; content: string | ApiContentPart[] }> =>
+  messages.map((message) => ({
+    role: message.role,
+    content:
+      typeof message.content === 'string'
+        ? truncateDebugLogText(message.content)
+        : message.content.map((part) =>
+            part.type === 'text'
+              ? {
+                  type: 'text' as const,
+                  text: truncateDebugLogText(part.text, 1200),
+                }
+              : {
+                  type: 'image_url' as const,
+                  image_url: {
+                    url: part.image_url.url.startsWith('data:')
+                      ? '[data-url omitted]'
+                      : truncateDebugLogText(part.image_url.url, 300),
+                  },
+                },
+          ),
+  }))
+
+const readDebugLogEntries = (storageKey: string): Record<string, unknown>[] => {
+  if (typeof localStorage === 'undefined') {
+    return []
+  }
+  try {
+    const raw = localStorage.getItem(storageKey)
+    if (!raw) {
+      return []
+    }
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+    return parsed.filter((item): item is Record<string, unknown> => isRecord(item))
+  } catch {
+    return []
+  }
+}
+
+const appendDebugLogEntry = (storageKey: string, entry: Record<string, unknown>): void => {
+  if (typeof localStorage === 'undefined') {
+    return
+  }
+  try {
+    const next = [...readDebugLogEntries(storageKey), entry].slice(-DEBUG_LOG_ENTRY_LIMIT)
+    localStorage.setItem(storageKey, JSON.stringify(next))
+  } catch {
+    // Ignore debug log persistence errors.
+  }
+}
+
+const clearDebugLogEntries = (storageKey: string): void => {
+  if (typeof localStorage === 'undefined') {
+    return
+  }
+  try {
+    localStorage.removeItem(storageKey)
+  } catch {
+    // Ignore debug log cleanup errors.
+  }
+}
+
+const buildDebugLogReportText = (
+  roundLogs: Record<string, unknown>[],
+  objectLogs: Record<string, unknown>[],
+): string => {
+  const roundTail = roundLogs.slice(-80)
+  const objectTail = objectLogs.slice(-160)
+  const roundText = JSON.stringify(roundTail, null, 2) ?? '[]'
+  const objectText = JSON.stringify(objectTail, null, 2) ?? '[]'
+
+  return [
+    `调试日志导出：`,
+    `- skill 回合日志总数：${roundLogs.length}（本次导出尾部 ${roundTail.length} 条）`,
+    `- 对象流日志总数：${objectLogs.length}（本次导出尾部 ${objectTail.length} 条）`,
+    '',
+    '## skill 回合日志（输入/回答）',
+    '```json',
+    roundText,
+    '```',
+    '',
+    '## 界面对象流日志（添加/修改）',
+    '```json',
+    objectText,
+    '```',
+  ].join('\n')
+}
 
 const REMARK_PLUGINS = [remarkGfm, remarkMath]
 const REHYPE_PLUGINS = [rehypeKatex]
@@ -352,7 +581,12 @@ const DEFAULT_SETTINGS: AppSettings = {
 6.你可以在每一段话后面添加一个可爱的颜文字，来增进与主人的互动。尽量避免使用上文较近位置出现过的颜文字，尝试更多可爱的颜文字。
 7.使用latex输出数学公式
   `.trim(),
+  topLevelTagSystemPrompt: DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT,
+  generalTagSystemPrompt: DEFAULT_GENERAL_TAG_SYSTEM_PROMPT,
+  readSystemPrompt: DEFAULT_READ_SYSTEM_PROMPT,
   skillCallSystemPrompt: DEFAULT_SKILL_CALL_SYSTEM_PROMPT,
+  ...DEFAULT_INFO_PROMPT_SETTINGS,
+  deprecatedTagPrompts: '',
   themeMode: 'system',
   skillModeEnabled: true,
   temperature: 0.7,
@@ -372,6 +606,56 @@ const DEFAULT_SETTINGS: AppSettings = {
   emptyStateStatsMinConversations: DEFAULT_EMPTY_STATE_STATS_MIN_CONVERSATIONS,
   maxModelRetryCount: 3,
   permissionToggles: DEFAULT_PERMISSION_TOGGLES,
+}
+
+const PROMPT_DEFAULTS: Record<GlobalPromptSettingKey, string> = {
+  systemPrompt: DEFAULT_SETTINGS.systemPrompt,
+  topLevelTagSystemPrompt: DEFAULT_SETTINGS.topLevelTagSystemPrompt,
+  generalTagSystemPrompt: DEFAULT_SETTINGS.generalTagSystemPrompt,
+  readSystemPrompt: DEFAULT_SETTINGS.readSystemPrompt,
+  skillCallSystemPrompt: DEFAULT_SETTINGS.skillCallSystemPrompt,
+}
+
+const createDefaultSettings = (): AppSettings => ({
+  ...DEFAULT_SETTINGS,
+  providers: [],
+  permissionToggles: { ...DEFAULT_PERMISSION_TOGGLES },
+})
+
+interface DeprecatedPromptBlock {
+  id: string
+  title: string
+  content: string
+}
+
+const LEGACY_GLOBAL_TAG_PROMPT_BLOCK_ID = 'legacy-global-tag-system-prompt'
+const LEGACY_GLOBAL_TAG_PROMPT_BLOCK_TITLE = '旧版全局标签提示词'
+
+const buildDeprecatedPromptBlockText = ({ id, title, content }: DeprecatedPromptBlock): string =>
+  [
+    `===== ${title} | ${id} =====`,
+    content.trim(),
+    `===== END ${id} =====`,
+  ].join('\n')
+
+const upsertDeprecatedPromptBlock = (raw: string, block: DeprecatedPromptBlock): string => {
+  const normalizedContent = block.content.trim()
+  if (!normalizedContent) {
+    return raw
+  }
+
+  const normalizedRaw = raw.trim()
+  const startMarker = `===== ${block.title} | ${block.id} =====`
+  const endMarker = `===== END ${block.id} =====`
+  if (normalizedRaw.includes(startMarker) || normalizedRaw.includes(endMarker)) {
+    return raw
+  }
+
+  const nextBlock = buildDeprecatedPromptBlockText({
+    ...block,
+    content: normalizedContent,
+  })
+  return normalizedRaw ? `${normalizedRaw}\n\n${nextBlock}` : nextBlock
 }
 
 const NUMERIC_SETTING_DEFAULTS: Record<NumericSettingKey, number> = {
@@ -522,16 +806,11 @@ const createProviderConfig = (name = '服务商'): ProviderConfig => ({
   models: [],
 })
 
-const normalizeProviderPromptOverride = (
-  value: unknown,
-  upgrade?: (input: string) => string,
-): string | undefined => {
+const normalizeProviderPromptOverride = (value: unknown): string | undefined => {
   if (typeof value !== 'string') {
     return undefined
   }
-
-  const nextValue = upgrade ? upgrade(value) : value
-  return nextValue.trim().length > 0 ? nextValue : undefined
+  return value.trim().length > 0 ? value : undefined
 }
 
 const normalizeProviderNumericOverride = (
@@ -594,13 +873,62 @@ const normalizeProviderModels = (value: unknown): ProviderModel[] => {
   return models
 }
 
-const normalizeProviderConfig = (value: unknown): ProviderConfig | undefined => {
+const resolveProviderTagPromptOverrides = (
+  value: Record<string, unknown>,
+  migrateLegacyPrompts: boolean,
+): Pick<ProviderConfig, TagPromptSettingKey> => {
+  const hasAnyTagPromptOverride =
+    typeof value.topLevelTagSystemPrompt === 'string' ||
+    typeof value.generalTagSystemPrompt === 'string' ||
+    typeof value.readSystemPrompt === 'string' ||
+    typeof value.skillCallSystemPrompt === 'string'
+
+  if (!hasAnyTagPromptOverride) {
+    return {
+      topLevelTagSystemPrompt: undefined,
+      generalTagSystemPrompt: undefined,
+      readSystemPrompt: undefined,
+      skillCallSystemPrompt: undefined,
+    }
+  }
+
+  if (!migrateLegacyPrompts) {
+    return {
+      topLevelTagSystemPrompt: normalizeProviderPromptOverride(value.topLevelTagSystemPrompt),
+      generalTagSystemPrompt: normalizeProviderPromptOverride(value.generalTagSystemPrompt),
+      readSystemPrompt: normalizeProviderPromptOverride(value.readSystemPrompt),
+      skillCallSystemPrompt: normalizeProviderPromptOverride(value.skillCallSystemPrompt),
+    }
+  }
+
+  const migrated = migrateLegacyTagSystemPrompts(value)
+  return {
+    topLevelTagSystemPrompt: normalizeProviderPromptOverride(value.topLevelTagSystemPrompt),
+    generalTagSystemPrompt: normalizeProviderPromptOverride(migrated.generalTagSystemPrompt),
+    readSystemPrompt: normalizeProviderPromptOverride(migrated.readSystemPrompt),
+    skillCallSystemPrompt: normalizeProviderPromptOverride(migrated.skillCallSystemPrompt),
+  }
+}
+
+const resolveProviderInfoPromptOverrides = (
+  value: Record<string, unknown>,
+): Pick<ProviderConfig, InfoPromptSettingKey> => ({
+  deviceInfoPromptEnabled: normalizeInfoPromptOverride(value.deviceInfoPromptEnabled),
+  workspaceInfoPromptEnabled: normalizeInfoPromptOverride(value.workspaceInfoPromptEnabled),
+})
+
+const normalizeProviderConfig = (
+  value: unknown,
+  migrateLegacyPrompts = false,
+): ProviderConfig | undefined => {
   if (!isRecord(value)) {
     return undefined
   }
 
   const id = typeof value.id === 'string' && value.id.trim() ? value.id.trim() : createId()
   const name = typeof value.name === 'string' && value.name.trim() ? value.name.trim() : '未命名服务商'
+  const tagPromptOverrides = resolveProviderTagPromptOverrides(value, migrateLegacyPrompts)
+  const infoPromptOverrides = resolveProviderInfoPromptOverrides(value)
 
   return {
     id,
@@ -609,10 +937,12 @@ const normalizeProviderConfig = (value: unknown): ProviderConfig | undefined => 
     apiKey: typeof value.apiKey === 'string' ? value.apiKey : '',
     models: normalizeProviderModels(value.models),
     systemPrompt: normalizeProviderPromptOverride(value.systemPrompt),
-    skillCallSystemPrompt: normalizeProviderPromptOverride(
-      value.skillCallSystemPrompt,
-      upgradeSkillCallSystemPrompt,
-    ),
+    topLevelTagSystemPrompt: tagPromptOverrides.topLevelTagSystemPrompt,
+    generalTagSystemPrompt: tagPromptOverrides.generalTagSystemPrompt,
+    readSystemPrompt: tagPromptOverrides.readSystemPrompt,
+    skillCallSystemPrompt: tagPromptOverrides.skillCallSystemPrompt,
+    deviceInfoPromptEnabled: infoPromptOverrides.deviceInfoPromptEnabled,
+    workspaceInfoPromptEnabled: infoPromptOverrides.workspaceInfoPromptEnabled,
     temperature: normalizeProviderNumericOverride('temperature', value.temperature),
     topP: normalizeProviderNumericOverride('topP', value.topP),
     maxTokens: normalizeProviderNumericOverride('maxTokens', value.maxTokens),
@@ -622,40 +952,6 @@ const normalizeProviderConfig = (value: unknown): ProviderConfig | undefined => 
       'maxModelRetryCount',
       value.maxModelRetryCount,
     ),
-  }
-}
-
-const buildLegacyProvider = (parsed: Record<string, unknown>): ProviderConfig | undefined => {
-  const legacyModels = Array.isArray(parsed.models)
-    ? parsed.models
-        .filter((item): item is string => typeof item === 'string')
-        .map((item) => item.trim())
-        .filter(Boolean)
-    : []
-  const legacyCurrentModel =
-    typeof parsed.currentModel === 'string' ? parsed.currentModel.trim() : ''
-  const mergedModels = new Set(legacyModels)
-  if (legacyCurrentModel) {
-    mergedModels.add(legacyCurrentModel)
-  }
-
-  if (
-    typeof parsed.apiBaseUrl !== 'string' &&
-    typeof parsed.apiKey !== 'string' &&
-    mergedModels.size === 0
-  ) {
-    return undefined
-  }
-
-  return {
-    id: createId(),
-    name: '默认服务商',
-    apiBaseUrl: typeof parsed.apiBaseUrl === 'string' ? parsed.apiBaseUrl : '',
-    apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : '',
-    models: Array.from(mergedModels).map((modelId) => ({
-      id: modelId,
-      enabled: modelId === legacyCurrentModel,
-    })),
   }
 }
 
@@ -706,7 +1002,13 @@ const resolveProviderRequestSettings = (settings: AppSettings): ActiveProviderRe
     apiKey: provider.apiKey,
     currentModel: model.id,
     systemPrompt: provider.systemPrompt ?? settings.systemPrompt,
+    topLevelTagSystemPrompt: provider.topLevelTagSystemPrompt ?? settings.topLevelTagSystemPrompt,
+    generalTagSystemPrompt: provider.generalTagSystemPrompt ?? settings.generalTagSystemPrompt,
+    readSystemPrompt: provider.readSystemPrompt ?? settings.readSystemPrompt,
     skillCallSystemPrompt: provider.skillCallSystemPrompt ?? settings.skillCallSystemPrompt,
+    deviceInfoPromptEnabled: provider.deviceInfoPromptEnabled ?? settings.deviceInfoPromptEnabled,
+    workspaceInfoPromptEnabled:
+      provider.workspaceInfoPromptEnabled ?? settings.workspaceInfoPromptEnabled,
     temperature: provider.temperature ?? settings.temperature,
     topP: provider.topP ?? settings.topP,
     maxTokens: provider.maxTokens ?? settings.maxTokens,
@@ -820,103 +1122,6 @@ const getTravelOffset = (
   }
 }
 
-const normalizeStoredUsage = (raw: unknown): TokenUsage | undefined => {
-  if (!isRecord(raw)) {
-    return undefined
-  }
-  const promptTokens = toFiniteNumber(raw.promptTokens ?? raw.prompt_tokens)
-  const completionTokens = toFiniteNumber(raw.completionTokens ?? raw.completion_tokens)
-  const totalTokens = toFiniteNumber(raw.totalTokens ?? raw.total_tokens)
-  const reasoningTokens = toFiniteNumber(raw.reasoningTokens)
-
-  if (promptTokens === undefined && completionTokens === undefined && totalTokens === undefined) {
-    return undefined
-  }
-
-  const safePrompt = Math.max(0, Math.round(promptTokens ?? 0))
-  const safeCompletion = Math.max(0, Math.round(completionTokens ?? 0))
-  const safeTotal = Math.max(0, Math.round(totalTokens ?? safePrompt + safeCompletion))
-
-  return {
-    promptTokens: safePrompt,
-    completionTokens: safeCompletion,
-    totalTokens: safeTotal,
-    reasoningTokens,
-  }
-}
-
-const normalizeStoredSkillSteps = (value: unknown): SkillStep[] | undefined => {
-  if (!Array.isArray(value)) {
-    return undefined
-  }
-
-  const steps: SkillStep[] = []
-  for (const item of value) {
-    if (!isRecord(item) || typeof item.id !== 'string') {
-      continue
-    }
-    if (typeof item.skill !== 'string') {
-      continue
-    }
-    if (item.status !== 'running' && item.status !== 'success' && item.status !== 'error') {
-      continue
-    }
-
-    const kind: SkillStepKind = item.kind === 'skill_read' ? 'skill_read' : 'skill_call'
-    const script = typeof item.script === 'string' && item.script.trim() ? item.script : undefined
-    if (kind === 'skill_call' && !script) {
-      continue
-    }
-
-    const sections = Array.isArray(item.sections)
-      ? item.sections
-          .filter((section): section is string => typeof section === 'string')
-          .map((section) => section.trim())
-          .filter(Boolean)
-      : undefined
-
-    steps.push({
-      id: item.id,
-      kind,
-      skill: item.skill,
-      script,
-      sections: sections && sections.length > 0 ? sections : undefined,
-      explanation: typeof item.explanation === 'string' ? item.explanation : undefined,
-      result: typeof item.result === 'string' ? item.result : undefined,
-      status: item.status,
-      error: typeof item.error === 'string' ? item.error : undefined,
-    })
-  }
-
-  return steps.length > 0 ? steps : undefined
-}
-
-const normalizeStoredSkillRounds = (value: unknown): SkillRound[] | undefined => {
-  if (!Array.isArray(value)) {
-    return undefined
-  }
-
-  const rounds: SkillRound[] = []
-  for (const item of value) {
-    if (!isRecord(item) || typeof item.id !== 'string') {
-      continue
-    }
-
-    const steps = normalizeStoredSkillSteps(item.steps)
-    if (!steps || steps.length === 0) {
-      continue
-    }
-
-    rounds.push({
-      id: item.id,
-      explanation: typeof item.explanation === 'string' ? item.explanation : undefined,
-      steps,
-    })
-  }
-
-  return rounds.length > 0 ? rounds : undefined
-}
-
 const extractThinkBlocks = (text: string): { cleanedText: string; reasoning: string } => {
   const reasoningChunks: string[] = []
   const cleaned = text.replace(/<think>([\s\S]*?)<\/think>/gi, (_, captured: string) => {
@@ -987,7 +1192,7 @@ const formatMs = (value: number | undefined): string => {
   return `${(value / 1000).toFixed(2)}s`
 }
 
-const formatSkillStepStatus = (status: SkillStep['status']): string => {
+const formatSkillStepStatus = (status: AssistantFlowSkillNode['status']): string => {
   switch (status) {
     case 'running':
       return '进行中'
@@ -1000,13 +1205,66 @@ const formatSkillStepStatus = (status: SkillStep['status']): string => {
   }
 }
 
-const formatSkillStepTarget = (step: SkillStep): string =>
-  step.kind === 'skill_read'
-    ? `${step.skill} / skill_read`
-    : `${step.skill} / ${step.script ?? ''}`
+const formatReadLocation = ({
+  root,
+  skill,
+  path,
+}: {
+  root?: 'skill' | 'workspace'
+  skill?: string
+  path?: string
+}): string => {
+  const normalizedPath = path?.trim()
+  if (root === 'workspace') {
+    return normalizedPath && normalizedPath !== '.'
+      ? `workspace / ${normalizedPath}`
+      : 'workspace'
+  }
+  if (root === 'skill') {
+    if (skill && normalizedPath && normalizedPath !== '.') {
+      return `${skill} / ${normalizedPath}`
+    }
+    if (skill) {
+      return skill
+    }
+  }
+  if (skill && normalizedPath) {
+    return `${skill} / ${normalizedPath}`
+  }
+  if (skill) {
+    return skill
+  }
+  return normalizedPath && normalizedPath !== '.' ? normalizedPath : '读取'
+}
 
-const formatSkillStepResult = (payload: Record<string, unknown>): string =>
-  ['```json', JSON.stringify(payload, null, 2), '```'].join('\n')
+const formatSkillStepTarget = (step: AssistantFlowSkillNode): string => {
+  if (step.actionKind === 'read') {
+    const location = formatReadLocation({
+      root: step.root,
+      skill: step.skill,
+      path: step.path,
+    })
+    return step.op ? `${location} / ${step.op}` : location
+  }
+  if (step.actionKind === 'skill_call') {
+    if (step.skill && step.script) {
+      return `${step.skill} / ${step.script}`
+    }
+    if (step.skill) {
+      return step.skill
+    }
+  }
+  return '技能调用'
+}
+
+const formatSkillStepResult = (payload: unknown): string =>
+  formatStructuredMarkdown(payload)
+
+const stripSkillParsingHintLines = (text: string): string => {
+  const withoutHint = text.replace(/模型正在解析[\s\u00a0]*skill[\s\u00a0]*调用[^\n\r]*/gim, '')
+  const compacted = withoutHint.replace(/\n{3,}/g, '\n\n')
+  return compacted
+}
 
 const vibrateInteraction = (): void => {
   void Haptics.vibrate({ duration: 10 }).catch(() => {
@@ -1018,123 +1276,56 @@ const vibrateInteraction = (): void => {
   })
 }
 
-const buildApiMessages = (messages: ChatMessage[], systemPrompt: string): ApiMessage[] => {
-  const payload: ApiMessage[] = []
+const TRANSCRIPT_REPLAY_SYSTEM_PROMPT = `
+历史上下文会以原始多轮转录的形式回放：
 
-  if (systemPrompt.trim()) {
-    payload.push({ role: 'system', content: systemPrompt.trim() })
-  }
+1. 历史 assistant 输出中可能出现 <progress>、<read>、<skill_call>、<final> 等标签，它们只是历史记录，不会再次执行。
+2. 宿主会以 user 角色注入 <host_message>...</host_message> 作为工具结果或运行时反馈；这些内容不是用户新的自然语言输入。
+3. 只有你当前正在生成的这一次回复中的动作标签会被宿主解析和执行。
+`.trim()
 
-  for (const message of messages) {
-    if (message.role === 'assistant') {
-      payload.push({
-        role: 'assistant',
-        content: message.text,
-      })
-      continue
-    }
+const buildSkillAgentSystemPrompt = (
+  settings: Pick<ActiveProviderRequestSettings, PromptEditorKey | InfoPromptSettingKey>,
+  skills: SkillRecord[],
+  runtimes: RuntimeRecord[],
+  conversationId: string,
+  transcript: TranscriptEvent[],
+): string => {
+  const conversationSnapshot = createConversationFromTranscript(conversationId, transcript)
+  const workspaceInfoPrompt = settings.workspaceInfoPromptEnabled
+    ? buildWorkspaceInfoPromptMarkdown(
+        createWorkspaceInfoPromptSnapshot(
+          conversationSnapshot.id,
+          conversationSnapshot.createdAt,
+          conversationSnapshot.updatedAt,
+        ),
+      )
+    : ''
+  const deviceInfoPrompt = settings.deviceInfoPromptEnabled
+    ? buildDeviceInfoPromptMarkdown(createDeviceInfoPromptSnapshot())
+    : ''
+  const environmentBlocks: PromptBlock[] = [
+    {
+      type: 'app_policy',
+      title: 'Transcript Replay Semantics',
+      content: TRANSCRIPT_REPLAY_SYSTEM_PROMPT,
+    },
+    buildSkillsCatalogBlock(skills),
+    buildRuntimeCatalogBlock(runtimes),
+  ]
 
-    const parts: ApiContentPart[] = []
-    if (message.text.trim()) {
-      parts.push({ type: 'text', text: message.text })
-    }
-
-    for (const image of message.images ?? []) {
-      parts.push({
-        type: 'image_url',
-        image_url: { url: image.dataUrl },
-      })
-    }
-
-    if (parts.length === 0) {
-      payload.push({ role: 'user', content: '' })
-    } else if (parts.length === 1 && parts[0].type === 'text') {
-      payload.push({ role: 'user', content: parts[0].text })
-    } else {
-      payload.push({ role: 'user', content: parts })
-    }
-  }
-
-  return payload
-}
-
-const MAX_SKILL_AGENT_STEPS = 8
-
-const buildConversationStateBlock = (messages: ChatMessage[]): PromptBlock => ({
-  type: 'conversation_state',
-  title: 'Conversation State',
-  content:
-    messages.length === 0
-      ? '这是本轮开始前的空对话。'
-      : messages
-          .map((message, index) => {
-            const lines = [`## ${index + 1}. ${message.role === 'user' ? 'User' : 'Assistant'}`]
-            const text = message.text.trim()
-            if (text) {
-              lines.push(text)
-            } else {
-              lines.push('（无文本内容）')
-            }
-            if ((message.images?.length ?? 0) > 0) {
-              lines.push(`附带图片：${message.images?.length ?? 0} 张`)
-            }
-            if (message.error) {
-              lines.push(`错误：${message.error}`)
-            }
-            return lines.join('\n')
-          })
-          .join('\n\n'),
-})
-
-const buildUserInputBlock = (message: ChatMessage): PromptBlock => {
-  const lines: string[] = []
-  const text = message.text.trim()
-  lines.push(text || '（无文本内容）')
-  if ((message.images?.length ?? 0) > 0) {
-    lines.push(`附带图片：${message.images?.length ?? 0} 张`)
-  }
-
-  return {
-    type: 'user_input',
-    title: 'User Input',
-    content: lines.join('\n\n'),
-  }
-}
-
-const buildSkillCallBlock = (action: SkillCallAction): PromptBlock => ({
-  type: 'skill_call',
-  title: `Skill Call ${action.id}`,
-  content: ['```json', JSON.stringify(action, null, 2), '```'].join('\n'),
-})
-
-const normalizeSkillId = (value: string): string => value.trim().toLowerCase()
-
-const createSkillDocTitle = (skillId: string): string => `Skill Doc ${skillId}`
-
-const createSkillDocBlock = (skillId: string, payload: Record<string, unknown>): PromptBlock => ({
-  type: 'skill_doc',
-  title: createSkillDocTitle(skillId),
-  content: ['```json', JSON.stringify(payload, null, 2), '```'].join('\n'),
-})
-
-const createSkillDocReadMarker = (skillId: string): string => `读取了${skillId}文档`
-
-const deduplicateSkillReadActions = (actions: ExecutableAgentAction[]): ExecutableAgentAction[] => {
-  const seenReadSkills = new Set<string>()
-  const unique: ExecutableAgentAction[] = []
-  for (const action of actions) {
-    if (action.kind !== 'skill_read') {
-      unique.push(action)
-      continue
-    }
-    const key = normalizeSkillId(action.skill)
-    if (seenReadSkills.has(key)) {
-      continue
-    }
-    seenReadSkills.add(key)
-    unique.push(action)
-  }
-  return unique
+  return [
+    settings.systemPrompt.trim(),
+    settings.generalTagSystemPrompt.trim(),
+    settings.topLevelTagSystemPrompt.trim(),
+    settings.readSystemPrompt.trim(),
+    workspaceInfoPrompt,
+    settings.skillCallSystemPrompt.trim(),
+    deviceInfoPrompt,
+    buildPromptBlocksText(environmentBlocks),
+  ]
+    .filter(Boolean)
+    .join('\n\n')
 }
 
 const parseSkillExecutionPayload = (
@@ -1177,220 +1368,39 @@ const parseSkillExecutionPayload = (
   }
 }
 
-const buildSkillAgentMessages = (
-  historyBeforeCurrentUser: ChatMessage[],
-  currentUserMessage: ChatMessage,
-  settings: Pick<ActiveProviderRequestSettings, PromptEditorKey>,
-  blocks: PromptBlock[],
-): ApiMessage[] => {
-  const payload: ApiMessage[] = []
-  const systemSections = [
-    settings.systemPrompt.trim(),
-    settings.skillCallSystemPrompt.trim(),
-  ].filter(Boolean)
-  if (systemSections.length > 0) {
-    payload.push({
-      role: 'system',
-      content: systemSections.join('\n\n'),
-    })
-  }
-  if (historyBeforeCurrentUser.some((message) => (message.images?.length ?? 0) > 0)) {
-    payload.push(...buildApiMessages(historyBeforeCurrentUser, ''))
-  }
+const createConversation = (transcript: TranscriptEvent[] = []): Conversation =>
+  createConversationFromTranscript(createId(), transcript)
 
-  const promptText = buildPromptBlocksText(blocks)
-  if ((currentUserMessage.images?.length ?? 0) === 0) {
-    payload.push({
-      role: 'user',
-      content: promptText,
-    })
-    return payload
-  }
+const buildUserTranscriptContent = (
+  text: string,
+  images: ImageAttachment[] = [],
+): TranscriptContentPart[] => [
+  ...(text.length > 0 ? ([{ type: 'text', text }] as const) : []),
+  ...images.map((image) => ({
+    type: 'image' as const,
+    image,
+  })),
+]
 
-  payload.push({
-    role: 'user',
-    content: [
-      {
-        type: 'text',
-        text: promptText,
-      },
-      ...(currentUserMessage.images ?? []).map((image) => ({
-        type: 'image_url' as const,
-        image_url: {
-          url: image.dataUrl,
-        },
-      })),
-    ],
-  })
-  return payload
-}
+const getUserTranscriptText = (event: UserMessageTranscriptEvent): string =>
+  event.content
+    .filter((part): part is Extract<TranscriptContentPart, { type: 'text' }> => part.type === 'text')
+    .map((part) => part.text)
+    .join('')
 
-const normalizeStoredImages = (value: unknown): ImageAttachment[] | undefined => {
-  if (!Array.isArray(value)) {
-    return undefined
-  }
-  const images: ImageAttachment[] = []
-  for (const item of value) {
-    if (!isRecord(item)) {
-      continue
-    }
-    if (typeof item.id !== 'string' || typeof item.dataUrl !== 'string') {
-      continue
-    }
-    images.push({
-      id: item.id,
-      name: typeof item.name === 'string' ? item.name : 'image',
-      mimeType: typeof item.mimeType === 'string' ? item.mimeType : 'image/*',
-      size: Math.max(0, Math.round(toFiniteNumber(item.size) ?? 0)),
-      dataUrl: item.dataUrl,
-    })
-  }
-  return images.length > 0 ? images : undefined
-}
-
-const normalizeStoredMessages = (value: unknown): ChatMessage[] => {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  const messages: ChatMessage[] = []
-  for (const item of value) {
-    if (!isRecord(item)) {
-      continue
-    }
-
-    if (
-      typeof item.id !== 'string' ||
-      (item.role !== 'user' && item.role !== 'assistant') ||
-      typeof item.text !== 'string'
-    ) {
-      continue
-    }
-
-    const usage = normalizeStoredUsage(item.usage) ?? normalizeUsage(item.usage)
-
-    messages.push({
-      id: item.id,
-      role: item.role,
-      text: item.text,
-      images: normalizeStoredImages(item.images),
-      reasoning: typeof item.reasoning === 'string' ? item.reasoning : undefined,
-      skillRounds: normalizeStoredSkillRounds(item.skillRounds),
-      skillSteps: normalizeStoredSkillSteps(item.skillSteps),
-      createdAt: Math.round(toFiniteNumber(item.createdAt) ?? Date.now()),
-      model: typeof item.model === 'string' ? item.model : undefined,
-      usage,
-      usageEstimated: item.usageEstimated === true,
-      firstTokenLatencyMs: toFiniteNumber(item.firstTokenLatencyMs),
-      totalTimeMs: toFiniteNumber(item.totalTimeMs),
-      error: typeof item.error === 'string' ? item.error : undefined,
-    })
-  }
-
-  return messages.slice(-MAX_STORED_MESSAGES)
-}
-
-const sanitizeTitleText = (text: string): string =>
-  text
-    .replace(/[#[\]>*`_~()]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-const deriveConversationTitle = (messages: ChatMessage[]): string | undefined => {
-  const firstUser = messages.find((message) => message.role === 'user')
-  const hasFirstRound = messages.some(
-    (message) => message.role === 'assistant' && message.text.trim().length > 0 && !message.error,
-  )
-
-  if (!firstUser || !hasFirstRound) {
-    return undefined
-  }
-
-  const textCandidate = sanitizeTitleText(firstUser.text)
-  let candidate = textCandidate
-  if (!candidate && (firstUser.images?.length ?? 0) > 0) {
-    candidate = '图片对话'
-  }
-  if (!candidate) {
-    return undefined
-  }
-  return candidate.length > 20 ? `${candidate.slice(0, 20)}…` : candidate
-}
-
-const inferConversationCreatedAt = (messages: ChatMessage[]): number => {
-  const firstUser = messages.find((message) => message.role === 'user')
-  return firstUser?.createdAt ?? messages[0]?.createdAt ?? Date.now()
-}
-
-const isConversationPlaceholder = (conversation: Conversation): boolean =>
-  conversation.messages.length === 0
-
-const withConversationMessages = (
-  conversation: Conversation,
-  messages: ChatMessage[],
-  options?: {
-    keepUpdatedAt?: boolean
-  },
-): Conversation => {
-  const trimmedMessages = messages.slice(-MAX_STORED_MESSAGES)
-  const nextTitle = conversation.titleManuallyEdited
-    ? conversation.title
-    : deriveConversationTitle(trimmedMessages) ?? '新对话'
-  const nextCreatedAt =
-    isConversationPlaceholder(conversation) && trimmedMessages.length > 0
-      ? inferConversationCreatedAt(trimmedMessages)
-      : conversation.createdAt > 0 || trimmedMessages.length === 0
-      ? conversation.createdAt
-      : inferConversationCreatedAt(trimmedMessages)
-  return {
-    ...conversation,
-    title: nextTitle,
-    messages: trimmedMessages,
-    createdAt: nextCreatedAt,
-    updatedAt:
-      nextCreatedAt <= 0
-        ? 0
-        : options?.keepUpdatedAt
-          ? Math.max(conversation.updatedAt, nextCreatedAt)
-          : Date.now(),
-  }
-}
-
-const createConversation = (messages: ChatMessage[] = []): Conversation => {
-  const trimmedMessages = messages.slice(-MAX_STORED_MESSAGES)
-  const createdAt = trimmedMessages.length > 0 ? inferConversationCreatedAt(trimmedMessages) : 0
-  const updatedAt =
-    trimmedMessages.length > 0
-      ? Math.max(trimmedMessages[trimmedMessages.length - 1]?.createdAt ?? createdAt, createdAt)
-      : 0
-  return {
-    id: createId(),
-    title: deriveConversationTitle(trimmedMessages) ?? '新对话',
-    titleManuallyEdited: false,
-    messages: trimmedMessages,
-    createdAt,
-    updatedAt,
-  }
-}
-
-const serializeConversationsForStorage = (conversations: Conversation[]): Conversation[] =>
-  conversations.slice(0, MAX_STORED_CONVERSATIONS).map((conversation) => ({
-    ...conversation,
-    messages: conversation.messages.slice(-MAX_STORED_MESSAGES),
-  }))
-
-const serializeConversationDraftsForStorage = (
-  validConversationIds: ReadonlySet<string>,
-  draftsByConversation: ConversationDrafts,
-): ConversationDrafts => {
-  const drafts: ConversationDrafts = {}
-  for (const [conversationId, draft] of Object.entries(draftsByConversation)) {
-    if (validConversationIds.has(conversationId) && draft.length > 0) {
-      drafts[conversationId] = draft
-    }
-  }
-  return drafts
-}
+const createStaticAssistantEvent = (
+  turnId: string,
+  text: string,
+  model?: string,
+): AssistantMessageTranscriptEvent => ({
+  kind: 'assistant_message',
+  id: createId(),
+  turnId,
+  createdAt: Date.now(),
+  rawText: text,
+  assistantFlow: text ? createAssistantTextFlow(text, { createId }) : undefined,
+  model,
+})
 
 const normalizeLatexDelimiters = (text: string): string =>
   text
@@ -1570,20 +1580,60 @@ const applyPermissionGatesToSkillCall = (
   }
 }
 
+const buildLegacyProvider = (parsed: Record<string, unknown>): ProviderConfig | undefined => {
+  const legacyModels = Array.isArray(parsed.models)
+    ? parsed.models
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : []
+  const legacyCurrentModel =
+    typeof parsed.currentModel === 'string' ? parsed.currentModel.trim() : ''
+  const mergedModels = new Set(legacyModels)
+  if (legacyCurrentModel) {
+    mergedModels.add(legacyCurrentModel)
+  }
+
+  if (
+    typeof parsed.apiBaseUrl !== 'string' &&
+    typeof parsed.apiKey !== 'string' &&
+    mergedModels.size === 0
+  ) {
+    return undefined
+  }
+
+  return {
+    id: createId(),
+    name: '默认服务商',
+    apiBaseUrl: typeof parsed.apiBaseUrl === 'string' ? parsed.apiBaseUrl : '',
+    apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : '',
+    models: Array.from(mergedModels).map((modelId) => ({
+      id: modelId,
+      enabled: modelId === legacyCurrentModel,
+    })),
+  }
+}
+
 const loadSettings = (): AppSettings => {
   try {
+    if (typeof localStorage === 'undefined') {
+      return createDefaultSettings()
+    }
+
     const raw = localStorage.getItem(SETTINGS_STORAGE_KEY)
     if (!raw) {
-      return DEFAULT_SETTINGS
+      return createDefaultSettings()
     }
 
     const parsed = JSON.parse(raw) as unknown
     if (!isRecord(parsed)) {
-      return DEFAULT_SETTINGS
+      return createDefaultSettings()
     }
+
+    const shouldMigrateLegacyTagPrompts = typeof parsed.generalTagSystemPrompt !== 'string'
     const parsedProviders = Array.isArray(parsed.providers)
       ? parsed.providers
-          .map((item) => normalizeProviderConfig(item))
+          .map((item) => normalizeProviderConfig(item, shouldMigrateLegacyTagPrompts))
           .filter((item): item is ProviderConfig => Boolean(item))
       : []
     const legacyProvider = parsedProviders.length === 0 ? buildLegacyProvider(parsed) : undefined
@@ -1606,14 +1656,44 @@ const loadSettings = (): AppSettings => {
       typeof parsed.currentModel === 'string' && parsed.currentModel.trim()
         ? parsed.currentModel
         : DEFAULT_SETTINGS.currentModel
+    const storedTagSystemPrompts = migrateLegacyTagSystemPrompts(parsed, {
+      legacyGlobalHandling: 'collect-deprecated',
+    })
+    const deprecatedTagPrompts =
+      typeof parsed.deprecatedTagPrompts === 'string' ? parsed.deprecatedTagPrompts : ''
+    const legacyGlobalTagSystemPrompt =
+      storedTagSystemPrompts.legacyGlobalTagSystemPrompt ??
+      (typeof parsed.generalTagSystemPrompt === 'string' &&
+      parsed.generalTagSystemPrompt.trim() === LEGACY_DEFAULT_TAG_SYSTEM_PROMPT
+        ? parsed.generalTagSystemPrompt
+        : undefined)
+    const nextDeprecatedTagPrompts = legacyGlobalTagSystemPrompt
+      ? upsertDeprecatedPromptBlock(deprecatedTagPrompts, {
+          id: LEGACY_GLOBAL_TAG_PROMPT_BLOCK_ID,
+          title: LEGACY_GLOBAL_TAG_PROMPT_BLOCK_TITLE,
+          content: legacyGlobalTagSystemPrompt,
+        })
+      : deprecatedTagPrompts
 
     return ensureValidCurrentModelSelection({
       systemPrompt:
         typeof parsed.systemPrompt === 'string' ? parsed.systemPrompt : DEFAULT_SETTINGS.systemPrompt,
-      skillCallSystemPrompt:
-        typeof parsed.skillCallSystemPrompt === 'string'
-          ? upgradeSkillCallSystemPrompt(parsed.skillCallSystemPrompt)
-          : DEFAULT_SETTINGS.skillCallSystemPrompt,
+      topLevelTagSystemPrompt:
+        typeof parsed.topLevelTagSystemPrompt === 'string'
+          ? parsed.topLevelTagSystemPrompt
+          : storedTagSystemPrompts.topLevelTagSystemPrompt,
+      generalTagSystemPrompt: storedTagSystemPrompts.generalTagSystemPrompt,
+      readSystemPrompt: storedTagSystemPrompts.readSystemPrompt,
+      skillCallSystemPrompt: storedTagSystemPrompts.skillCallSystemPrompt,
+      deviceInfoPromptEnabled:
+        typeof parsed.deviceInfoPromptEnabled === 'boolean'
+          ? parsed.deviceInfoPromptEnabled
+          : DEFAULT_SETTINGS.deviceInfoPromptEnabled,
+      workspaceInfoPromptEnabled:
+        typeof parsed.workspaceInfoPromptEnabled === 'boolean'
+          ? parsed.workspaceInfoPromptEnabled
+          : DEFAULT_SETTINGS.workspaceInfoPromptEnabled,
+      deprecatedTagPrompts: nextDeprecatedTagPrompts,
       themeMode: normalizeThemeMode(parsed.themeMode),
       skillModeEnabled:
         typeof parsed.skillModeEnabled === 'boolean'
@@ -1663,7 +1743,9 @@ const loadSettings = (): AppSettings => {
           : DEFAULT_SETTINGS.autoCollapseConversations,
       emptyStateStatsMinConversations:
         rawEmptyStateStatsMinConversations !== undefined
-          ? Math.round(clamp(rawEmptyStateStatsMinConversations, 0, MAX_STORED_CONVERSATIONS))
+          ? Math.round(
+              clamp(rawEmptyStateStatsMinConversations, 0, MAX_EMPTY_STATE_STATS_MIN_CONVERSATIONS),
+            )
           : DEFAULT_SETTINGS.emptyStateStatsMinConversations,
       maxModelRetryCount:
         rawMaxModelRetryCount !== undefined
@@ -1672,77 +1754,12 @@ const loadSettings = (): AppSettings => {
       permissionToggles: normalizePermissionToggles(parsed.permissionToggles),
     })
   } catch {
-    return DEFAULT_SETTINGS
+    return createDefaultSettings()
   }
 }
 
-const loadChatState = (): LoadedChatState => {
+const createInitialChatState = (): LoadedChatState => {
   const fallbackConversation = createConversation()
-
-  if (typeof localStorage === 'undefined') {
-    return {
-      conversations: [fallbackConversation],
-      activeConversationId: fallbackConversation.id,
-      draftsByConversation: {},
-    }
-  }
-
-  try {
-    const raw = localStorage.getItem(CONVERSATIONS_STORAGE_KEY)
-    const parsed = raw ? (JSON.parse(raw) as unknown) : undefined
-    const conversations: Conversation[] = []
-
-    if (Array.isArray(parsed)) {
-      for (const item of parsed) {
-        if (!isRecord(item) || typeof item.id !== 'string') {
-          continue
-        }
-        const messages = normalizeStoredMessages(item.messages)
-        const title = typeof item.title === 'string' && item.title.trim() ? item.title.trim() : '新对话'
-        const titleManuallyEdited =
-          typeof item.titleManuallyEdited === 'boolean' ? item.titleManuallyEdited : false
-        const nextConversation: Conversation = {
-          id: item.id,
-          title,
-          titleManuallyEdited,
-          messages,
-          createdAt: Math.round(toFiniteNumber(item.createdAt) ?? Date.now()),
-          updatedAt: Math.round(toFiniteNumber(item.updatedAt) ?? Date.now()),
-        }
-
-        conversations.push(withConversationMessages(nextConversation, messages, { keepUpdatedAt: true }))
-      }
-    }
-
-    if (conversations.length > 0) {
-      const persistedConversations = conversations.filter(
-        (conversation) => !isConversationPlaceholder(conversation),
-      )
-      const nextConversations = [fallbackConversation, ...persistedConversations].slice(
-        0,
-        MAX_STORED_CONVERSATIONS,
-      )
-      return {
-        conversations: nextConversations,
-        activeConversationId: fallbackConversation.id,
-        draftsByConversation: {},
-      }
-    }
-
-    const legacyRaw = localStorage.getItem(LEGACY_MESSAGES_STORAGE_KEY)
-    const legacyMessages = legacyRaw ? normalizeStoredMessages(JSON.parse(legacyRaw) as unknown) : []
-    if (legacyMessages.length > 0) {
-      const conversation = createConversation(legacyMessages)
-      return {
-        conversations: [fallbackConversation, conversation].slice(0, MAX_STORED_CONVERSATIONS),
-        activeConversationId: fallbackConversation.id,
-        draftsByConversation: {},
-      }
-    }
-  } catch {
-    // Fallback to default state below.
-  }
-
   return {
     conversations: [fallbackConversation],
     activeConversationId: fallbackConversation.id,
@@ -1765,7 +1782,7 @@ MarkdownMessage.displayName = 'MarkdownMessage'
 function App() {
   const initialStateRef = useRef<LoadedChatState | null>(null)
   if (!initialStateRef.current) {
-    initialStateRef.current = loadChatState()
+    initialStateRef.current = createInitialChatState()
   }
 
   const initialSettingsRef = useRef<AppSettings | null>(null)
@@ -1788,6 +1805,8 @@ function App() {
   const [draftsByConversation, setDraftsByConversation] = useState<ConversationDrafts>(
     initialStateRef.current.draftsByConversation,
   )
+  const [chatStateLoadError, setChatStateLoadError] = useState<string | null>(null)
+  const [chatStateLoaded, setChatStateLoaded] = useState(false)
   const [pendingImages, setPendingImages] = useState<PendingImageAttachment[]>([])
   const pendingImageCompressionTaskIdRef = useRef<Record<string, number>>({})
   const {
@@ -1808,6 +1827,12 @@ function App() {
     open: openModelMenu,
     close: closeModelMenu,
   } = useAnimatedVisibility(180)
+  const {
+    mounted: imageViewerMounted,
+    visible: imageViewerVisible,
+    open: showImageViewerOverlay,
+    close: hideImageViewerOverlay,
+  } = useAnimatedVisibility(220)
   const [providerDetailTargetId, setProviderDetailTargetId] = useState<string | null>(null)
   const [manualModelDraft, setManualModelDraft] = useState('')
   const [providerModelSearch, setProviderModelSearch] = useState('')
@@ -1822,6 +1847,7 @@ function App() {
   const [deleteDialogProviderId, setDeleteDialogProviderId] = useState<string | null>(null)
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editingText, setEditingText] = useState('')
+  const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null)
   const [openReasoningByMessage, setOpenReasoningByMessage] = useState<Record<string, boolean>>({})
   const [openSkillResultByStep, setOpenSkillResultByStep] = useState<Record<string, boolean>>({})
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -1843,12 +1869,19 @@ function App() {
   const [skillConfigRawError, setSkillConfigRawError] = useState<string | null>(null)
   const [isLoadingSkillConfig, setIsLoadingSkillConfig] = useState(false)
   const [isSavingSkillConfig, setIsSavingSkillConfig] = useState(false)
-  const [openPromptEditors, setOpenPromptEditors] = useState<Record<PromptEditorKey, boolean>>({
+  const [openPromptEditors, setOpenPromptEditors] = useState<Record<TagPromptEditorKey, boolean>>({
     systemPrompt: false,
+    topLevelTagSystemPrompt: false,
+    generalTagSystemPrompt: false,
+    readSystemPrompt: false,
     skillCallSystemPrompt: false,
+    deprecatedTagPrompts: false,
   })
   const [openProviderPromptEditors, setOpenProviderPromptEditors] = useState<Record<PromptEditorKey, boolean>>({
     systemPrompt: false,
+    topLevelTagSystemPrompt: false,
+    generalTagSystemPrompt: false,
+    readSystemPrompt: false,
     skillCallSystemPrompt: false,
   })
   const [requestingPermissionByKey, setRequestingPermissionByKey] = useState<
@@ -1875,10 +1908,15 @@ function App() {
   const messageEndRef = useRef<HTMLDivElement | null>(null)
   const modelMenuRef = useRef<HTMLDivElement | null>(null)
   const storageWarningShownRef = useRef(false)
+  const conversationPersistTaskIdRef = useRef(0)
+  const chatStateSignatureRef = useRef('')
+  const hydratingImageKeysRef = useRef<Set<string>>(new Set())
   const settingsScrollByViewRef = useRef<Record<SettingsView, number>>({
     main: 0,
+    'tag-prompts': 0,
     providers: 0,
     'provider-detail': 0,
+    'provider-tag-prompts': 0,
     skills: 0,
     'skill-config': 0,
     runtimes: 0,
@@ -1911,8 +1949,51 @@ function App() {
     assistantId: string
     content: string
     reasoning: string
+    roundId?: string
   } | null>(null)
   const queuedAssistantStreamDeltaAnimationFrameRef = useRef<number | null>(null)
+  const lastSkillRoundLogKeyRef = useRef<string>('')
+  const lastObjectFlowLogKeyRef = useRef<string>('')
+
+  const closeImageViewer = useCallback((): void => {
+    hideImageViewerOverlay()
+  }, [hideImageViewerOverlay])
+
+  const appendSkillRoundLog = useCallback(
+    (payload: Record<string, unknown>, dedupeKey?: string): void => {
+      if (dedupeKey && lastSkillRoundLogKeyRef.current === dedupeKey) {
+        return
+      }
+      if (dedupeKey) {
+        lastSkillRoundLogKeyRef.current = dedupeKey
+      }
+      const entry = {
+        timestamp: new Date().toISOString(),
+        ...payload,
+      }
+      appendDebugLogEntry(DEBUG_SKILL_ROUND_LOG_STORAGE_KEY, entry)
+      console.info(`[debug][skill-round] ${JSON.stringify(entry)}`)
+    },
+    [],
+  )
+
+  const appendObjectFlowLog = useCallback(
+    (payload: Record<string, unknown>, dedupeKey?: string): void => {
+      if (dedupeKey && lastObjectFlowLogKeyRef.current === dedupeKey) {
+        return
+      }
+      if (dedupeKey) {
+        lastObjectFlowLogKeyRef.current = dedupeKey
+      }
+      const entry = {
+        timestamp: new Date().toISOString(),
+        ...payload,
+      }
+      appendDebugLogEntry(DEBUG_OBJECT_FLOW_LOG_STORAGE_KEY, entry)
+      console.info(`[debug][object-flow] ${JSON.stringify(entry)}`)
+    },
+    [],
+  )
 
   const activeConversation = useMemo(
     () =>
@@ -1943,15 +2024,29 @@ function App() {
         : null,
     [deleteDialogProviderId, settings.providers],
   )
-  const activeMessages = useMemo(() => activeConversation?.messages ?? [], [activeConversation])
-  const draft = activeConversation ? draftsByConversation[activeConversation.id] ?? '' : ''
-  const visibleConversations = useMemo(
-    () => conversations.filter((conversation) => !isConversationPlaceholder(conversation)),
+  const projectedMessagesByConversationId = useMemo(
+    () =>
+      new Map(
+        conversations.map((conversation) => [conversation.id, projectConversationMessages(conversation)]),
+      ),
     [conversations],
   )
-  const conversationIdSet = useMemo(
-    () => new Set(conversations.map((conversation) => conversation.id)),
-    [conversations],
+  const activeMessages = useMemo(
+    () => (activeConversation ? projectedMessagesByConversationId.get(activeConversation.id) ?? [] : []),
+    [activeConversation, projectedMessagesByConversationId],
+  )
+  const draft = activeConversation ? draftsByConversation[activeConversation.id] ?? '' : ''
+  const imageViewerItems = useMemo(
+    () => collectConversationImageViewerItems(activeMessages, pendingImages),
+    [activeMessages, pendingImages],
+  )
+  const visibleConversations = useMemo(
+    () =>
+      conversations.filter(
+        (conversation) =>
+          !isTranscriptConversationWorkspacePlaceholder(conversation, draftsByConversation[conversation.id] ?? ''),
+      ),
+    [conversations, draftsByConversation],
   )
 
   const sortedConversations = useMemo(
@@ -1987,6 +2082,25 @@ function App() {
       id: group.conversations.map((conversation) => conversation.id).join('|'),
     }))
   }, [sortedConversations, settings.conversationGroupGapMinutes])
+
+  const openImageViewer = useCallback(
+    (viewerKey: string, image: Pick<ImageAttachment, 'name' | 'dataUrl'>): void => {
+      const fallbackItem = toImageViewerItem(viewerKey, image)
+      if (!fallbackItem) {
+        return
+      }
+
+      const items = imageViewerItems.length > 0 ? imageViewerItems : [fallbackItem]
+      const initialIndex = items.findIndex((item) => item.key === viewerKey)
+
+      setImageViewer({
+        items,
+        initialIndex: initialIndex >= 0 ? initialIndex : 0,
+      })
+      showImageViewerOverlay()
+    },
+    [imageViewerItems, showImageViewerOverlay],
+  )
 
   const enabledModelOptions = useMemo(
     () => getEnabledModelOptions(settings.providers),
@@ -2053,7 +2167,9 @@ function App() {
 
   const emptyStateStats = useMemo(() => {
     const totalConversationCount = visibleConversations.length
-    const allMessages = visibleConversations.flatMap((conversation) => conversation.messages)
+    const allMessages = visibleConversations.flatMap(
+      (conversation) => projectedMessagesByConversationId.get(conversation.id) ?? [],
+    )
     const userMessages = allMessages.filter((message) => message.role === 'user')
     const assistantMessages = allMessages.filter((message) => message.role === 'assistant')
     const totalPhotoCount = userMessages.reduce(
@@ -2174,13 +2290,22 @@ function App() {
       busiestDay: currentYearMessagesByChatDay.length > 0 ? busiestDay : null,
       shouldShowMiddleSection,
     }
-  }, [settings.emptyStateStatsMinConversations, visibleConversations])
+  }, [projectedMessagesByConversationId, settings.emptyStateStatsMinConversations, visibleConversations])
 
   const hasDraftText = draft.trim().length > 0
   const canSend = activeConversation !== null && (hasDraftText || pendingImages.length > 0) && !isSending
 
   const pushNotice = useCallback((text: string, type: Notice['type'] = 'info'): void => {
     setNotice({ text, type })
+  }, [])
+
+  const copyTextToClipboard = useCallback(async (text: string): Promise<boolean> => {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      return false
+    }
   }, [])
 
   const applySkillConfigValue = useCallback((nextValue: JsonObjectValue): void => {
@@ -2209,7 +2334,7 @@ function App() {
     applySkillConfigValue(parsed.value)
   }, [applySkillConfigValue, pushNotice, skillConfigDraft])
 
-  const togglePromptEditor = useCallback((key: PromptEditorKey): void => {
+  const togglePromptEditor = useCallback((key: TagPromptEditorKey): void => {
     setOpenPromptEditors((previous) => ({
       ...previous,
       [key]: !previous[key],
@@ -2230,6 +2355,9 @@ function App() {
     setProviderNumericSettingDrafts(createProviderNumericSettingDrafts(null))
     setOpenProviderPromptEditors({
       systemPrompt: false,
+      topLevelTagSystemPrompt: false,
+      generalTagSystemPrompt: false,
+      readSystemPrompt: false,
       skillCallSystemPrompt: false,
     })
   }, [])
@@ -2293,6 +2421,9 @@ function App() {
       setProviderNumericSettingDrafts(createProviderNumericSettingDrafts(targetProvider))
       setOpenProviderPromptEditors({
         systemPrompt: false,
+        topLevelTagSystemPrompt: false,
+        generalTagSystemPrompt: false,
+        readSystemPrompt: false,
         skillCallSystemPrompt: false,
       })
       setProviderDetailTargetId(providerId)
@@ -2325,6 +2456,11 @@ function App() {
       rememberSettingsScrollPosition()
       resetProviderDetailState()
       setSettingsView('providers')
+      return
+    }
+    if (settingsView === 'provider-tag-prompts') {
+      rememberSettingsScrollPosition()
+      setSettingsView('provider-detail')
       return
     }
     if (settingsView !== 'main') {
@@ -2606,6 +2742,11 @@ function App() {
     }))
   }
 
+  const resetPromptToDefault = (key: GlobalPromptSettingKey): void => {
+    updateSetting(key, PROMPT_DEFAULTS[key] as AppSettings[typeof key])
+    pushNotice('已重置为默认提示词。', 'success')
+  }
+
   const handlePermissionToggle = useCallback(
     async (key: AppPermissionKey, enabled: boolean): Promise<void> => {
       if (!enabled) {
@@ -2732,6 +2873,9 @@ function App() {
     setProviderNumericSettingDrafts(createProviderNumericSettingDrafts(provider))
     setOpenProviderPromptEditors({
       systemPrompt: false,
+      topLevelTagSystemPrompt: false,
+      generalTagSystemPrompt: false,
+      readSystemPrompt: false,
       skillCallSystemPrompt: false,
     })
     setProviderDetailTargetId(provider.id)
@@ -2796,6 +2940,45 @@ function App() {
       }))
     },
     [updateProviderById],
+  )
+
+  const clearProviderPromptOverride = useCallback(
+    (providerId: string, key: ProviderPromptSettingKey): void => {
+      updateProviderById(providerId, (provider) => ({
+        ...provider,
+        [key]: undefined,
+      }))
+      pushNotice('已恢复跟随全局提示词。', 'success')
+    },
+    [pushNotice, updateProviderById],
+  )
+
+  const updateProviderInfoPromptOverride = useCallback(
+    (providerId: string, key: ProviderBooleanSettingKey, enabled: boolean): void => {
+      const globalValue = settingsRef.current[key]
+      updateProviderById(providerId, (provider) => {
+        const nextValue = enabled === globalValue ? undefined : enabled
+        if (provider[key] === nextValue) {
+          return provider
+        }
+        return {
+          ...provider,
+          [key]: nextValue,
+        }
+      })
+    },
+    [updateProviderById],
+  )
+
+  const clearProviderInfoPromptOverride = useCallback(
+    (providerId: string, key: ProviderBooleanSettingKey): void => {
+      updateProviderById(providerId, (provider) => ({
+        ...provider,
+        [key]: undefined,
+      }))
+      pushNotice('已恢复跟随全局信息提示词开关。', 'success')
+    },
+    [pushNotice, updateProviderById],
   )
 
   const handleProviderNumericSettingChange = useCallback(
@@ -2915,21 +3098,37 @@ function App() {
     })
   }
 
-  const updateConversationMessages = (conversationId: string, messages: ChatMessage[]): void => {
+  const updateConversationTranscript = (conversationId: string, transcript: TranscriptEvent[]): void => {
     setConversations((previous) =>
       previous.map((conversation) =>
         conversation.id === conversationId
-          ? withConversationMessages(conversation, messages)
+          ? withConversationTranscript(conversation, transcript)
           : conversation,
       ),
     )
   }
 
-  const updateAssistantMessage = useCallback(
+  const appendConversationTranscriptEvents = useCallback(
+    (conversationId: string, events: TranscriptEvent[]): void => {
+      if (events.length === 0) {
+        return
+      }
+      setConversations((previous) =>
+        previous.map((conversation) =>
+          conversation.id === conversationId
+            ? withConversationTranscript(conversation, [...conversation.transcript, ...events])
+            : conversation,
+        ),
+      )
+    },
+    [],
+  )
+
+  const updateAssistantEvent = useCallback(
     (
       conversationId: string,
       assistantId: string,
-      updater: (message: ChatMessage) => ChatMessage,
+      updater: (event: AssistantMessageTranscriptEvent) => AssistantMessageTranscriptEvent,
     ): void => {
       setConversations((previous) =>
         previous.map((conversation) => {
@@ -2937,27 +3136,115 @@ function App() {
             return conversation
           }
 
-          let hasUpdatedMessage = false
-          const nextMessages = conversation.messages.map((message) => {
-            if (message.id !== assistantId) {
-              return message
+          let hasUpdatedEvent = false
+          const nextTranscript = conversation.transcript.map((event) => {
+            if (event.kind !== 'assistant_message' || event.id !== assistantId) {
+              return event
             }
 
-            const nextMessage = updater(message)
-            if (nextMessage === message) {
-              return message
+            const nextEvent = updater(event)
+            if (nextEvent === event) {
+              return event
             }
 
-            hasUpdatedMessage = true
-            return nextMessage
+            hasUpdatedEvent = true
+            return nextEvent
           })
 
-          return hasUpdatedMessage ? withConversationMessages(conversation, nextMessages) : conversation
+          return hasUpdatedEvent ? withConversationTranscript(conversation, nextTranscript) : conversation
         }),
       )
     },
     [],
   )
+
+  const applyAssistantFlowState = useCallback(
+    (
+      event: AssistantMessageTranscriptEvent,
+      nextFlow: AssistantFlowNode[] | undefined,
+    ): AssistantMessageTranscriptEvent => {
+      const normalizedFlow = nextFlow && nextFlow.length > 0 ? nextFlow : undefined
+      if (normalizedFlow === event.assistantFlow) {
+        return event
+      }
+      return {
+        ...event,
+        assistantFlow: normalizedFlow,
+      }
+    },
+    [],
+  )
+
+  const updateAssistantFlow = useCallback(
+    (
+      conversationId: string,
+      assistantId: string,
+      updater: (
+        flow: AssistantFlowNode[] | undefined,
+        event: AssistantMessageTranscriptEvent,
+      ) => AssistantFlowNode[] | undefined,
+    ): void => {
+      updateAssistantEvent(conversationId, assistantId, (event) => {
+        const nextFlow = updater(event.assistantFlow, event)
+        if (nextFlow === event.assistantFlow) {
+          return event
+        }
+        return applyAssistantFlowState(event, nextFlow)
+      })
+    },
+    [applyAssistantFlowState, updateAssistantEvent],
+  )
+
+  const appendAssistantFlowRoundDivider = (
+    conversationId: string,
+    assistantId: string,
+    roundId: string,
+    explanation?: string,
+  ): void => {
+    updateAssistantFlow(conversationId, assistantId, (flow) => {
+      const nextFlow = appendAssistantFlowDivider(flow, { createId, roundId }, explanation)
+      if (nextFlow === flow) {
+        return flow
+      }
+      appendObjectFlowLog(
+        {
+          event: 'assistant_flow_add_divider',
+          conversationId,
+          assistantId,
+          roundId,
+          previousNodeCount: flow?.length ?? 0,
+          explanationPreview: explanation ? truncateDebugLogText(explanation, 160) : undefined,
+        },
+        `flow-divider:${assistantId}:${roundId}:${flow?.length ?? 0}`,
+      )
+      return nextFlow
+    })
+  }
+
+  const clearAssistantFlowRoundState = (
+    conversationId: string,
+    assistantId: string,
+    roundId: string,
+  ): void => {
+    updateAssistantFlow(conversationId, assistantId, (flow) => {
+      const nextFlow = clearAssistantFlowRound(flow, roundId)
+      if (nextFlow === flow) {
+        return flow
+      }
+      appendObjectFlowLog(
+        {
+          event: 'assistant_flow_clear_round',
+          conversationId,
+          assistantId,
+          roundId,
+          previousNodeCount: flow?.length ?? 0,
+          nextNodeCount: nextFlow?.length ?? 0,
+        },
+        `flow-clear-round:${assistantId}:${roundId}:${flow?.length ?? 0}->${nextFlow?.length ?? 0}`,
+      )
+      return nextFlow
+    })
+  }
 
   const applyAssistantStreamDelta = useCallback(
     (
@@ -2966,6 +3253,7 @@ function App() {
       delta: {
         content?: string
         reasoning?: string
+        roundId?: string
       },
     ): void => {
       const content = delta.content ?? ''
@@ -2974,24 +3262,68 @@ function App() {
         return
       }
 
-      updateAssistantMessage(conversationId, assistantId, (message) => {
-        const nextText = content ? `${message.text}${content}` : message.text
-        const currentReasoning = message.reasoning ?? ''
+      updateAssistantEvent(conversationId, assistantId, (event) => {
+        const previousFlow = event.assistantFlow
+        const appendResult = content
+          ? appendAssistantFlowContent(event.assistantFlow, content, {
+              createId,
+              roundId: delta.roundId,
+            })
+          : {
+              flow: event.assistantFlow,
+              plainTextDelta: '',
+            }
+        const nextFlow = appendResult.flow
+        const currentReasoning = event.reasoning ?? ''
         const nextReasoning = reasoning ? `${currentReasoning}${reasoning}` : currentReasoning
+        const nextEvent =
+          nextFlow === event.assistantFlow ? event : applyAssistantFlowState(event, nextFlow)
 
-        if (nextText === message.text && nextReasoning === currentReasoning && message.error === undefined) {
-          return message
+        if (
+          nextEvent === event &&
+          nextReasoning === currentReasoning &&
+          event.error === undefined
+        ) {
+          return event
+        }
+
+        if (appendResult.plainTextDelta) {
+          appendObjectFlowLog(
+            {
+              event: 'assistant_text_append',
+              conversationId,
+              assistantId,
+              roundId: delta.roundId ?? null,
+              appendedLength: appendResult.plainTextDelta.length,
+              appendedPreview: truncateDebugLogText(appendResult.plainTextDelta, 200),
+              nextTextLength: assistantFlowToPlainText(nextFlow).length,
+            },
+            `text-append:${assistantId}:${assistantFlowToPlainText(nextFlow).length}:${appendResult.plainTextDelta.length}`,
+          )
+        }
+
+        if (nextFlow !== previousFlow) {
+          appendObjectFlowLog(
+            {
+              event: 'assistant_flow_update',
+              conversationId,
+              assistantId,
+              roundId: delta.roundId ?? null,
+              previousNodeCount: previousFlow?.length ?? 0,
+              nextNodeCount: nextFlow?.length ?? 0,
+            },
+            `flow-update:${assistantId}:${delta.roundId ?? 'none'}:${previousFlow?.length ?? 0}->${nextFlow?.length ?? 0}`,
+          )
         }
 
         return {
-          ...message,
-          text: nextText,
+          ...nextEvent,
           reasoning: nextReasoning || undefined,
           error: undefined,
         }
       })
     },
-    [updateAssistantMessage],
+    [appendObjectFlowLog, applyAssistantFlowState, updateAssistantEvent],
   )
 
   const flushQueuedAssistantStreamDelta = useCallback((): void => {
@@ -3029,6 +3361,7 @@ function App() {
     delta: {
       content?: string
       reasoning?: string
+      roundId?: string
     },
   ): void => {
     const content = delta.content ?? ''
@@ -3040,7 +3373,9 @@ function App() {
     const queuedDelta = queuedAssistantStreamDeltaRef.current
     if (
       queuedDelta &&
-      (queuedDelta.conversationId !== conversationId || queuedDelta.assistantId !== assistantId)
+      (queuedDelta.conversationId !== conversationId ||
+        queuedDelta.assistantId !== assistantId ||
+        queuedDelta.roundId !== delta.roundId)
     ) {
       flushQueuedAssistantStreamDelta()
     }
@@ -3052,10 +3387,12 @@ function App() {
         assistantId,
         content,
         reasoning,
+        roundId: delta.roundId,
       }
     } else {
       nextQueued.content += content
       nextQueued.reasoning += reasoning
+      nextQueued.roundId = nextQueued.roundId ?? delta.roundId
     }
 
     if (queuedAssistantStreamDeltaAnimationFrameRef.current !== null) {
@@ -3072,59 +3409,31 @@ function App() {
       applyAssistantStreamDelta(frameQueuedDelta.conversationId, frameQueuedDelta.assistantId, {
         content: frameQueuedDelta.content,
         reasoning: frameQueuedDelta.reasoning,
+        roundId: frameQueuedDelta.roundId,
       })
     })
   }
 
   const resetAssistantStreamOutput = (conversationId: string, assistantId: string): void => {
     flushQueuedAssistantStreamDelta()
-    updateAssistantMessage(conversationId, assistantId, (message) => {
-      if (!message.text && !message.reasoning && message.error === undefined) {
-        return message
+    updateAssistantEvent(conversationId, assistantId, (event) => {
+      if (
+        !event.rawText &&
+        !event.reasoning &&
+        (event.assistantFlow?.length ?? 0) === 0 &&
+        event.error === undefined
+      ) {
+        return event
       }
 
       return {
-        ...message,
-        text: '',
+        ...event,
+        rawText: '',
+        assistantFlow: undefined,
         reasoning: undefined,
         error: undefined,
       }
     })
-  }
-
-  const updateAssistantSkillRounds = (
-    conversationId: string,
-    assistantId: string,
-    updater: (rounds: SkillRound[]) => SkillRound[],
-  ): void => {
-    setConversations((previous) =>
-      previous.map((conversation) => {
-        if (conversation.id !== conversationId) {
-          return conversation
-        }
-
-        let hasUpdatedMessage = false
-        const nextMessages = conversation.messages.map((message) => {
-          if (message.id !== assistantId) {
-            return message
-          }
-
-          const currentRounds = message.skillRounds ?? []
-          const nextRounds = updater(currentRounds)
-          if (nextRounds === currentRounds) {
-            return message
-          }
-
-          hasUpdatedMessage = true
-          return {
-            ...message,
-            skillRounds: nextRounds.length > 0 ? nextRounds : undefined,
-          }
-        })
-
-        return hasUpdatedMessage ? withConversationMessages(conversation, nextMessages) : conversation
-      }),
-    )
   }
 
   const updateConversationTitle = (
@@ -3179,11 +3488,22 @@ function App() {
     assistantId: string,
     result: CompletionResult,
     promptMessages: ApiMessage[],
+    options?: {
+      resolvedText?: string
+      preserveRawText?: boolean
+      storedRawText?: string
+    },
   ): void => {
     flushQueuedAssistantStreamDelta()
-    const extracted = extractThinkBlocks(result.text)
-    const finalText = extracted.cleanedText || result.text.trim() || '（模型未返回文本内容）'
-    const finalReasoning = [result.reasoning, extracted.reasoning].filter(Boolean).join('\n\n').trim()
+    const preserveRawText = options?.preserveRawText === true
+    const extracted = preserveRawText ? { cleanedText: '', reasoning: '' } : extractThinkBlocks(result.text)
+    const finalText =
+      options?.resolvedText !== undefined
+        ? options.resolvedText.trim()
+        : extracted.cleanedText || result.text.trim()
+    const finalReasoning = preserveRawText
+      ? result.reasoning.trim()
+      : [result.reasoning, extracted.reasoning].filter(Boolean).join('\n\n').trim()
     const usage = result.usage ?? estimateUsage(promptMessages, finalText)
     const usageEstimated = result.usage === undefined
 
@@ -3192,13 +3512,18 @@ function App() {
         if (conversation.id !== conversationId) {
           return conversation
         }
-        const nextMessages = conversation.messages.map((message) => {
-          if (message.id !== assistantId) {
-            return message
+        const nextTranscript = conversation.transcript.map((event) => {
+          if (event.kind !== 'assistant_message' || event.id !== assistantId) {
+            return event
           }
+          const nextFlow =
+            (event.assistantFlow?.length ?? 0) === 0
+              ? createAssistantTextFlow(finalText, { createId })
+              : event.assistantFlow
+          const nextEvent = applyAssistantFlowState(event, nextFlow)
           return {
-            ...message,
-            text: finalText,
+            ...nextEvent,
+            rawText: options?.storedRawText ?? result.text,
             reasoning: finalReasoning || undefined,
             usage,
             usageEstimated,
@@ -3207,12 +3532,16 @@ function App() {
             error: undefined,
           }
         })
-        return withConversationMessages(conversation, nextMessages)
+        return withConversationTranscript(conversation, nextTranscript)
       }),
     )
   }
 
-  const runAssistant = async (conversationId: string, history: ChatMessage[]): Promise<void> => {
+  const runAssistant = async (
+    conversationId: string,
+    historyTranscript: TranscriptEvent[],
+    turnId: string,
+  ): Promise<void> => {
     if (!ensureReadyToRequest()) {
       return
     }
@@ -3221,70 +3550,81 @@ function App() {
     if (!settingsSnapshot) {
       return
     }
-    const assistantId = createId()
-    const placeholder: ChatMessage = {
-      id: assistantId,
-      role: 'assistant',
-      text: '',
-      reasoning: '',
-      createdAt: Date.now(),
-      model: settingsSnapshot.currentModel,
-    }
-
-    updateConversationMessages(conversationId, [...history, placeholder])
     setIsSending(true)
 
     const controller = new AbortController()
     setAbortController(controller)
     const firstTokenHapticsEnabled = settings.firstTokenHapticsEnabled
     let hasTriggeredFirstTokenHaptic = false
-    const currentUserMessage = history[history.length - 1]
-    const historyBeforeCurrentUser = history.slice(0, -1)
-    const appendAssistantSkillRound = (roundId: string, explanation: string): void => {
-      updateAssistantSkillRounds(conversationId, assistantId, (rounds) => [
-        ...rounds,
-        {
-          id: roundId,
-          explanation: explanation || undefined,
-          steps: [],
-        },
-      ])
+    const currentUserEvent = historyTranscript[historyTranscript.length - 1]
+    const traceId = createId()
+    let latestAssistantId: string | null = null
+    let latestAssistantRawText = ''
+    appendSkillRoundLog({
+      event: 'request_start',
+      traceId,
+      conversationId,
+      turnId,
+      model: settingsSnapshot.currentModel,
+      skillModeEnabled: settings.skillModeEnabled,
+      userInput:
+        currentUserEvent?.kind === 'user_message'
+          ? truncateDebugLogText(getUserTranscriptText(currentUserEvent))
+          : '',
+    })
+    type LiveRoundContext = {
+      roundId: string
+      skillTokenOrder: string[]
+      skillKindByToken: Map<string, SkillStepKind>
+      hasVisibleFlow: boolean
+      markHasVisibleFlow: () => void
+      resetTracking: () => void
     }
-    const appendAssistantSkillStep = (roundId: string, step: SkillStep): void => {
-      updateAssistantSkillRounds(conversationId, assistantId, (rounds) =>
-        rounds.map((round) =>
-          round.id === roundId
-            ? {
-                ...round,
-                steps: [...round.steps, step],
-              }
-            : round,
-        ),
+
+    const compactActionPreviewPayload = (payload: Record<string, unknown>): Record<string, unknown> =>
+      Object.fromEntries(
+        Object.entries(payload).filter(([, value]) => {
+          if (value === undefined || value === null) {
+            return false
+          }
+          if (typeof value === 'string') {
+            return value.trim().length > 0
+          }
+          if (Array.isArray(value)) {
+            return value.length > 0
+          }
+          if (isRecord(value)) {
+            return Object.keys(value).length > 0
+          }
+          return true
+        }),
       )
+
+    const formatLiveActionPreview = (
+      tag: SkillStepKind,
+      preview: SkillActionStreamEvent['preview'],
+      error?: string,
+    ): string => {
+      const payload = compactActionPreviewPayload({
+        tag,
+        id: preview.id,
+        root: preview.root,
+        op: preview.op,
+        skill: preview.skill,
+        path: preview.path,
+        depth: preview.depth,
+        startLine: preview.startLine,
+        endLine: preview.endLine,
+        script: preview.script,
+        argv: preview.argv,
+        stdin: preview.stdin,
+        env: preview.env,
+        timeoutMs: preview.timeoutMs,
+        error,
+      })
+      return formatStructuredMarkdown(payload)
     }
-    const updateAssistantSkillStep = (
-      roundId: string,
-      stepId: string,
-      patch: Partial<Pick<SkillStep, 'status' | 'error' | 'result'>>,
-    ): void => {
-      updateAssistantSkillRounds(conversationId, assistantId, (rounds) =>
-        rounds.map((round) =>
-          round.id === roundId
-            ? {
-                ...round,
-                steps: round.steps.map((step) =>
-                  step.id === stepId
-                    ? {
-                        ...step,
-                        ...patch,
-                      }
-                    : step,
-                ),
-              }
-            : round,
-        ),
-      )
-    }
+
     const triggerFirstTokenHaptic = (): void => {
       if (!firstTokenHapticsEnabled || hasTriggeredFirstTokenHaptic) {
         return
@@ -3293,22 +3633,198 @@ function App() {
       hasTriggeredFirstTokenHaptic = true
       vibrateInteraction()
     }
-    const requestModelCompletion = async (promptMessages: ApiMessage[]): Promise<CompletionResult> => {
+
+    const patchRoundSkillNode = (
+      roundContext: LiveRoundContext,
+      assistantId: string,
+      token: string,
+      patch: {
+        actionKind?: SkillStepKind
+        status?: 'running' | 'success' | 'error'
+        root?: 'skill' | 'workspace'
+        op?: 'list' | 'read' | 'stat'
+        skill?: string
+        path?: string
+        depth?: number
+        startLine?: number
+        endLine?: number
+        script?: string
+        error?: string
+        result?: string
+      },
+    ): void => {
+      updateAssistantEvent(conversationId, assistantId, (event) => {
+        const nextFlow = upsertAssistantFlowSkillNodeByToken(
+          event.assistantFlow,
+          token,
+          patch,
+          {
+            createId,
+            roundId: roundContext.roundId,
+          },
+        ).flow
+        return applyAssistantFlowState(event, nextFlow)
+      })
+
+      if (!roundContext.skillKindByToken.has(token)) {
+        roundContext.skillTokenOrder.push(token)
+      }
+      if (patch.actionKind) {
+        roundContext.skillKindByToken.set(token, patch.actionKind)
+      }
+
+      appendObjectFlowLog(
+        {
+          event: 'assistant_flow_skill_patch',
+          traceId,
+          conversationId,
+          assistantId,
+          roundId: roundContext.roundId,
+          token,
+          patch: {
+            ...patch,
+            result:
+              typeof patch.result === 'string' ? truncateDebugLogText(patch.result, 280) : patch.result,
+            error: typeof patch.error === 'string' ? truncateDebugLogText(patch.error, 200) : patch.error,
+          },
+        },
+        `flow-skill-patch:${assistantId}:${roundContext.roundId}:${token}:${patch.status ?? ''}:${patch.skill ?? ''}:${patch.script ?? ''}`,
+      )
+    }
+
+    const clearRoundState = (roundContext: LiveRoundContext, assistantId: string): void => {
+      clearAssistantFlowRoundState(conversationId, assistantId, roundContext.roundId)
+      roundContext.resetTracking()
+    }
+
+    const markRoundSkillsAsError = (
+      roundContext: LiveRoundContext,
+      assistantId: string,
+      message: string,
+    ): void => {
+      updateAssistantFlow(conversationId, assistantId, (flow) =>
+        markAssistantFlowRoundError(flow, roundContext.roundId, message),
+      )
+      appendObjectFlowLog(
+        {
+          event: 'assistant_flow_round_error',
+          traceId,
+          conversationId,
+          assistantId,
+          roundId: roundContext.roundId,
+          error: truncateDebugLogText(message, 200),
+        },
+        `flow-round-error:${assistantId}:${roundContext.roundId}:${message}`,
+      )
+    }
+
+    const requestModelCompletion = async (
+      assistantId: string,
+      promptMessages: ApiMessage[],
+      options?: {
+        mode?: 'plain' | 'tagged'
+        roundContext?: LiveRoundContext
+      },
+    ): Promise<CompletionResult> => {
+      const mode = options?.mode ?? 'plain'
+      const parseTags = mode === 'tagged'
+      const roundContext = options?.roundContext
       const attemptLimit = Math.max(0, settingsSnapshot.maxModelRetryCount) + 1
       let lastError: unknown = null
+      latestAssistantRawText = ''
+
+      const applyStreamActionEvents = (events: SkillActionStreamEvent[]): void => {
+        if (!roundContext) {
+          return
+        }
+
+        for (const event of events) {
+          const eventKind: SkillStepKind = event.tag
+          roundContext.markHasVisibleFlow()
+          const preview = event.preview
+          patchRoundSkillNode(roundContext, assistantId, event.token, {
+            actionKind: eventKind,
+            status: event.type === 'close' && event.error ? 'error' : 'running',
+            root:
+              eventKind === 'read' && (preview.root === 'skill' || preview.root === 'workspace')
+                ? preview.root
+                : undefined,
+            op:
+              eventKind === 'read' &&
+              (preview.op === 'list' || preview.op === 'read' || preview.op === 'stat')
+                ? preview.op
+                : undefined,
+            skill:
+              typeof preview.skill === 'string' && preview.skill.trim()
+                ? preview.skill
+                : event.type === 'open' && (eventKind === 'skill_call' || preview.root === 'skill')
+                  ? '未命名技能'
+                  : undefined,
+            path: eventKind === 'read' && typeof preview.path === 'string' ? preview.path : undefined,
+            depth: eventKind === 'read' ? preview.depth : undefined,
+            startLine: eventKind === 'read' ? preview.startLine : undefined,
+            endLine: eventKind === 'read' ? preview.endLine : undefined,
+            script: eventKind === 'skill_call' && typeof preview.script === 'string' ? preview.script : undefined,
+            error: event.type === 'close' ? event.error : undefined,
+            result: formatLiveActionPreview(eventKind, preview, event.error),
+          })
+        }
+      }
+
+      const replayNonStreamRound = (completion: CompletionResult): void => {
+        if (!parseTags || !roundContext) {
+          return
+        }
+
+        const parser = createAgentStreamParser()
+        const firstDelta = parser.push(completion.text)
+        const finalDelta = parser.flush()
+        const content = `${firstDelta.content}${finalDelta.content}`
+        const reasoning = `${firstDelta.reasoning}${finalDelta.reasoning}`
+        if (content || reasoning) {
+          roundContext.markHasVisibleFlow()
+          appendAssistantStreamDelta(conversationId, assistantId, {
+            content,
+            reasoning,
+            roundId: roundContext.roundId,
+          })
+        }
+
+        const events = [...firstDelta.actionEvents, ...finalDelta.actionEvents]
+        if (events.length > 0) {
+          flushQueuedAssistantStreamDelta()
+          applyStreamActionEvents(events)
+        }
+      }
 
       for (let attempt = 0; attempt < attemptLimit; attempt += 1) {
         if (attempt > 0) {
-          resetAssistantStreamOutput(conversationId, assistantId)
+          if (roundContext) {
+            clearRoundState(roundContext, assistantId)
+          } else {
+            resetAssistantStreamOutput(conversationId, assistantId)
+          }
+          latestAssistantRawText = ''
         }
 
-        const streamParser = createAgentStreamParser()
+        const streamParser = parseTags ? createAgentStreamParser() : null
         const flushStreamParser = (): void => {
+          if (!streamParser) {
+            return
+          }
           const delta = streamParser.flush()
-          appendAssistantStreamDelta(conversationId, assistantId, {
-            content: delta.content,
-            reasoning: delta.reasoning,
-          })
+          if (delta.content || delta.reasoning) {
+            roundContext?.markHasVisibleFlow()
+            appendAssistantStreamDelta(conversationId, assistantId, {
+              content: delta.content,
+              reasoning: delta.reasoning,
+              roundId: roundContext?.roundId,
+            })
+          }
+          if (delta.actionEvents.length > 0) {
+            flushQueuedAssistantStreamDelta()
+            applyStreamActionEvents(delta.actionEvents)
+          }
         }
 
         try {
@@ -3321,12 +3837,29 @@ function App() {
                 if (chunk.length > 0) {
                   triggerFirstTokenHaptic()
                 }
+                latestAssistantRawText += chunk
+
+                if (!streamParser) {
+                  appendAssistantStreamDelta(conversationId, assistantId, {
+                    content: chunk,
+                    roundId: roundContext?.roundId,
+                  })
+                  return
+                }
 
                 const delta = streamParser.push(chunk)
-                appendAssistantStreamDelta(conversationId, assistantId, {
-                  content: delta.content,
-                  reasoning: delta.reasoning,
-                })
+                if (delta.content || delta.reasoning) {
+                  roundContext?.markHasVisibleFlow()
+                  appendAssistantStreamDelta(conversationId, assistantId, {
+                    content: delta.content,
+                    reasoning: delta.reasoning,
+                    roundId: roundContext?.roundId,
+                  })
+                }
+                if (delta.actionEvents.length > 0) {
+                  flushQueuedAssistantStreamDelta()
+                  applyStreamActionEvents(delta.actionEvents)
+                }
               },
               onReasoning: (chunk) => {
                 if (chunk.length > 0) {
@@ -3335,6 +3868,7 @@ function App() {
 
                 appendAssistantStreamDelta(conversationId, assistantId, {
                   reasoning: chunk,
+                  roundId: roundContext?.roundId,
                 })
               },
             },
@@ -3350,11 +3884,20 @@ function App() {
           }
 
           try {
-            return await requestNonStreamCompletion(
+            if (roundContext) {
+              clearRoundState(roundContext, assistantId)
+            } else {
+              resetAssistantStreamOutput(conversationId, assistantId)
+            }
+            const nonStreamCompletion = await requestNonStreamCompletion(
               settingsSnapshot,
               promptMessages,
               controller.signal,
             )
+            latestAssistantRawText = nonStreamCompletion.text
+            replayNonStreamRound(nonStreamCompletion)
+            flushQueuedAssistantStreamDelta()
+            return nonStreamCompletion
           } catch (nonStreamError) {
             if (nonStreamError instanceof DOMException && nonStreamError.name === 'AbortError') {
               throw nonStreamError
@@ -3368,129 +3911,381 @@ function App() {
     }
 
     try {
-      if (!currentUserMessage || currentUserMessage.role !== 'user') {
+      if (!currentUserEvent || currentUserEvent.kind !== 'user_message') {
         throw new Error('当前对话无法定位本轮用户输入。')
       }
 
       if (!settings.skillModeEnabled) {
-        const promptMessages = buildApiMessages(history, settingsSnapshot.systemPrompt)
-        const completion = await requestModelCompletion(promptMessages)
-        applyAssistantResult(conversationId, assistantId, completion, promptMessages)
+        const promptMessages = buildApiMessagesFromTranscript(historyTranscript, settingsSnapshot.systemPrompt)
+        appendSkillRoundLog({
+          event: 'round_input',
+          traceId,
+          round: 1,
+          mode: 'plain-chat',
+          promptMessages: normalizePromptMessagesForDebug(promptMessages),
+        })
+        const roundId = createId()
+        const assistantId = createId()
+        latestAssistantId = assistantId
+        appendConversationTranscriptEvents(conversationId, [
+          {
+            kind: 'assistant_message',
+            id: assistantId,
+            turnId,
+            roundId,
+            createdAt: Date.now(),
+            rawText: '',
+            reasoning: '',
+            model: settingsSnapshot.currentModel,
+          },
+        ])
+        const completion = await requestModelCompletion(assistantId, promptMessages, { mode: 'plain' })
+        appendSkillRoundLog({
+          event: 'round_output',
+          traceId,
+          round: 1,
+          mode: 'plain-chat',
+          assistantText: truncateDebugLogText(completion.text),
+          assistantReasoning: truncateDebugLogText(completion.reasoning ?? ''),
+          usage: completion.usage
+            ? {
+                promptTokens: completion.usage.promptTokens,
+                completionTokens: completion.usage.completionTokens,
+                totalTokens: completion.usage.totalTokens,
+              }
+            : undefined,
+        })
+        applyAssistantResult(conversationId, assistantId, completion, promptMessages, {
+          resolvedText: completion.text,
+          preserveRawText: true,
+        })
         return
       }
 
-      const blocks: PromptBlock[] = [
-        {
-          type: 'app_policy',
-          title: 'Additional Prompt',
-          content: '所有启用的skills包括：',
+      const systemPrompt = buildSkillAgentSystemPrompt(
+        settingsSnapshot,
+        skillRecords,
+        runtimeRecords,
+        conversationId,
+        historyTranscript,
+      )
+      const workingTranscript = [...historyTranscript]
+      let finalCompletion: CompletionResult | null = null
+      let finalCompletionDisplayText: string | undefined
+      let executedRoundCount = 0
+      let previousProgressFingerprint: string | null = null
+      const appendHostMessage = (
+        event: HostMessageTranscriptEvent,
+        options?: {
+          replacePreviousProtocolRetryReason?: string
         },
-        buildSkillsCatalogBlock(skillRecords),
-        buildRuntimeCatalogBlock(runtimeRecords),
-        buildConversationStateBlock(historyBeforeCurrentUser),
-        buildUserInputBlock(currentUserMessage),
-      ]
+      ): void => {
+        const replacePreviousProtocolRetryReason = options?.replacePreviousProtocolRetryReason
+        const lastEvent = workingTranscript[workingTranscript.length - 1]
+        const shouldReplacePreviousProtocolRetry =
+          replacePreviousProtocolRetryReason &&
+          lastEvent?.kind === 'host_message' &&
+          lastEvent.category === 'protocol_retry' &&
+          lastEvent.payload.reason === replacePreviousProtocolRetryReason
 
-      const appendStatus = (text: string): void => {
-        void text
+        if (shouldReplacePreviousProtocolRetry) {
+          workingTranscript[workingTranscript.length - 1] = event
+          updateConversationTranscript(conversationId, [...workingTranscript])
+          return
+        }
+
+        appendConversationTranscriptEvents(conversationId, [event])
+        workingTranscript.push(event)
       }
 
-      let lastPromptMessages: ApiMessage[] = []
-      let finalCompletion: CompletionResult | null = null
-      const latestSkillDocBlockIndexBySkill = new Map<string, number>()
+      const appendProtocolRetryMessage = (
+        roundId: string,
+        payload: {
+          reason: string
+          prompt: string
+          displayText?: string
+          repairs?: unknown
+        },
+      ): void => {
+        appendHostMessage(
+          {
+            kind: 'host_message',
+            id: createId(),
+            turnId,
+            roundId,
+            createdAt: Date.now(),
+            category: 'protocol_retry',
+            payload,
+          },
+          {
+            replacePreviousProtocolRetryReason: payload.reason,
+          },
+        )
+      }
 
-      for (let step = 0; step < MAX_SKILL_AGENT_STEPS; step += 1) {
+      for (let step = 0; ; step += 1) {
         if (controller.signal.aborted) {
           throw new DOMException('Aborted', 'AbortError')
         }
 
-        const promptMessages = buildSkillAgentMessages(
-          historyBeforeCurrentUser,
-          currentUserMessage,
-          settingsSnapshot,
-          blocks,
+        const promptMessages = buildApiMessagesFromTranscript(workingTranscript, systemPrompt)
+        appendSkillRoundLog({
+          event: 'round_input',
+          traceId,
+          round: step + 1,
+          mode: 'skill-agent',
+          blockCount: workingTranscript.length,
+          promptMessages: normalizePromptMessagesForDebug(promptMessages),
+        })
+        executedRoundCount = step + 1
+        const roundId = createId()
+        const assistantId = createId()
+        latestAssistantId = assistantId
+        appendConversationTranscriptEvents(conversationId, [
+          {
+            kind: 'assistant_message',
+            id: assistantId,
+            turnId,
+            roundId,
+            createdAt: Date.now(),
+            rawText: '',
+            reasoning: '',
+            model: settingsSnapshot.currentModel,
+          },
+        ])
+        const roundContext: LiveRoundContext = {
+          roundId,
+          skillTokenOrder: [],
+          skillKindByToken: new Map<string, SkillStepKind>(),
+          hasVisibleFlow: false,
+          markHasVisibleFlow: () => {
+            roundContext.hasVisibleFlow = true
+          },
+          resetTracking: () => {
+            roundContext.skillTokenOrder.length = 0
+            roundContext.skillKindByToken.clear()
+            roundContext.hasVisibleFlow = false
+          },
+        }
+
+        const completion = await requestModelCompletion(assistantId, promptMessages, {
+          mode: 'tagged',
+          roundContext,
+        })
+
+        const protocolOutcome = normalizeSkillAgentProtocolResponse(completion.text)
+        appendSkillRoundLog({
+          event: 'round_output',
+          traceId,
+          round: step + 1,
+          mode: 'skill-agent',
+          assistantRaw: truncateDebugLogText(completion.text),
+          assistantReasoning: truncateDebugLogText(completion.reasoning ?? ''),
+          protocolKind: protocolOutcome.kind,
+          assistantDisplayText: truncateDebugLogText(
+            protocolOutcome.kind === 'final' ? protocolOutcome.finalText : protocolOutcome.displayText,
+          ),
+          repairs: protocolOutcome.repairs.map((repair) => repair.code),
+          actions:
+            protocolOutcome.kind === 'progress'
+              ? protocolOutcome.actions.map((action) =>
+            action.kind === 'read'
+              ? {
+                  kind: action.kind,
+                  root: action.root,
+                  op: action.op,
+                  skill: action.skill,
+                  path: action.path,
+                  depth: action.depth,
+                  startLine: action.startLine,
+                  endLine: action.endLine,
+                }
+              : {
+                  kind: action.kind,
+                  id: action.id,
+                  skill: action.skill,
+                  script: action.script,
+                  argv: action.argv ?? [],
+                },
+                )
+              : [],
+        })
+        const roundDisplayText =
+          protocolOutcome.kind === 'final' ? protocolOutcome.finalText : protocolOutcome.displayText
+        const roundExplanation = roundDisplayText.trim()
+        const storedRawText =
+          protocolOutcome.kind === 'progress' || protocolOutcome.kind === 'final'
+            ? protocolOutcome.normalizedEnvelope
+            : ''
+        const normalizedReasoning = [completion.reasoning, protocolOutcome.reasoningText]
+          .filter(Boolean)
+          .join('\n\n')
+          .trim()
+        applyAssistantResult(
+          conversationId,
+          assistantId,
+          completion,
+          promptMessages,
+          {
+            resolvedText: roundDisplayText,
+            storedRawText,
+          },
         )
-        lastPromptMessages = promptMessages
 
-        const completion = await requestModelCompletion(promptMessages)
+        workingTranscript.push({
+          kind: 'assistant_message',
+          id: assistantId,
+          turnId,
+          roundId,
+          createdAt: Date.now(),
+          rawText: storedRawText,
+          reasoning: normalizedReasoning || undefined,
+          model: settingsSnapshot.currentModel,
+          usage: completion.usage,
+          firstTokenLatencyMs: completion.firstTokenLatencyMs,
+          totalTimeMs: completion.totalTimeMs,
+        })
 
-        const parsedCompletion = parseAgentActions(completion.text)
-        const executableActions = deduplicateSkillReadActions(parsedCompletion.actions)
-        if (executableActions.length === 0) {
+        if (roundContext.hasVisibleFlow) {
+          appendAssistantFlowRoundDivider(conversationId, assistantId, roundId, roundExplanation)
+        }
+
+        if (protocolOutcome.kind === 'final') {
           finalCompletion = completion
+          finalCompletionDisplayText = protocolOutcome.finalText
           break
         }
 
-        const roundId = createId()
-        const roundExplanation = extractThinkBlocks(parsedCompletion.displayText).cleanedText
-        appendAssistantSkillRound(roundId, roundExplanation)
-        resetAssistantStreamOutput(conversationId, assistantId)
+        if (protocolOutcome.kind === 'retry') {
+          if (roundContext.skillTokenOrder.length > 0) {
+            markRoundSkillsAsError(roundContext, assistantId, protocolOutcome.retryPrompt)
+          }
+          appendProtocolRetryMessage(roundId, {
+            reason: protocolOutcome.retryReason,
+            prompt: protocolOutcome.retryPrompt,
+            displayText: protocolOutcome.displayText,
+            repairs: protocolOutcome.repairs.map((repair) => repair.code),
+          })
+          previousProgressFingerprint = null
+          continue
+        }
 
-        for (const action of executableActions) {
+        if (protocolOutcome.normalizedEnvelope === previousProgressFingerprint) {
+          appendProtocolRetryMessage(roundId, {
+            reason: 'repeated_progress',
+            prompt:
+              '上一轮与本轮的 `<progress>` 请求完全相同，宿主不会重复执行。请基于最新的 host_message 结果继续推进，重发一条新的合法顶层回复。',
+            displayText: protocolOutcome.displayText,
+            repairs: protocolOutcome.repairs.map((repair) => repair.code),
+          })
+          previousProgressFingerprint = null
+          continue
+        }
+
+        previousProgressFingerprint = protocolOutcome.normalizedEnvelope
+
+        for (let actionIndex = 0; actionIndex < protocolOutcome.actions.length; actionIndex += 1) {
+          const action = protocolOutcome.actions[actionIndex]
           if (controller.signal.aborted) {
             throw new DOMException('Aborted', 'AbortError')
           }
 
-          if (action.kind === 'skill_read') {
-            const normalizedSections = (action.sections ?? []).map((section) => section.trim()).filter(Boolean)
-            const stepId = createId()
-            appendAssistantSkillStep(roundId, {
-              id: stepId,
-              kind: 'skill_read',
+          if (action.kind === 'read') {
+            const actionToken =
+              roundContext.skillTokenOrder[actionIndex] || `round-${roundId}-read-${actionIndex + 1}`
+            patchRoundSkillNode(roundContext, assistantId, actionToken, {
+              actionKind: 'read',
+              root: action.root,
+              op: action.op,
               skill: action.skill,
-              sections: normalizedSections.length > 0 ? normalizedSections : undefined,
+              path: action.path?.trim() || (action.op === 'list' ? '.' : undefined),
+              depth: action.depth,
+              startLine: action.startLine,
+              endLine: action.endLine,
               status: 'running',
+              error: undefined,
             })
 
-            appendStatus(`读取 skill 说明：${action.skill}`)
             try {
-              const payload = await readSkillSections(action.skill, normalizedSections)
-              const skillKey = normalizeSkillId(action.skill)
-              const previousDocIndex = latestSkillDocBlockIndexBySkill.get(skillKey)
-              if (previousDocIndex !== undefined) {
-                const previousBlock = blocks[previousDocIndex]
-                if (previousBlock && previousBlock.type === 'skill_doc') {
-                  blocks[previousDocIndex] = {
-                    ...previousBlock,
-                    content: createSkillDocReadMarker(action.skill),
-                  }
-                }
-              }
-              blocks.push(createSkillDocBlock(action.skill, payload))
-              latestSkillDocBlockIndexBySkill.set(skillKey, blocks.length - 1)
-              updateAssistantSkillStep(roundId, stepId, {
+              const payload = await executeReadAction(action, conversationId)
+              patchRoundSkillNode(roundContext, assistantId, actionToken, {
+                actionKind: 'read',
                 status: 'success',
                 error: undefined,
                 result: formatSkillStepResult(payload),
               })
+              appendHostMessage({
+                kind: 'host_message',
+                id: createId(),
+                turnId,
+                roundId,
+                createdAt: Date.now(),
+                category: 'read_result',
+                payload: {
+                  request: {
+                    root: action.root,
+                    op: action.op,
+                    skill: action.skill,
+                    path: action.path?.trim() || (action.op === 'list' ? '.' : undefined),
+                    depth: action.depth,
+                    startLine: action.startLine,
+                    endLine: action.endLine,
+                  },
+                  result: payload,
+                },
+              })
             } catch (error) {
-              const message = error instanceof Error ? error.message : '读取 skill 文档失败'
+              const message = error instanceof Error ? error.message : '读取失败'
               const payload = {
+                root: action.root,
+                op: action.op,
                 skill: action.skill,
-                sections: normalizedSections.length > 0 ? normalizedSections : undefined,
+                path: action.path?.trim() || (action.op === 'list' ? '.' : undefined),
+                depth: action.depth,
+                startLine: action.startLine,
+                endLine: action.endLine,
                 error: message,
               }
-              blocks.push(formatSkillErrorBlock(`Skill Read ${action.skill}`, payload))
-              updateAssistantSkillStep(roundId, stepId, {
+              patchRoundSkillNode(roundContext, assistantId, actionToken, {
+                actionKind: 'read',
                 status: 'error',
                 error: message,
                 result: formatSkillStepResult(payload),
+              })
+              appendHostMessage({
+                kind: 'host_message',
+                id: createId(),
+                turnId,
+                roundId,
+                createdAt: Date.now(),
+                category: 'read_error',
+                payload: {
+                  request: {
+                    root: action.root,
+                    op: action.op,
+                    skill: action.skill,
+                    path: action.path?.trim() || (action.op === 'list' ? '.' : undefined),
+                    depth: action.depth,
+                    startLine: action.startLine,
+                    endLine: action.endLine,
+                  },
+                  result: payload,
+                },
               })
             }
             continue
           }
 
-          const stepId = createId()
+          const actionToken =
+            roundContext.skillTokenOrder[actionIndex] || `round-${roundId}-skill-call-${actionIndex + 1}`
           const executableAction = applyPermissionGatesToSkillCall(action, settings.permissionToggles)
-          appendStatus(`调用 skill：${action.skill} / ${action.script}`)
-          appendAssistantSkillStep(roundId, {
-            id: stepId,
-            kind: 'skill_call',
+          patchRoundSkillNode(roundContext, assistantId, actionToken, {
+            actionKind: 'skill_call',
             skill: action.skill,
             script: action.script,
             status: 'running',
+            error: undefined,
           })
-          blocks.push(buildSkillCallBlock(executableAction))
 
           try {
             const execution = await executeSkillCall(executableAction)
@@ -3501,21 +4296,24 @@ function App() {
               resolvedCommand: execution.resolvedCommand,
               inferredRuntime: execution.inferredRuntime,
             }
-            blocks.push(
-              execution.ok
-                ? formatSkillResultBlock(`${action.skill}/${action.script}`, payload)
-                : formatSkillErrorBlock(`${action.skill}/${action.script}`, payload),
-            )
-            updateAssistantSkillStep(roundId, stepId, {
+            patchRoundSkillNode(roundContext, assistantId, actionToken, {
+              actionKind: 'skill_call',
               status: execution.ok ? 'success' : 'error',
               error: execution.ok ? undefined : execution.stderr.trim() || `退出码 ${execution.exitCode}`,
               result: formatSkillStepResult(payload),
             })
-            appendStatus(
-              execution.ok
-                ? `skill 完成：${action.skill} / ${action.script}`
-                : `skill 失败：${action.skill} / ${action.script}`,
-            )
+            appendHostMessage({
+              kind: 'host_message',
+              id: createId(),
+              turnId,
+              roundId,
+              createdAt: Date.now(),
+              category: execution.ok ? 'skill_result' : 'skill_error',
+              payload: {
+                request: executableAction,
+                result: payload,
+              },
+            })
           } catch (error) {
             const message = error instanceof Error ? error.message : 'skill 执行失败'
             const payload = {
@@ -3524,56 +4322,67 @@ function App() {
               script: action.script,
               error: message,
             }
-            updateAssistantSkillStep(roundId, stepId, {
+            patchRoundSkillNode(roundContext, assistantId, actionToken, {
+              actionKind: 'skill_call',
               status: 'error',
               error: message,
               result: formatSkillStepResult(payload),
             })
-            blocks.push(
-              formatSkillErrorBlock(`${action.skill}/${action.script}`, {
-                ...payload,
-              }),
-            )
-            appendStatus(`skill 异常：${action.skill} / ${action.script}`)
+            appendHostMessage({
+              kind: 'host_message',
+              id: createId(),
+              turnId,
+              roundId,
+              createdAt: Date.now(),
+              category: 'skill_error',
+              payload: {
+                request: executableAction,
+                result: payload,
+              },
+            })
           }
         }
       }
 
       if (!finalCompletion) {
-        throw new Error(`skill agent 超过最大轮数限制（${MAX_SKILL_AGENT_STEPS}）`)
+        throw new Error('skill agent 未返回最终结果。')
       }
 
-      applyAssistantResult(conversationId, assistantId, finalCompletion, lastPromptMessages)
+      appendSkillRoundLog({
+        event: 'request_finalized',
+        traceId,
+        roundCount: executedRoundCount,
+        finalAssistantText: truncateDebugLogText(finalCompletion.text),
+        finalAssistantDisplayText:
+          finalCompletionDisplayText !== undefined
+            ? truncateDebugLogText(finalCompletionDisplayText)
+            : undefined,
+        finalReasoning: truncateDebugLogText(finalCompletion.reasoning ?? ''),
+      })
     } catch (error) {
       flushQueuedAssistantStreamDelta()
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        setConversations((previous) =>
-          previous.map((conversation) => {
-            if (conversation.id !== conversationId) {
-              return conversation
-            }
-            const nextMessages = conversation.messages.map((message) =>
-              message.id === assistantId
-                ? { ...message, error: '已停止生成，可点击重生继续。' }
-                : message,
-            )
-            return withConversationMessages(conversation, nextMessages)
-          }),
-        )
-      } else {
-        const message = error instanceof Error ? error.message : '未知错误'
-        setConversations((previous) =>
-          previous.map((conversation) => {
-            if (conversation.id !== conversationId) {
-              return conversation
-            }
-            const nextMessages = conversation.messages.map((item) =>
-              item.id === assistantId ? { ...item, error: `请求失败：${message}` } : item,
-            )
-            return withConversationMessages(conversation, nextMessages)
-          }),
-        )
-        pushNotice(`请求失败：${message}`, 'error')
+      appendSkillRoundLog({
+        event: 'request_error',
+        traceId,
+        aborted: error instanceof DOMException && error.name === 'AbortError',
+        error: error instanceof Error ? truncateDebugLogText(error.message, 500) : '未知错误',
+      })
+      if (latestAssistantId) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          updateAssistantEvent(conversationId, latestAssistantId, (event) => ({
+            ...event,
+            rawText: latestAssistantRawText,
+            error: '已停止生成，可点击重生继续。',
+          }))
+        } else {
+          const message = error instanceof Error ? error.message : '未知错误'
+          updateAssistantEvent(conversationId, latestAssistantId, (event) => ({
+            ...event,
+            rawText: latestAssistantRawText,
+            error: `请求失败：${message}`,
+          }))
+          pushNotice(`请求失败：${message}`, 'error')
+        }
       }
     } finally {
       flushQueuedAssistantStreamDelta()
@@ -3582,8 +4391,199 @@ function App() {
     }
   }
 
+  const runObjectFlowDebugScenario = async (
+    conversationId: string,
+    _historyTranscript: TranscriptEvent[],
+    turnId: string,
+  ): Promise<void> => {
+    const assistantId = createId()
+    appendConversationTranscriptEvents(conversationId, [
+      {
+        kind: 'assistant_message',
+        id: assistantId,
+        turnId,
+        createdAt: Date.now(),
+        rawText: '',
+        model: activeProviderRequestSettings?.currentModel ?? 'debug-object-flow',
+      },
+    ])
+    setIsSending(true)
+
+    const wait = (milliseconds: number): Promise<void> =>
+      new Promise((resolve) => window.setTimeout(resolve, milliseconds))
+
+    try {
+      const roundId = createId()
+      const token = 'debug-skill-1'
+
+      appendAssistantStreamDelta(conversationId, assistantId, {
+        content: '段落1（debug）\n\n',
+        roundId,
+      })
+      flushQueuedAssistantStreamDelta()
+      await wait(120)
+
+      appendAssistantStreamDelta(conversationId, assistantId, {
+        content: createSkillActionPlaceholder(token),
+        roundId,
+      })
+      flushQueuedAssistantStreamDelta()
+      updateAssistantEvent(conversationId, assistantId, (event) => {
+        const nextFlow = upsertAssistantFlowSkillNodeByToken(
+          event.assistantFlow,
+          token,
+          {
+            actionKind: 'skill_call',
+            status: 'running',
+            skill: 'device-info',
+            script: 'scripts/get_device_info.internal',
+            result: formatStructuredMarkdown({
+              stage: 'open',
+              kind: 'skill_call',
+              skill: 'device-info',
+              script: 'scripts/get_device_info.internal',
+            }),
+          },
+          {
+            createId,
+            roundId,
+          },
+        ).flow
+        return applyAssistantFlowState(event, nextFlow)
+      })
+      await wait(120)
+
+      appendAssistantStreamDelta(conversationId, assistantId, {
+        content: '\n\n段落2（debug）',
+        roundId,
+      })
+      flushQueuedAssistantStreamDelta()
+      await wait(120)
+
+      updateAssistantEvent(conversationId, assistantId, (event) => {
+        const nextFlow = upsertAssistantFlowSkillNodeByToken(
+          event.assistantFlow,
+          token,
+          {
+            actionKind: 'skill_call',
+            status: 'success',
+            result: formatStructuredMarkdown({
+              stage: 'close',
+              id: 'debug:skill_call',
+              skill: 'device-info',
+              script: 'scripts/get_device_info.internal',
+              exitCode: 0,
+            }),
+          },
+          {
+            createId,
+            roundId,
+          },
+        ).flow
+        return applyAssistantFlowState(event, nextFlow)
+      })
+
+      appendAssistantFlowRoundDivider(conversationId, assistantId, roundId)
+      appendAssistantStreamDelta(conversationId, assistantId, { content: '\n\n段落3（debug）' })
+      flushQueuedAssistantStreamDelta()
+    } finally {
+      setIsSending(false)
+    }
+  }
+
   const handleSend = async (): Promise<void> => {
-    if (!canSend || !activeConversation || !ensureReadyToRequest()) {
+    if (!canSend || !activeConversation) {
+      return
+    }
+
+    const trimmedDraft = draft.trim()
+    const normalizedDraftCommand = trimmedDraft.toLowerCase().replace(/\s+/g, '')
+    const compactDraftCommand = normalizedDraftCommand.replace(/[^\w/:-]/g, '')
+    const isDebugLogExportCommand =
+      compactDraftCommand === '/debug-logs' ||
+      compactDraftCommand === 'debug-logs' ||
+      compactDraftCommand === 'debug_logs' ||
+      compactDraftCommand === '/debug-log-export' ||
+      compactDraftCommand === 'debug-log-export' ||
+      compactDraftCommand === 'debug_log_export' ||
+      compactDraftCommand === '/debug-log-dump' ||
+      compactDraftCommand === 'debug-log-dump' ||
+      compactDraftCommand === 'debug_log_dump'
+    const isDebugLogClearCommand =
+      compactDraftCommand === '/debug-clear-logs' ||
+      compactDraftCommand === 'debug-clear-logs' ||
+      compactDraftCommand === 'debug_clear_logs'
+    const isObjectFlowDebugCommand =
+      /debug[-_]?object[-_]?flow/i.test(trimmedDraft) ||
+      compactDraftCommand.includes('debug-object-flow') ||
+      compactDraftCommand.includes('debug_object_flow') ||
+      compactDraftCommand.includes('/debug-object-flow') ||
+      compactDraftCommand.includes('/debug_object_flow')
+
+    const resetComposerState = (): void => {
+      setDraftsByConversation((previous) => {
+        if (!Object.prototype.hasOwnProperty.call(previous, activeConversation.id)) {
+          return previous
+        }
+        const next = { ...previous }
+        delete next[activeConversation.id]
+        return next
+      })
+      pendingImageCompressionTaskIdRef.current = {}
+      setPendingImages([])
+      setEditingMessageId(null)
+      closeModelMenu()
+    }
+
+    if (isDebugLogClearCommand) {
+      clearDebugLogEntries(DEBUG_SKILL_ROUND_LOG_STORAGE_KEY)
+      clearDebugLogEntries(DEBUG_OBJECT_FLOW_LOG_STORAGE_KEY)
+      lastSkillRoundLogKeyRef.current = ''
+      lastObjectFlowLogKeyRef.current = ''
+      const turnId = createId()
+      appendConversationTranscriptEvents(activeConversation.id, [
+        createUserMessageTranscriptEvent(turnId, Date.now(), buildUserTranscriptContent(trimmedDraft)),
+        createStaticAssistantEvent(
+          turnId,
+          '调试日志已清空。接下来可以运行真实 skill 测试，再用 /debug-log-export 导出两份日志。',
+          activeProviderRequestSettings?.currentModel ?? 'debug-log',
+        ),
+      ])
+      resetComposerState()
+      return
+    }
+
+    if (isDebugLogExportCommand) {
+      const roundLogs = readDebugLogEntries(DEBUG_SKILL_ROUND_LOG_STORAGE_KEY)
+      const objectLogs = readDebugLogEntries(DEBUG_OBJECT_FLOW_LOG_STORAGE_KEY)
+      const turnId = createId()
+      appendConversationTranscriptEvents(activeConversation.id, [
+        createUserMessageTranscriptEvent(turnId, Date.now(), buildUserTranscriptContent(trimmedDraft)),
+        createStaticAssistantEvent(
+          turnId,
+          buildDebugLogReportText(roundLogs, objectLogs),
+          activeProviderRequestSettings?.currentModel ?? 'debug-log',
+        ),
+      ])
+      resetComposerState()
+      return
+    }
+
+    if (isObjectFlowDebugCommand) {
+      const turnId = createId()
+      const userEvent = createUserMessageTranscriptEvent(
+        turnId,
+        Date.now(),
+        buildUserTranscriptContent(trimmedDraft),
+      )
+      const historyTranscript = [...activeConversation.transcript, userEvent]
+      appendConversationTranscriptEvents(activeConversation.id, [userEvent])
+      resetComposerState()
+      await runObjectFlowDebugScenario(activeConversation.id, historyTranscript, turnId)
+      return
+    }
+
+    if (!ensureReadyToRequest()) {
       return
     }
 
@@ -3598,28 +4598,16 @@ function App() {
           }))
         : []
 
-    const nextMessage: ChatMessage = {
-      id: createId(),
-      role: 'user',
-      text: draft.trim(),
-      images: outgoingImages.length > 0 ? outgoingImages : undefined,
-      createdAt: Date.now(),
-    }
-
-    const history = [...activeConversation.messages, nextMessage]
-    setDraftsByConversation((previous) => {
-      if (!Object.prototype.hasOwnProperty.call(previous, activeConversation.id)) {
-        return previous
-      }
-      const next = { ...previous }
-      delete next[activeConversation.id]
-      return next
-    })
-    pendingImageCompressionTaskIdRef.current = {}
-    setPendingImages([])
-    setEditingMessageId(null)
-    closeModelMenu()
-    await runAssistant(activeConversation.id, history)
+    const turnId = createId()
+    const userEvent = createUserMessageTranscriptEvent(
+      turnId,
+      Date.now(),
+      buildUserTranscriptContent(trimmedDraft, outgoingImages),
+    )
+    const historyTranscript = [...activeConversation.transcript, userEvent]
+    appendConversationTranscriptEvents(activeConversation.id, [userEvent])
+    resetComposerState()
+    await runAssistant(activeConversation.id, historyTranscript, turnId)
   }
 
   const stopGeneration = (): void => {
@@ -3832,10 +4820,35 @@ function App() {
       pushNotice('内容不能为空。', 'error')
       return
     }
-    const nextMessages = activeConversation.messages.map((message) =>
-      message.id === editingMessageId ? { ...message, text: nextText } : message,
+    const target = activeMessages.find((message) => message.id === editingMessageId && message.role === 'assistant')
+    if (!target) {
+      cancelEdit()
+      return
+    }
+
+    let inserted = false
+    const replacement = createStaticAssistantEvent(
+      target.turnId,
+      nextText,
+      activeProviderRequestSettings?.currentModel,
     )
-    updateConversationMessages(activeConversation.id, nextMessages)
+    const nextTranscript = activeConversation.transcript.flatMap((event) => {
+      if (event.turnId !== target.turnId) {
+        return [event]
+      }
+      if (event.kind === 'user_message') {
+        inserted = true
+        return [event, replacement]
+      }
+      return []
+    })
+
+    if (!inserted) {
+      cancelEdit()
+      return
+    }
+
+    updateConversationTranscript(activeConversation.id, nextTranscript)
     cancelEdit()
   }
 
@@ -3849,27 +4862,33 @@ function App() {
       return
     }
 
-    const index = activeConversation.messages.findIndex(
-      (message) => message.id === editingMessageId,
+    const target = activeMessages.find((message) => message.id === editingMessageId && message.role === 'user')
+    if (!target) {
+      cancelEdit()
+      return
+    }
+
+    const userEvent = activeConversation.transcript.find(
+      (event): event is UserMessageTranscriptEvent => event.kind === 'user_message' && event.id === editingMessageId,
     )
-    if (index < 0) {
+    if (!userEvent) {
       cancelEdit()
       return
     }
 
-    const target = activeConversation.messages[index]
-    if (target.role !== 'user') {
-      cancelEdit()
-      return
+    const existingImages = userEvent.content
+      .filter((part): part is Extract<TranscriptContentPart, { type: 'image' }> => part.type === 'image')
+      .map((part) => part.image)
+    const updatedUserEvent: UserMessageTranscriptEvent = {
+      ...userEvent,
+      content: buildUserTranscriptContent(nextText, existingImages),
     }
-
-    const updatedUser: ChatMessage = { ...target, text: nextText }
 
     if (!resend) {
-      const nextMessages = activeConversation.messages.map((message) =>
-        message.id === editingMessageId ? updatedUser : message,
+      const nextTranscript = activeConversation.transcript.map((event) =>
+        event.kind === 'user_message' && event.id === editingMessageId ? updatedUserEvent : event,
       )
-      updateConversationMessages(activeConversation.id, nextMessages)
+      updateConversationTranscript(activeConversation.id, nextTranscript)
       cancelEdit()
       return
     }
@@ -3883,9 +4902,18 @@ function App() {
       return
     }
 
-    const history = [...activeConversation.messages.slice(0, index), updatedUser]
+    const nextTranscript: TranscriptEvent[] = []
+    for (const event of activeConversation.transcript) {
+      if (event.kind === 'user_message' && event.id === editingMessageId) {
+        nextTranscript.push(updatedUserEvent)
+        break
+      }
+      nextTranscript.push(event)
+    }
+
     cancelEdit()
-    await runAssistant(activeConversation.id, history)
+    updateConversationTranscript(activeConversation.id, nextTranscript)
+    await runAssistant(activeConversation.id, nextTranscript, updatedUserEvent.turnId)
   }
 
   const regenerate = async (assistantId: string): Promise<void> => {
@@ -3896,26 +4924,29 @@ function App() {
       return
     }
 
-    const index = activeConversation.messages.findIndex((message) => message.id === assistantId)
-    if (index <= 0) {
+    const target = activeMessages.find((message) => message.id === assistantId && message.role === 'assistant')
+    if (!target) {
       return
     }
 
-    const previousMessage = activeConversation.messages[index - 1]
-    if (previousMessage.role !== 'user') {
+    const userEventIndex = activeConversation.transcript.findIndex(
+      (event) => event.kind === 'user_message' && event.turnId === target.turnId,
+    )
+    if (userEventIndex < 0) {
       pushNotice('无法定位该回答对应的用户输入。', 'error')
       return
     }
 
-    const history = activeConversation.messages.slice(0, index)
-    await runAssistant(activeConversation.id, history)
+    const historyTranscript = activeConversation.transcript.slice(0, userEventIndex + 1)
+    updateConversationTranscript(activeConversation.id, historyTranscript)
+    await runAssistant(activeConversation.id, historyTranscript, target.turnId)
   }
 
   const copyMessageText = async (text: string): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(text)
+    const copied = await copyTextToClipboard(text)
+    if (copied) {
       pushNotice('已复制到剪贴板。', 'success')
-    } catch {
+    } else {
       pushNotice('复制失败，请检查剪贴板权限。', 'error')
     }
   }
@@ -4124,10 +5155,10 @@ function App() {
     pushNotice('对话已删除。', 'success')
   }
 
-  const closeDeleteDialog = (): void => {
+  const closeDeleteDialog = useCallback((): void => {
     setDeleteDialogConversationId(null)
     setDeleteDialogProviderId(null)
-  }
+  }, [])
 
   const confirmDeleteConversation = (): void => {
     if (!deleteDialogConversationId) {
@@ -4300,11 +5331,13 @@ function App() {
   }
 
   const createNewConversation = (): void => {
-    const existingPlaceholder = conversations.find((conversation) => isConversationPlaceholder(conversation))
+    const existingPlaceholder = conversations.find((conversation) =>
+      isTranscriptConversationWorkspacePlaceholder(conversation, draftsByConversation[conversation.id] ?? ''),
+    )
     const nextConversation = existingPlaceholder ?? createConversation()
 
     if (!existingPlaceholder) {
-      setConversations((previous) => [nextConversation, ...previous].slice(0, MAX_STORED_CONVERSATIONS))
+      setConversations((previous) => [nextConversation, ...previous])
     }
 
     setActiveConversationId(nextConversation.id)
@@ -4464,51 +5497,226 @@ function App() {
   }, [settings])
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
+    let cancelled = false
+
+    void (async () => {
       try {
-        const serializableConversations = serializeConversationsForStorage(conversations)
-        localStorage.setItem(CONVERSATIONS_STORAGE_KEY, JSON.stringify(serializableConversations))
-      } catch (error) {
-        if (!storageWarningShownRef.current) {
-          storageWarningShownRef.current = true
-          setNotice({ text: '图片较大，聊天记录无法完整持久化，但当前会话可继续使用。', type: 'error' })
+        const loaded = await loadStoredChatState()
+        if (cancelled) {
+          return
         }
-        console.warn('Failed to persist conversations', error)
-      }
-    }, CHAT_STATE_PERSIST_DEBOUNCE_MS)
 
-    return () => window.clearTimeout(timer)
-  }, [conversations])
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      try {
-        const serializableDrafts = serializeConversationDraftsForStorage(
-          conversationIdSet,
-          draftsByConversation,
+        const fallbackConversation = createConversation()
+        const persistedConversationIds = new Set(loaded.conversations.map((conversation) => conversation.id))
+        const nextDrafts = Object.fromEntries(
+          Object.entries(loaded.draftsByConversation).filter(
+            ([conversationId, draft]) => persistedConversationIds.has(conversationId) && draft.length > 0,
+          ),
         )
-        localStorage.setItem(DRAFTS_STORAGE_KEY, JSON.stringify(serializableDrafts))
-      } catch (error) {
-        if (!storageWarningShownRef.current) {
-          storageWarningShownRef.current = true
-          setNotice({ text: '草稿保存失败，未发送内容可能无法完整恢复。', type: 'error' })
-        }
-        console.warn('Failed to persist drafts', error)
-      }
-    }, CHAT_STATE_PERSIST_DEBOUNCE_MS)
+        const nextConversations = [fallbackConversation, ...loaded.conversations]
+        // Product invariant: a cold launch must always land in a fresh new conversation.
+        // History is restored below, but initial focus must never jump back to the last active thread.
+        const nextActiveConversationId = fallbackConversation.id
 
-    return () => window.clearTimeout(timer)
-  }, [conversationIdSet, draftsByConversation])
+        const nextState: LoadedChatState = {
+          conversations: nextConversations,
+          activeConversationId: nextActiveConversationId,
+          draftsByConversation: nextDrafts,
+        }
+
+        chatStateSignatureRef.current = getChatStatePersistenceSignature(nextState)
+        startTransition(() => {
+          setConversations(nextConversations)
+          setActiveConversationId(nextActiveConversationId)
+          setDraftsByConversation(nextDrafts)
+          setChatStateLoadError(null)
+          setChatStateLoaded(true)
+        })
+      } catch (error) {
+        if (cancelled) {
+          return
+        }
+        const message = error instanceof Error ? error.message : '未知错误'
+        setChatStateLoadError(`聊天记录加载失败：${message}`)
+        console.warn('Failed to load chat state', error)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
-    if (activeConversationId) {
-      try {
-        localStorage.setItem(ACTIVE_CONVERSATION_STORAGE_KEY, activeConversationId)
-      } catch (error) {
-        console.warn('Failed to persist active conversation', error)
+    if (!chatStateLoaded) {
+      return
+    }
+
+    const pendingLoads: Array<{
+      conversationId: string
+      messageId: string
+      imageId: string
+      storageKey: string
+      mimeType: string
+    }> = []
+
+    for (const conversation of conversations) {
+      for (const event of conversation.transcript) {
+        if (event.kind !== 'user_message') {
+          continue
+        }
+        for (const part of event.content) {
+          if (part.type !== 'image') {
+            continue
+          }
+          const image = part.image
+          if (!image.storageKey || image.dataUrl.trim().length > 0) {
+            continue
+          }
+          if (hydratingImageKeysRef.current.has(image.storageKey)) {
+            continue
+          }
+          pendingLoads.push({
+            conversationId: conversation.id,
+            messageId: event.id,
+            imageId: image.id,
+            storageKey: image.storageKey,
+            mimeType: image.mimeType,
+          })
+        }
       }
     }
-  }, [activeConversationId])
+
+    if (pendingLoads.length === 0) {
+      return
+    }
+
+    let cancelled = false
+    for (const item of pendingLoads) {
+      hydratingImageKeysRef.current.add(item.storageKey)
+    }
+
+    void (async () => {
+      try {
+        const hydrated = await Promise.all(
+          pendingLoads.map(async (item) => ({
+            ...item,
+            dataUrl: await loadStoredAttachmentDataUrl(item.storageKey, item.mimeType),
+          })),
+        )
+        if (cancelled) {
+          return
+        }
+        const resolved = hydrated.filter(
+          (item): item is typeof item & { dataUrl: string } => typeof item.dataUrl === 'string' && item.dataUrl.length > 0,
+        )
+        if (resolved.length === 0) {
+          return
+        }
+        startTransition(() => {
+          setConversations((previous) =>
+            previous.map((conversation) => {
+              const nextTranscript = conversation.transcript.map((event) => {
+                if (event.kind !== 'user_message') {
+                  return event
+                }
+                const matchedImages = resolved.filter(
+                  (item) => item.conversationId === conversation.id && item.messageId === event.id,
+                )
+                if (matchedImages.length === 0) {
+                  return event
+                }
+                return {
+                  ...event,
+                  content: event.content.map((part) => {
+                    if (part.type !== 'image') {
+                      return part
+                    }
+                    const matched = matchedImages.find((item) => item.imageId === part.image.id)
+                    return matched
+                      ? {
+                          type: 'image' as const,
+                          image: {
+                            ...part.image,
+                            dataUrl: matched.dataUrl,
+                          },
+                        }
+                      : part
+                  }),
+                }
+              })
+              return {
+                ...conversation,
+                transcript: nextTranscript,
+              }
+            }),
+          )
+        })
+      } finally {
+        for (const item of pendingLoads) {
+          hydratingImageKeysRef.current.delete(item.storageKey)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [chatStateLoaded, conversations])
+
+  useEffect(() => {
+    if (!chatStateLoaded) {
+      return
+    }
+
+    const nextState: LoadedChatState = {
+      conversations,
+      activeConversationId,
+      draftsByConversation,
+    }
+    const nextSignature = getChatStatePersistenceSignature(nextState)
+    if (nextSignature === chatStateSignatureRef.current) {
+      return
+    }
+
+    const taskId = conversationPersistTaskIdRef.current + 1
+    conversationPersistTaskIdRef.current = taskId
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const persisted = await persistChatState(nextState)
+          if (conversationPersistTaskIdRef.current !== taskId) {
+            return
+          }
+          const nextConversationsWithStorageKeys = applyAssignedImageStorageKeys(
+            nextState.conversations,
+            persisted.assignedImageStorageKeys,
+          )
+          const normalizedState: LoadedChatState = {
+            conversations: nextConversationsWithStorageKeys,
+            activeConversationId: nextState.activeConversationId,
+            draftsByConversation: nextState.draftsByConversation,
+          }
+
+          chatStateSignatureRef.current = getChatStatePersistenceSignature(normalizedState)
+
+          if (nextConversationsWithStorageKeys !== nextState.conversations) {
+            startTransition(() => {
+              setConversations(nextConversationsWithStorageKeys)
+            })
+          }
+        } catch (error) {
+          if (!storageWarningShownRef.current) {
+            storageWarningShownRef.current = true
+            setNotice({ text: '聊天记录持久化失败，请稍后重试。', type: 'error' })
+          }
+          console.warn('Failed to persist conversations', error)
+        }
+      })()
+    }, CHAT_STATE_PERSIST_DEBOUNCE_MS)
+
+    return () => window.clearTimeout(timer)
+  }, [chatStateLoaded, conversations, draftsByConversation, activeConversationId])
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) {
@@ -4536,10 +5744,32 @@ function App() {
   }, [notice])
 
   useEffect(() => {
+    if (imageViewerMounted || !imageViewer) {
+      return
+    }
+    setImageViewer(null)
+  }, [imageViewer, imageViewerMounted])
+
+  useEffect(() => {
+    if (!imageViewerMounted || typeof document === 'undefined') {
+      return undefined
+    }
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [imageViewerMounted])
+
+  useEffect(() => {
     let isDisposed = false
     let listenerHandle: { remove: () => Promise<void> } | null = null
 
     void CapacitorApp.addListener('backButton', ({ canGoBack }) => {
+      if (imageViewerMounted) {
+        closeImageViewer()
+        return
+      }
       if (deleteDialogConversationId || deleteDialogProviderId) {
         closeDeleteDialog()
         return
@@ -4576,6 +5806,7 @@ function App() {
       }
     }
   }, [
+    closeImageViewer,
     closeDrawer,
     closeDeleteDialog,
     closeModelMenu,
@@ -4583,6 +5814,7 @@ function App() {
     deleteDialogProviderId,
     drawerMounted,
     handleSettingsBack,
+    imageViewerMounted,
     modelMenuMounted,
     settingsMounted,
   ])
@@ -5024,6 +6256,105 @@ function App() {
     </div>
   )
 
+  const renderPromptEditorPanel = ({
+    isOpen,
+    onToggle,
+    title,
+    value,
+    onChange,
+    placeholder,
+    helperText,
+    actionLabel,
+    onAction,
+    actionDisabled = false,
+  }: {
+    isOpen: boolean
+    onToggle: () => void
+    title: string
+    value: string
+    onChange: (value: string) => void
+    placeholder?: string
+    helperText?: string
+    actionLabel?: string
+    onAction?: () => void
+    actionDisabled?: boolean
+  }) => (
+    <section className={`reasoning-panel settings-prompt-panel ${isOpen ? 'is-open' : ''}`}>
+      <button type="button" className="reasoning-toggle" onClick={onToggle}>
+        <span>{title}</span>
+        <span className={`arrow ${isOpen ? 'open' : ''}`}>▾</span>
+      </button>
+      <div className="reasoning-body">
+        <div className="settings-prompt-content">
+          {helperText ? <p className="settings-prompt-helper">{helperText}</p> : null}
+          <ChatInputBox
+            className="settings-chat-input settings-chat-input-card settings-prompt-input"
+            radiusMode="card"
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            placeholder={placeholder}
+            maxHeight={420}
+          />
+          {actionLabel && onAction ? (
+            <div className="settings-prompt-actions">
+              <button type="button" className="tiny-button" onClick={onAction} disabled={actionDisabled}>
+                {actionLabel}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  )
+
+  const formatToggleStateLabel = (enabled: boolean): string => (enabled ? '已开启' : '已关闭')
+
+  const renderInfoPromptToggleCard = ({
+    cardKey,
+    definition,
+    description,
+    statusText,
+    checked,
+    onChange,
+    actionLabel,
+    onAction,
+    actionDisabled = false,
+  }: {
+    cardKey: string
+    definition: InfoPromptDefinition
+    description: string
+    statusText?: string
+    checked: boolean
+    onChange: (enabled: boolean) => void
+    actionLabel?: string
+    onAction?: () => void
+    actionDisabled?: boolean
+  }) => (
+    <div key={cardKey} className="settings-static-card settings-toggle-card">
+      <div className="settings-toggle-card-header">
+        <div className="settings-toggle-card-copy">
+          <div className="settings-entry-title">{definition.title}</div>
+          <div className="settings-entry-meta">{description}</div>
+          {statusText ? <div className="settings-toggle-card-state">{statusText}</div> : null}
+        </div>
+        <input
+          className="toggle-switch"
+          type="checkbox"
+          aria-label={definition.title}
+          checked={checked}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+      </div>
+      {actionLabel && onAction ? (
+        <div className="settings-toggle-card-actions">
+          <button type="button" className="tiny-button" onClick={onAction} disabled={actionDisabled}>
+            {actionLabel}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  )
+
   const renderMainSettings = () => (
     <>
       <section className="settings-section">
@@ -5057,58 +6388,32 @@ function App() {
         </div>
 
         <div className="settings-prompt-panels">
-          <section
-            className={`reasoning-panel settings-prompt-panel ${
-              openPromptEditors.systemPrompt ? 'is-open' : ''
-            }`}
-          >
-            <button
-              type="button"
-              className="reasoning-toggle"
-              onClick={() => togglePromptEditor('systemPrompt')}
-            >
-              <span>系统提示词</span>
-              <span className={`arrow ${openPromptEditors.systemPrompt ? 'open' : ''}`}>▾</span>
-            </button>
-            <div className="reasoning-body">
-              <div className="settings-prompt-content">
-                <ChatInputBox
-                  className="settings-chat-input settings-chat-input-card settings-prompt-input"
-                  radiusMode="card"
-                  value={settings.systemPrompt}
-                  onChange={(event) => updateSetting('systemPrompt', event.target.value)}
-                  placeholder="你可以在此配置系统提示词"
-                  maxHeight={420}
-                />
-              </div>
-            </div>
-          </section>
+          {renderPromptEditorPanel({
+            isOpen: openPromptEditors.systemPrompt,
+            onToggle: () => togglePromptEditor('systemPrompt'),
+            title: '系统提示词',
+            value: settings.systemPrompt,
+            onChange: (value) => updateSetting('systemPrompt', value),
+            placeholder: '你可以在此配置系统提示词',
+            actionLabel: '重置为默认提示词',
+            onAction: () => resetPromptToDefault('systemPrompt'),
+            actionDisabled: settings.systemPrompt === PROMPT_DEFAULTS.systemPrompt,
+          })}
+        </div>
 
-          <section
-            className={`reasoning-panel settings-prompt-panel ${
-              openPromptEditors.skillCallSystemPrompt ? 'is-open' : ''
-            }`}
+        <div className="settings-entry-list">
+          <button
+            type="button"
+            className="settings-entry-button"
+            onClick={() => navigateSettingsView('tag-prompts')}
           >
-            <button
-              type="button"
-              className="reasoning-toggle"
-              onClick={() => togglePromptEditor('skillCallSystemPrompt')}
-            >
-              <span>Skill Call 系统提示词</span>
-              <span className={`arrow ${openPromptEditors.skillCallSystemPrompt ? 'open' : ''}`}>▾</span>
-            </button>
-            <div className="reasoning-body">
-              <div className="settings-prompt-content">
-                <ChatInputBox
-                  className="settings-chat-input settings-chat-input-card settings-prompt-input"
-                  radiusMode="card"
-                  value={settings.skillCallSystemPrompt}
-                  onChange={(event) => updateSetting('skillCallSystemPrompt', event.target.value)}
-                  maxHeight={420}
-                />
-              </div>
-            </div>
-          </section>
+            <span className="settings-entry-title">标签提示词</span>
+            <span className="settings-entry-meta">
+              {settings.skillModeEnabled
+                ? '分别配置一般标签、顶层标签、<read> 与 <skill_call>，并支持一键恢复默认。'
+                : '技能模式关闭时暂不生效；开启后会用于控制一般标签、顶层标签、<read> 与 <skill_call>。'}
+            </span>
+          </button>
         </div>
       </section>
 
@@ -5352,7 +6657,7 @@ function App() {
                 'emptyStateStatsMinConversations',
                 event.target.value,
                 0,
-                MAX_STORED_CONVERSATIONS,
+                MAX_EMPTY_STATE_STATS_MIN_CONVERSATIONS,
                 true,
               )
             }
@@ -5390,6 +6695,266 @@ function App() {
             onChange={(event) => updateSetting('firstTokenHapticsEnabled', event.target.checked)}
           />
         </label>
+      </section>
+    </>
+  )
+
+  const renderTagPromptSettings = () => (
+    <>
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">说明</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+
+        <div className="settings-entry-list">
+          <div className="settings-static-card">
+            <div className="settings-entry-title">标签提示词</div>
+            <div className="settings-entry-meta">
+              {
+                '分别控制一般标签、顶层标签、<read> 与 <skill_call> 在技能模式下的行为。信息提示词开关会把当前设备信息与当前对话 workspace 信息以 Markdown 形式拼进系统提示词。页面底部的已废弃提示词会以板块形式保存旧版与后续废弃提示词。'
+              }
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">标签提示词</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+
+        <div className="settings-prompt-panels">
+          {renderPromptEditorPanel({
+            isOpen: openPromptEditors.generalTagSystemPrompt,
+            onToggle: () => togglePromptEditor('generalTagSystemPrompt'),
+            title: '一般标签提示词',
+            value: settings.generalTagSystemPrompt,
+            onChange: (value) => updateSetting('generalTagSystemPrompt', value),
+            placeholder: '你可以在此配置一般标签提示词',
+            helperText: '放置适用于所有标签轮次、但不属于任何具体标签的共用规则。',
+            actionLabel: '重置为默认提示词',
+            onAction: () => resetPromptToDefault('generalTagSystemPrompt'),
+            actionDisabled:
+              settings.generalTagSystemPrompt === PROMPT_DEFAULTS.generalTagSystemPrompt,
+          })}
+
+          {renderPromptEditorPanel({
+            isOpen: openPromptEditors.topLevelTagSystemPrompt,
+            onToggle: () => togglePromptEditor('topLevelTagSystemPrompt'),
+            title: '顶层标签提示词',
+            value: settings.topLevelTagSystemPrompt,
+            onChange: (value) => updateSetting('topLevelTagSystemPrompt', value),
+            placeholder: '你可以在此配置顶层标签提示词',
+            helperText: '定义宿主接手态与用户交付态对应的顶层标签，以及顶层标签的硬约束。',
+            actionLabel: '重置为默认提示词',
+            onAction: () => resetPromptToDefault('topLevelTagSystemPrompt'),
+            actionDisabled:
+              settings.topLevelTagSystemPrompt === PROMPT_DEFAULTS.topLevelTagSystemPrompt,
+          })}
+
+          {renderPromptEditorPanel({
+            isOpen: openPromptEditors.readSystemPrompt,
+            onToggle: () => togglePromptEditor('readSystemPrompt'),
+            title: '<read> 标签提示词',
+            value: settings.readSystemPrompt,
+            onChange: (value) => updateSetting('readSystemPrompt', value),
+            placeholder: '你可以在此配置 <read> 标签提示词',
+            helperText: '控制模型何时输出 <read> 标签，以及如何组织读取请求。',
+            actionLabel: '重置为默认提示词',
+            onAction: () => resetPromptToDefault('readSystemPrompt'),
+            actionDisabled: settings.readSystemPrompt === PROMPT_DEFAULTS.readSystemPrompt,
+          })}
+
+          {renderPromptEditorPanel({
+            isOpen: openPromptEditors.skillCallSystemPrompt,
+            onToggle: () => togglePromptEditor('skillCallSystemPrompt'),
+            title: '<skill_call> 标签提示词',
+            value: settings.skillCallSystemPrompt,
+            onChange: (value) => updateSetting('skillCallSystemPrompt', value),
+            placeholder: '你可以在此配置 <skill_call> 标签提示词',
+            helperText: '控制模型何时输出 <skill_call> 标签，以及如何组织技能调用。',
+            actionLabel: '重置为默认提示词',
+            onAction: () => resetPromptToDefault('skillCallSystemPrompt'),
+            actionDisabled:
+              settings.skillCallSystemPrompt === PROMPT_DEFAULTS.skillCallSystemPrompt,
+          })}
+
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">信息提示词</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+
+        <div className="settings-entry-list">
+          {INFO_PROMPT_DEFINITIONS.map((definition) =>
+            renderInfoPromptToggleCard({
+              cardKey: definition.key,
+              definition,
+              description: definition.globalDescription,
+              checked: settings[definition.key],
+              onChange: (enabled) => updateSetting(definition.key, enabled),
+            }),
+          )}
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">已废弃提示词</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+
+        <div className="settings-prompt-panels">
+          {renderPromptEditorPanel({
+            isOpen: openPromptEditors.deprecatedTagPrompts,
+            onToggle: () => togglePromptEditor('deprecatedTagPrompts'),
+            title: '已废弃提示词',
+            value: settings.deprecatedTagPrompts,
+            onChange: (value) => updateSetting('deprecatedTagPrompts', value),
+            placeholder:
+              '废弃提示词会以板块形式记录在这里。例如：\n===== 旧版全局标签提示词 | legacy-global-tag-system-prompt =====\n...\n===== END legacy-global-tag-system-prompt =====',
+            helperText:
+              '这里统一保存旧版与未来废弃的提示词板块。检测到旧版全局标签提示词时，宿主会自动在此追加对应板块。',
+          })}
+        </div>
+      </section>
+    </>
+  )
+
+  const renderProviderTagPromptSettings = () => (
+    <>
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">说明</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+
+        {providerDetailTarget ? (
+          <div className="settings-entry-list">
+            <div className="settings-static-card">
+              <div className="settings-entry-title">标签提示词</div>
+              <div className="settings-entry-meta">
+                {`当前服务商：${providerDetailTarget.name.trim() || '未命名服务商'}。文本覆盖留空时跟随全局设置；信息提示词开关未覆盖时也跟随全局设置。`}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="summary-muted">未找到目标服务商。</p>
+        )}
+      </section>
+
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">标签提示词覆盖</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+
+        {providerDetailTarget ? (
+          <div className="settings-prompt-panels">
+            {renderPromptEditorPanel({
+              isOpen: openProviderPromptEditors.generalTagSystemPrompt,
+              onToggle: () => toggleProviderPromptEditor('generalTagSystemPrompt'),
+              title: '一般标签提示词覆盖',
+              value: providerDetailTarget.generalTagSystemPrompt ?? '',
+              onChange: (value) =>
+                updateProviderPromptOverride(providerDetailTarget.id, 'generalTagSystemPrompt', value),
+              placeholder: '留空时使用全局一般标签提示词',
+              helperText: '控制服务商专属的一般标签规则；留空时完全跟随全局配置。',
+              actionLabel: '恢复跟随全局',
+              onAction: () =>
+                clearProviderPromptOverride(providerDetailTarget.id, 'generalTagSystemPrompt'),
+              actionDisabled: providerDetailTarget.generalTagSystemPrompt === undefined,
+            })}
+
+            {renderPromptEditorPanel({
+              isOpen: openProviderPromptEditors.topLevelTagSystemPrompt,
+              onToggle: () => toggleProviderPromptEditor('topLevelTagSystemPrompt'),
+              title: '顶层标签提示词覆盖',
+              value: providerDetailTarget.topLevelTagSystemPrompt ?? '',
+              onChange: (value) =>
+                updateProviderPromptOverride(providerDetailTarget.id, 'topLevelTagSystemPrompt', value),
+              placeholder: '留空时使用全局顶层标签提示词',
+              helperText: '控制服务商专属的顶层标签映射与硬约束；留空时完全跟随全局配置。',
+              actionLabel: '恢复跟随全局',
+              onAction: () =>
+                clearProviderPromptOverride(providerDetailTarget.id, 'topLevelTagSystemPrompt'),
+              actionDisabled: providerDetailTarget.topLevelTagSystemPrompt === undefined,
+            })}
+
+            {renderPromptEditorPanel({
+              isOpen: openProviderPromptEditors.readSystemPrompt,
+              onToggle: () => toggleProviderPromptEditor('readSystemPrompt'),
+              title: '<read> 标签提示词覆盖',
+              value: providerDetailTarget.readSystemPrompt ?? '',
+              onChange: (value) =>
+                updateProviderPromptOverride(providerDetailTarget.id, 'readSystemPrompt', value),
+              placeholder: '留空时使用全局 <read> 标签提示词',
+              helperText: '控制服务商专属的 <read> 输出规则；留空时完全跟随全局配置。',
+              actionLabel: '恢复跟随全局',
+              onAction: () => clearProviderPromptOverride(providerDetailTarget.id, 'readSystemPrompt'),
+              actionDisabled: providerDetailTarget.readSystemPrompt === undefined,
+            })}
+
+            {renderPromptEditorPanel({
+              isOpen: openProviderPromptEditors.skillCallSystemPrompt,
+              onToggle: () => toggleProviderPromptEditor('skillCallSystemPrompt'),
+              title: '<skill_call> 标签提示词覆盖',
+              value: providerDetailTarget.skillCallSystemPrompt ?? '',
+              onChange: (value) =>
+                updateProviderPromptOverride(providerDetailTarget.id, 'skillCallSystemPrompt', value),
+              placeholder: '留空时使用全局 <skill_call> 标签提示词',
+              helperText: '控制服务商专属的 <skill_call> 输出规则；留空时完全跟随全局配置。',
+              actionLabel: '恢复跟随全局',
+              onAction: () =>
+                clearProviderPromptOverride(providerDetailTarget.id, 'skillCallSystemPrompt'),
+              actionDisabled: providerDetailTarget.skillCallSystemPrompt === undefined,
+            })}
+
+          </div>
+        ) : (
+          <p className="summary-muted">未找到目标服务商。</p>
+        )}
+      </section>
+
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">信息提示词覆盖</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+
+        {providerDetailTarget ? (
+          <div className="settings-entry-list">
+            {INFO_PROMPT_DEFINITIONS.map((definition) => {
+              const overrideValue = providerDetailTarget[definition.key]
+              const effectiveValue = overrideValue ?? settings[definition.key]
+              const statusText =
+                overrideValue === undefined
+                  ? `当前跟随全局：${formatToggleStateLabel(settings[definition.key])}`
+                  : `当前覆盖：${formatToggleStateLabel(overrideValue)}`
+
+              return renderInfoPromptToggleCard({
+                cardKey: definition.key,
+                definition,
+                description: definition.providerDescription,
+                statusText,
+                checked: effectiveValue,
+                onChange: (enabled) =>
+                  updateProviderInfoPromptOverride(providerDetailTarget.id, definition.key, enabled),
+                actionLabel: '恢复跟随全局',
+                onAction: () =>
+                  clearProviderInfoPromptOverride(providerDetailTarget.id, definition.key),
+                actionDisabled: overrideValue === undefined,
+              })
+            })}
+          </div>
+        ) : (
+          <p className="summary-muted">未找到目标服务商。</p>
+        )}
       </section>
     </>
   )
@@ -5670,71 +7235,31 @@ function App() {
             <p className="summary-muted">留空时使用全局默认提示词。</p>
 
             <div className="settings-prompt-panels">
-              <section
-                className={`reasoning-panel settings-prompt-panel ${
-                  openProviderPromptEditors.systemPrompt ? 'is-open' : ''
-                }`}
-              >
-                <button
-                  type="button"
-                  className="reasoning-toggle"
-                  onClick={() => toggleProviderPromptEditor('systemPrompt')}
-                >
-                  <span>系统提示词</span>
-                  <span className={`arrow ${openProviderPromptEditors.systemPrompt ? 'open' : ''}`}>▾</span>
-                </button>
-                <div className="reasoning-body">
-                  <div className="settings-prompt-content">
-                    <ChatInputBox
-                      className="settings-chat-input settings-chat-input-card settings-prompt-input"
-                      radiusMode="card"
-                      value={providerDetailTarget.systemPrompt ?? ''}
-                      onChange={(event) =>
-                        updateProviderPromptOverride(
-                          providerDetailTarget.id,
-                          'systemPrompt',
-                          event.target.value,
-                        )
-                      }
-                      placeholder="留空时使用全局系统提示词"
-                      maxHeight={420}
-                    />
-                  </div>
-                </div>
-              </section>
+              {renderPromptEditorPanel({
+                isOpen: openProviderPromptEditors.systemPrompt,
+                onToggle: () => toggleProviderPromptEditor('systemPrompt'),
+                title: '系统提示词',
+                value: providerDetailTarget.systemPrompt ?? '',
+                onChange: (value) =>
+                  updateProviderPromptOverride(providerDetailTarget.id, 'systemPrompt', value),
+                placeholder: '留空时使用全局系统提示词',
+                actionLabel: '恢复跟随全局',
+                onAction: () => clearProviderPromptOverride(providerDetailTarget.id, 'systemPrompt'),
+                actionDisabled: providerDetailTarget.systemPrompt === undefined,
+              })}
+            </div>
 
-              <section
-                className={`reasoning-panel settings-prompt-panel ${
-                  openProviderPromptEditors.skillCallSystemPrompt ? 'is-open' : ''
-                }`}
+            <div className="settings-entry-list">
+              <button
+                type="button"
+                className="settings-entry-button"
+                onClick={() => navigateSettingsView('provider-tag-prompts')}
               >
-                <button
-                  type="button"
-                  className="reasoning-toggle"
-                  onClick={() => toggleProviderPromptEditor('skillCallSystemPrompt')}
-                >
-                  <span>Skill Call 系统提示词</span>
-                  <span className={`arrow ${openProviderPromptEditors.skillCallSystemPrompt ? 'open' : ''}`}>▾</span>
-                </button>
-                <div className="reasoning-body">
-                  <div className="settings-prompt-content">
-                    <ChatInputBox
-                      className="settings-chat-input settings-chat-input-card settings-prompt-input"
-                      radiusMode="card"
-                      value={providerDetailTarget.skillCallSystemPrompt ?? ''}
-                      onChange={(event) =>
-                        updateProviderPromptOverride(
-                          providerDetailTarget.id,
-                          'skillCallSystemPrompt',
-                          event.target.value,
-                        )
-                      }
-                      placeholder="留空时使用全局 Skill Call 提示词"
-                      maxHeight={420}
-                    />
-                  </div>
-                </div>
-              </section>
+                <span className="settings-entry-title">标签提示词</span>
+                <span className="settings-entry-meta">
+                  {'分别覆盖一般标签、顶层标签、<read> 与 <skill_call>；留空时跟随全局。'}
+                </span>
+              </button>
             </div>
           </>
         ) : (
@@ -6183,37 +7708,47 @@ function App() {
   )
 
   const renderSettingsPage = () => {
-    const title =
-      settingsView === 'providers'
-        ? '服务商管理'
-        : settingsView === 'provider-detail'
-          ? providerDetailTarget?.name?.trim() || '服务商配置'
-        : settingsView === 'skills'
-        ? 'Skills 管理'
-        : settingsView === 'skill-config'
-          ? 'Skill 配置'
-          : settingsView === 'runtimes'
-            ? '运行时设置'
-            : settingsView === 'permissions'
-              ? '权限设置'
-            : 'Chatroom 设置'
-
     const showBack = settingsView !== 'main'
     const shouldAnimateSettingsView = settingsView !== 'main'
-    const settingsContent =
-      settingsView === 'main'
-        ? renderMainSettings()
-        : settingsView === 'providers'
-          ? renderProvidersSettings()
-          : settingsView === 'provider-detail'
-            ? renderProviderDetailSettings()
-        : settingsView === 'skills'
-          ? renderSkillsSettings()
-          : settingsView === 'skill-config'
-            ? renderSkillConfigSettings()
-            : settingsView === 'runtimes'
-              ? renderRuntimeSettings()
-              : renderPermissionsSettings()
+    let title = 'Chatroom 设置'
+    let settingsContent = renderMainSettings()
+
+    switch (settingsView) {
+      case 'tag-prompts':
+        title = '标签提示词'
+        settingsContent = renderTagPromptSettings()
+        break
+      case 'providers':
+        title = '服务商管理'
+        settingsContent = renderProvidersSettings()
+        break
+      case 'provider-detail':
+        title = providerDetailTarget?.name?.trim() || '服务商配置'
+        settingsContent = renderProviderDetailSettings()
+        break
+      case 'provider-tag-prompts':
+        title = '标签提示词'
+        settingsContent = renderProviderTagPromptSettings()
+        break
+      case 'skills':
+        title = 'Skills 管理'
+        settingsContent = renderSkillsSettings()
+        break
+      case 'skill-config':
+        title = 'Skill 配置'
+        settingsContent = renderSkillConfigSettings()
+        break
+      case 'runtimes':
+        title = '运行时设置'
+        settingsContent = renderRuntimeSettings()
+        break
+      case 'permissions':
+        title = '权限设置'
+        settingsContent = renderPermissionsSettings()
+        break
+      default:
+        break
+    }
 
     return (
       <section
@@ -6425,29 +7960,45 @@ function App() {
 
       {notice ? <div className={`notice notice-${notice.type}`}>{notice.text}</div> : null}
 
-      <section className="summary-bar">
-        <span>轮次 {rounds}</span>
-        <span>输入Token {numberFormatter.format(tokenSummary.promptTokens)}</span>
-        <span>输出Token {numberFormatter.format(tokenSummary.completionTokens)}</span>
-        <span>总Token {numberFormatter.format(tokenSummary.totalTokens)}</span>
-        {tokenSummary.estimatedCount > 0 ? (
-          <span className="summary-muted">含 {tokenSummary.estimatedCount} 条估算</span>
-        ) : null}
-      </section>
+      {chatStateLoadError ? (
+        <main className="message-list page-transition">
+          <section className="empty-state">
+            <h2>聊天记录加载失败</h2>
+            <p className="empty-state-line">{chatStateLoadError}</p>
+          </section>
+        </main>
+      ) : !chatStateLoaded ? (
+        <main className="message-list page-transition">
+          <section className="empty-state">
+            <h2>Chatroom</h2>
+            <p className="empty-state-line">正在加载聊天记录…</p>
+          </section>
+        </main>
+      ) : (
+        <>
+          <section className="summary-bar">
+            <span>轮次 {rounds}</span>
+            <span>输入Token {numberFormatter.format(tokenSummary.promptTokens)}</span>
+            <span>输出Token {numberFormatter.format(tokenSummary.completionTokens)}</span>
+            <span>总Token {numberFormatter.format(tokenSummary.totalTokens)}</span>
+            {tokenSummary.estimatedCount > 0 ? (
+              <span className="summary-muted">含 {tokenSummary.estimatedCount} 条估算</span>
+            ) : null}
+          </section>
 
-      <main
-        key={activeConversationId}
-        ref={messageListRef}
-        className="message-list page-transition"
-        onScroll={handleMessageListScroll}
-        onPointerDownCapture={handleMessageListPointerDownCapture}
-        onPointerUpCapture={handleMessageListPointerUpCapture}
-        onPointerCancelCapture={handleMessageListPointerCancelCapture}
-        onWheelCapture={handleMessageListWheelCapture}
-      >
-        {activeMessages.length === 0 ? (
-          <>
-            <section className="empty-state">
+          <main
+            key={activeConversationId}
+            ref={messageListRef}
+            className="message-list page-transition"
+            onScroll={handleMessageListScroll}
+            onPointerDownCapture={handleMessageListPointerDownCapture}
+            onPointerUpCapture={handleMessageListPointerUpCapture}
+            onPointerCancelCapture={handleMessageListPointerCancelCapture}
+            onWheelCapture={handleMessageListWheelCapture}
+          >
+            {activeMessages.length === 0 ? (
+              <>
+                <section className="empty-state">
               <h2>Chatroom</h2>
               <p className="empty-state-line empty-state-intro">
                 我是<span className="empty-state-nowrap">ChatroomAI</span>！
@@ -6560,8 +8111,8 @@ function App() {
                 <wbr />
                 让我来回答你的问题吧<span className="empty-state-emoticon">(´,,•ω•,,)♡</span>
               </p>
-            </section>
-            <section className="empty-state empty-state-mode-card">
+                </section>
+                <section className="empty-state empty-state-mode-card">
               <h3>对话模式设置</h3>
               <p className="empty-state-line">
                 当前模式：{settings.skillModeEnabled ? '技能模式（可调用 Skills）' : '文本模式（仅文本回复）'}
@@ -6575,36 +8126,66 @@ function App() {
                   onChange={(event) => updateSetting('skillModeEnabled', event.target.checked)}
                 />
               </label>
-            </section>
-          </>
-        ) : null}
+                </section>
+              </>
+            ) : null}
 
-        {activeMessages.map((message) => {
+            {activeMessages.map((message) => {
           const editing = editingMessageId === message.id
           const textValue = message.text.trim()
           const hasReasoning = Boolean(message.reasoning?.trim())
-          const skillSteps = message.skillSteps ?? []
-          const skillRounds =
-            (message.skillRounds?.length ?? 0) > 0
-              ? message.skillRounds ?? []
-              : skillSteps.length > 0
-                ? [
-                    {
-                      id: `legacy-${message.id}`,
-                      steps: skillSteps,
-                    },
-                  ]
-                : []
-          const hasSkillRounds = skillRounds.length > 0
+          const assistantFlow = message.role === 'assistant' ? message.assistantFlow ?? [] : []
+          const hasAssistantFlow = assistantFlow.length > 0
           const isAssistantLoading =
-            message.role === 'assistant' && !message.error && !textValue && !hasReasoning
+            message.role === 'assistant' && !message.error && !textValue && !hasReasoning && !hasAssistantFlow
           const displayText =
             textValue ||
             (message.role === 'assistant' && !isAssistantLoading ? '（模型未返回文本内容）' : '')
+          const displayTextSanitized =
+            message.role === 'assistant' ? stripSkillParsingHintLines(displayText) : displayText
           const shouldRenderText =
-            displayText.length > 0 || (message.role === 'user' && !(message.images?.length ?? 0))
-          const hasFinalRoundContent =
-            (settings.showReasoning && hasReasoning) || isAssistantLoading || shouldRenderText || Boolean(message.error)
+            displayTextSanitized.length > 0 || (message.role === 'user' && !(message.images?.length ?? 0))
+          const renderSkillStepEntry = (step: AssistantFlowSkillNode, key: string) => {
+            const hasResult = Boolean(step.result?.trim())
+            const resultOpen = openSkillResultByStep[step.id] === true
+            const targetLabel = formatSkillStepTarget(step)
+
+            return (
+              <div key={key} className="skill-step-entry">
+                <div className={`skill-step-card is-${step.status}`}>
+                  <div className="skill-step-meta">
+                    <span className="skill-step-target" title={targetLabel}>
+                      {targetLabel}
+                    </span>
+                    <span className="skill-step-status">{formatSkillStepStatus(step.status)}</span>
+                  </div>
+                  {step.explanation ? (
+                    <div className="markdown-content skill-step-content">
+                      <MarkdownMessage text={step.explanation} />
+                    </div>
+                  ) : null}
+                  {hasResult ? (
+                    <section className={`skill-step-result-panel ${resultOpen ? 'is-open' : ''}`}>
+                      <button
+                        type="button"
+                        className="skill-step-result-toggle"
+                        onClick={() => toggleSkillResult(step.id)}
+                      >
+                        <span>返回信息</span>
+                        <span className={`arrow ${resultOpen ? 'open' : ''}`}>▾</span>
+                      </button>
+                      <div className="skill-step-result-body">
+                        <div className="markdown-content skill-step-result-content">
+                          <MarkdownMessage text={step.result ?? ''} />
+                        </div>
+                      </div>
+                    </section>
+                  ) : null}
+                  {step.error ? <p className="message-error skill-step-error">{step.error}</p> : null}
+                </div>
+              </div>
+            )
+          }
 
           return (
             <article key={message.id} className={`message-card ${message.role}`}>
@@ -6616,13 +8197,22 @@ function App() {
                 )}
               </div>
 
-              {!editing && message.images && message.images.length > 0 ? (
+              {!editing && (message.images?.some((image) => image.dataUrl.trim().length > 0) ?? false) ? (
                 <div className="image-grid">
-                  {message.images.map((image) => (
-                    <figure key={image.id} className="image-item">
-                      <img src={image.dataUrl} alt={image.name} />
-                    </figure>
-                  ))}
+                  {message.images
+                    ?.filter((image) => image.dataUrl.trim().length > 0)
+                    .map((image) => (
+                      <figure key={image.id} className="image-item">
+                        <button
+                          type="button"
+                          className="image-item-button"
+                          onClick={() => openImageViewer(buildMessageImageViewerKey(message.id, image.id), image)}
+                          aria-label={`查看图片 ${image.name}`}
+                        >
+                          <img src={image.dataUrl} alt={image.name} />
+                        </button>
+                      </figure>
+                    ))}
                 </div>
               ) : null}
 
@@ -6662,76 +8252,6 @@ function App() {
                 </div>
               ) : (
                 <>
-                  {hasSkillRounds ? (
-                    <section className="skill-round-list">
-                      {skillRounds.map((round, roundIndex) => (
-                        <section key={round.id} className="skill-round-entry">
-                          {roundIndex > 0 ? <div className="skill-round-divider" aria-hidden="true" /> : null}
-                          {round.explanation ? (
-                            <div className="markdown-content skill-round-explanation">
-                              <MarkdownMessage text={round.explanation} />
-                            </div>
-                          ) : null}
-                          {round.steps.length > 0 ? (
-                            <div className="skill-step-list">
-                              {round.steps.map((step) => {
-                                const hasResult = Boolean(step.result?.trim())
-                                const resultOpen = openSkillResultByStep[step.id] === true
-                                const targetLabel = formatSkillStepTarget(step)
-
-                                return (
-                                  <div key={step.id} className="skill-step-entry">
-                                    <div className={`skill-step-card is-${step.status}`}>
-                                      <div className="skill-step-meta">
-                                        <span className="skill-step-target" title={targetLabel}>
-                                          {targetLabel}
-                                        </span>
-                                        <span className="skill-step-status">
-                                          {formatSkillStepStatus(step.status)}
-                                        </span>
-                                      </div>
-                                      {step.explanation ? (
-                                        <div className="markdown-content skill-step-content">
-                                          <MarkdownMessage text={step.explanation} />
-                                        </div>
-                                      ) : null}
-                                      {hasResult ? (
-                                        <section
-                                          className={`skill-step-result-panel ${resultOpen ? 'is-open' : ''}`}
-                                        >
-                                          <button
-                                            type="button"
-                                            className="skill-step-result-toggle"
-                                            onClick={() => toggleSkillResult(step.id)}
-                                          >
-                                            <span>返回信息</span>
-                                            <span className={`arrow ${resultOpen ? 'open' : ''}`}>▾</span>
-                                          </button>
-                                          <div className="skill-step-result-body">
-                                            <div className="markdown-content skill-step-result-content">
-                                              <MarkdownMessage text={step.result ?? ''} />
-                                            </div>
-                                          </div>
-                                        </section>
-                                      ) : null}
-                                      {step.error ? (
-                                        <p className="message-error skill-step-error">{step.error}</p>
-                                      ) : null}
-                                    </div>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          ) : null}
-                        </section>
-                      ))}
-                    </section>
-                  ) : null}
-
-                  {hasSkillRounds && hasFinalRoundContent ? (
-                    <div className="skill-final-divider" aria-hidden="true" />
-                  ) : null}
-
                   {settings.showReasoning && hasReasoning ? (
                     <section
                       className={`reasoning-panel ${openReasoningByMessage[message.id] ? 'is-open' : ''}`}
@@ -6762,9 +8282,31 @@ function App() {
                     </div>
                   ) : null}
 
-                  {shouldRenderText ? (
+                  {message.role === 'assistant' && hasAssistantFlow ? (
+                    <div className="assistant-inline-flow">
+                      {assistantFlow.map((node, index) => {
+                        if (node.kind === 'divider') {
+                          return <div key={node.id} className="assistant-round-divider" aria-hidden="true" />
+                        }
+
+                        if (node.kind === 'text') {
+                          const segmentText = stripSkillParsingHintLines(node.text)
+                          if (!segmentText.trim()) {
+                            return null
+                          }
+                          return (
+                            <div key={node.id} className="markdown-content">
+                              <MarkdownMessage text={segmentText} />
+                            </div>
+                          )
+                        }
+
+                        return renderSkillStepEntry(node, `inline-step-${message.id}-${node.id}-${index}`)
+                      })}
+                    </div>
+                  ) : shouldRenderText ? (
                     <div className="markdown-content">
-                      <MarkdownMessage text={displayText} />
+                      <MarkdownMessage text={displayTextSanitized} />
                     </div>
                   ) : null}
 
@@ -6803,100 +8345,114 @@ function App() {
               )}
             </article>
           )
-        })}
+            })}
 
-        <div ref={messageEndRef} />
-      </main>
+            <div ref={messageEndRef} />
+          </main>
 
-      <footer className="composer">
-        {pendingImages.length > 0 ? (
-          <div className="pending-image-strip">
-            {pendingImages.map((image) => (
-              <div key={image.id} className="pending-image-item">
-                <img src={image.dataUrl} alt={image.name} />
-                <button type="button" onClick={() => removePendingImage(image.id)}>
-                  ×
-                </button>
-                <div className="pending-image-controls">
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={image.compressionRate}
-                    onChange={(event) =>
-                      updatePendingImageCompression(image.id, Number(event.target.value))
-                    }
-                    aria-label={`压缩率 ${image.name}`}
-                  />
-                  <span>{image.compressionRate}%</span>
-                </div>
+          <footer className="composer">
+            {pendingImages.length > 0 ? (
+              <div className="pending-image-strip">
+                {pendingImages.map((image) => (
+                  <div key={image.id} className="pending-image-item">
+                    <button
+                      type="button"
+                      className="pending-image-preview"
+                      onClick={() => openImageViewer(buildPendingImageViewerKey(image.id), image)}
+                      aria-label={`查看图片 ${image.name}`}
+                    >
+                      <img src={image.dataUrl} alt={image.name} />
+                    </button>
+                    <button
+                      type="button"
+                      className="pending-image-remove-button"
+                      onClick={() => removePendingImage(image.id)}
+                      aria-label={`移除图片 ${image.name}`}
+                    >
+                      ×
+                    </button>
+                    <div className="pending-image-controls">
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={image.compressionRate}
+                        onChange={(event) =>
+                          updatePendingImageCompression(image.id, Number(event.target.value))
+                        }
+                        aria-label={`压缩率 ${image.name}`}
+                      />
+                      <span>{image.compressionRate}%</span>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        ) : null}
+            ) : null}
 
-        <div className="composer-panel">
-          <div className="composer-row">
-            <ChatInputBox
-              ref={composerInputRef}
-              className="chat-input-box composer-input"
-              value={draft}
-              onChange={(event) => {
-                if (!activeConversation) {
-                  return
-                }
-                updateConversationDraft(activeConversation.id, event.target.value)
-              }}
-              placeholder="输入消息"
-              maxHeight={188}
+            <div className="composer-panel">
+              <div className="composer-row">
+                <ChatInputBox
+                  ref={composerInputRef}
+                  className="chat-input-box composer-input"
+                  value={draft}
+                  onChange={(event) => {
+                    if (!activeConversation) {
+                      return
+                    }
+                    updateConversationDraft(activeConversation.id, event.target.value)
+                  }}
+                  placeholder="输入消息"
+                  maxHeight={188}
+                />
+
+                {isSending ? (
+                  <button type="button" className="danger-button" onClick={stopGeneration}>
+                    停止
+                  </button>
+                ) : (
+                  <button type="button" disabled={!canSend} onClick={() => void handleSend()}>
+                    发送
+                  </button>
+                )}
+              </div>
+
+              {renderComposerTools()}
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              onChange={(event) => void handleImageSelect(event)}
             />
-
-            {isSending ? (
-              <button type="button" className="danger-button" onClick={stopGeneration}>
-                停止
-              </button>
-            ) : (
-              <button type="button" disabled={!canSend} onClick={() => void handleSend()}>
-                发送
-              </button>
-            )}
-          </div>
-
-          {renderComposerTools()}
-        </div>
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          hidden
-          onChange={(event) => void handleImageSelect(event)}
-        />
-        <input
-          ref={cameraInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          hidden
-          onChange={(event) => void handleImageSelect(event)}
-        />
-        <input
-          ref={skillArchiveInputRef}
-          type="file"
-          accept=".zip,application/zip"
-          hidden
-          onChange={(event) => void handleSkillArchiveSelect(event)}
-        />
-        <input
-          ref={runtimeArchiveInputRef}
-          type="file"
-          accept=".zip,application/zip"
-          hidden
-          onChange={(event) => void handleRuntimeArchiveSelect(event)}
-        />
-      </footer>
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              hidden
+              onChange={(event) => void handleImageSelect(event)}
+            />
+            <input
+              ref={skillArchiveInputRef}
+              type="file"
+              accept=".zip,application/zip"
+              hidden
+              onChange={(event) => void handleSkillArchiveSelect(event)}
+            />
+            <input
+              ref={runtimeArchiveInputRef}
+              type="file"
+              accept=".zip,application/zip"
+              hidden
+              onChange={(event) => void handleRuntimeArchiveSelect(event)}
+            />
+          </footer>
+        </>
+      )}
 
       {drawerMounted ? (
         <div
@@ -7054,6 +8610,15 @@ function App() {
             </div>
           </aside>
         </div>
+      ) : null}
+
+      {imageViewerMounted && imageViewer ? (
+        <ImageViewer
+          items={imageViewer.items}
+          initialIndex={imageViewer.initialIndex}
+          visible={imageViewerVisible}
+          onClose={closeImageViewer}
+        />
       ) : null}
 
       {deleteDialogConversation ? (

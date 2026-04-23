@@ -125,9 +125,20 @@ scripts/union_search.internal --query "AI Agent" --platforms github,reddit,zhihu
 - `group=no_api_key` 优先走无需 API Key 的搜索来源
 - `group=preferred` 是内置默认聚合策略，不会只依赖单一搜索源
 
+## Common Output Options
+
+所有脚本支持以下输出参数：
+
+- `--format <json|markdown|text>`：输出格式（默认 `json`）
+- `--markdown`：等价于 `--format markdown`
+- `--json`：等价于 `--format json`
+- `--pretty`：JSON 使用缩进格式（默认开启）
+- `--compact`：JSON 使用紧凑格式
+- `--output <path>` 或 `-o <path>`：把输出写入文件（同时仍会打印到 stdout）
+
 ## Output Format
 
-所有脚本都输出 JSON。
+默认输出 JSON，也支持 Markdown 与 Text。
 
 常见字段：
 

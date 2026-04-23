@@ -65,6 +65,22 @@ export const pathExists = async (path: string): Promise<boolean> => {
   }
 }
 
+export interface RelativePathStat {
+  type?: string
+  size?: number
+}
+
+export const statPath = async (path: string): Promise<RelativePathStat> => {
+  const result = await Filesystem.stat({
+    path: ensureSafeRelativePath(path),
+    directory: DIRECTORY,
+  })
+  return {
+    type: result.type,
+    size: typeof result.size === 'number' ? result.size : undefined,
+  }
+}
+
 export const readTextFile = async (path: string): Promise<string> => {
   const result = await Filesystem.readFile({
     path: ensureSafeRelativePath(path),
