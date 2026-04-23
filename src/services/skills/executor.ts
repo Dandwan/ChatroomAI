@@ -1,9 +1,27 @@
-import { getBuiltinSkillRoot, getSkillDocument, listSkills, readSkillConfig } from './host'
+import {
+  getBuiltinSkillRoot,
+  listSkillDirectory,
+  listSkills,
+  readSkillConfig,
+  readSkillFile,
+  statSkillPath,
+} from './host'
+import {
+  listConversationWorkspace,
+  readConversationWorkspaceFile,
+  statConversationWorkspacePath,
+} from '../chat-storage/repository'
+import { sliceTextByLineWindow } from '../read-utils'
 import { executeDeviceInfoSkillCall } from './device-info'
 import { nativeExecuteProcess } from './native-runtime'
 import { getPreferredRuntimePaths } from './runtime'
 import { joinRelativePath, pathExists } from './storage'
-import type { SkillCallAction, SkillExecutionResult } from './types'
+import type {
+  ReadAction,
+  ReadExecutionResult,
+  SkillCallAction,
+  SkillExecutionResult,
+} from './types'
 
 const INSTALLED_SKILL_ROOT = 'skill-host/skills'
 
@@ -40,32 +58,107 @@ const resolveTimeoutMs = (action: SkillCallAction): number => {
   return Math.max(30000, waitMs + 5000)
 }
 
-export const readSkillSections = async (
-  skillId: string,
-  sections?: string[],
-): Promise<Record<string, unknown>> => {
-  if (!skillId || !skillId.trim()) {
-    throw new Error('skill_read 缺少 skill id')
-  }
-  const document = await getSkillDocument(skillId)
-  if (!sections || sections.length === 0) {
-    return {
-      skill: skillId,
-      content: document.content,
-    }
-  }
+const normalizeLineNumber = (value: number | undefined, fallback: number): number =>
+  typeof value === 'number' && Number.isFinite(value) ? Math.max(1, Math.round(value)) : fallback
 
-  const picked: Record<string, string> = {}
-  for (const section of sections) {
-    if (document.sections[section]) {
-      picked[section] = document.sections[section]
-    }
+const buildReadTextResult = (
+  action: ReadAction,
+  path: string,
+  content: string,
+): ReadExecutionResult => {
+  const requestedStartLine = normalizeLineNumber(action.startLine, 1)
+  const sliced = sliceTextByLineWindow(content, action.startLine, action.endLine)
+
+  if (requestedStartLine > sliced.totalLines) {
+    throw new Error(`起始行超出文件总行数：${requestedStartLine} > ${sliced.totalLines}`)
   }
 
   return {
-    skill: skillId,
-    sections: picked,
+    kind: 'read',
+    root: action.root,
+    skill: action.root === 'skill' ? action.skill : undefined,
+    path,
+    content: sliced.content,
+    lineStart: sliced.lineStart,
+    lineEnd: sliced.lineEnd,
+    truncated: sliced.truncated,
   }
+}
+
+export const executeReadAction = async (
+  action: ReadAction,
+  conversationId: string,
+): Promise<ReadExecutionResult> => {
+  if (action.root !== 'skill' && action.root !== 'workspace') {
+    throw new Error('read 缺少合法 root')
+  }
+  if (action.op !== 'list' && action.op !== 'read' && action.op !== 'stat') {
+    throw new Error('read 缺少合法 op')
+  }
+  if (action.root === 'skill' && !action.skill?.trim()) {
+    throw new Error('read 在 skill root 下缺少 skill id')
+  }
+  if ((action.op === 'read' || action.op === 'stat') && !action.path?.trim()) {
+    throw new Error(`read 在 ${action.op} 操作下缺少 path`)
+  }
+
+  if (action.root === 'skill') {
+    if (action.op === 'list') {
+      const result = await listSkillDirectory(action.skill!, action.path, action.depth)
+      return {
+        kind: 'list',
+        root: 'skill',
+        skill: action.skill,
+        path: result.path,
+        depth: result.depth,
+        entries: result.entries,
+        truncated: result.truncated,
+      }
+    }
+
+    if (action.op === 'stat') {
+      const result = await statSkillPath(action.skill!, action.path!)
+      return {
+        kind: 'stat',
+        root: 'skill',
+        skill: action.skill,
+        path: result.path,
+        entryType: result.entryType,
+        size: result.size,
+        textLikely: result.textLikely,
+      }
+    }
+
+    const file = await readSkillFile(action.skill!, action.path!)
+    return buildReadTextResult(action, file.path, file.content)
+  }
+
+  if (action.op === 'list') {
+    const result = await listConversationWorkspace(conversationId, action.path, action.depth)
+    return {
+      kind: 'list',
+      root: 'workspace',
+      path: result.path,
+      depth: result.depth,
+      entries: result.entries,
+      truncated: result.truncated,
+    }
+  }
+
+  if (action.op === 'stat') {
+    const result = await statConversationWorkspacePath(conversationId, action.path!)
+    return {
+      kind: 'stat',
+      root: 'workspace',
+      path: result.path,
+      entryType: result.entryType,
+      size: result.size,
+      textLikely: result.textLikely,
+    }
+  }
+
+  const file = await readConversationWorkspaceFile(conversationId, action.path!)
+  return buildReadTextResult(action, file.path, file.content)
 }
 
 export const executeSkillCall = async (action: SkillCallAction): Promise<SkillExecutionResult> => {

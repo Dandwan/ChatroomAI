@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -65,14 +66,14 @@ const ChatInputBox = forwardRef<HTMLTextAreaElement, ChatInputBoxProps>(function
   const radiusTimeoutRef = useRef<number | null>(null)
   const wasMultilineRef = useRef(false)
 
-  const clearRadiusTimeout = (): void => {
+  const clearRadiusTimeout = useCallback((): void => {
     if (radiusTimeoutRef.current !== null) {
       window.clearTimeout(radiusTimeoutRef.current)
       radiusTimeoutRef.current = null
     }
-  }
+  }, [])
 
-  const syncLayout = (): void => {
+  const syncLayout = useCallback((): void => {
     const textarea = textareaRef.current
     if (!textarea) {
       return
@@ -144,11 +145,11 @@ const ChatInputBox = forwardRef<HTMLTextAreaElement, ChatInputBoxProps>(function
 
     textarea.style.height = `${nextHeight}px`
     wasMultilineRef.current = multiline
-  }
+  }, [clearRadiusTimeout, maxHeight, minHeight, radiusMode])
 
   useLayoutEffect(() => {
     syncLayout()
-  }, [maxHeight, minHeight, radiusMode, value])
+  }, [syncLayout, value])
 
   useEffect(() => {
     const handleResize = (): void => {
@@ -163,7 +164,7 @@ const ChatInputBox = forwardRef<HTMLTextAreaElement, ChatInputBoxProps>(function
       }
       clearRadiusTimeout()
     }
-  }, [maxHeight, minHeight, radiusMode])
+  }, [clearRadiusTimeout, syncLayout])
 
   return (
     <textarea

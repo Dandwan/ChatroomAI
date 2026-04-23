@@ -10,7 +10,6 @@ export interface SkillDocument {
   frontmatter: SkillFrontmatter
   body: string
   content: string
-  sections: Record<string, string>
 }
 
 export type SkillSource = 'builtin' | 'installed'
@@ -71,13 +70,61 @@ export interface SkillExecutionResult {
   inferredRuntime: RuntimeType | 'shell' | 'native'
 }
 
-export type AgentActionKind = 'none' | 'skill_read' | 'skill_call'
+export type ReadRoot = 'skill' | 'workspace'
+export type ReadOp = 'list' | 'read' | 'stat'
 
-export interface SkillReadAction {
-  kind: 'skill_read'
-  skill: string
-  sections?: string[]
+export interface ReadAction {
+  kind: 'read'
+  root: ReadRoot
+  op: ReadOp
+  skill?: string
+  path?: string
+  depth?: number
+  startLine?: number
+  endLine?: number
 }
+
+export interface ReadListEntry {
+  path: string
+  name: string
+  kind: 'file' | 'directory'
+  size?: number
+}
+
+export interface ReadListResult {
+  kind: 'list'
+  root: ReadRoot
+  skill?: string
+  path: string
+  depth: number
+  entries: ReadListEntry[]
+  truncated: boolean
+}
+
+export interface ReadStatResult {
+  kind: 'stat'
+  root: ReadRoot
+  skill?: string
+  path: string
+  entryType: 'file' | 'directory'
+  size?: number
+  textLikely?: boolean
+}
+
+export interface ReadTextResult {
+  kind: 'read'
+  root: ReadRoot
+  skill?: string
+  path: string
+  content: string
+  lineStart: number
+  lineEnd: number
+  truncated: boolean
+}
+
+export type ReadExecutionResult = ReadListResult | ReadStatResult | ReadTextResult
+
+export type AgentActionKind = 'none' | 'read' | 'skill_call'
 
 export interface SkillCallAction {
   kind: 'skill_call'
@@ -95,8 +142,8 @@ export interface NoAction {
   text: string
 }
 
-export type AgentAction = SkillReadAction | SkillCallAction | NoAction
-export type ExecutableAgentAction = SkillReadAction | SkillCallAction
+export type AgentAction = ReadAction | SkillCallAction | NoAction
+export type ExecutableAgentAction = ReadAction | SkillCallAction
 
 export interface ParsedAgentAction {
   action: AgentAction
@@ -106,6 +153,9 @@ export interface ParsedAgentAction {
 export interface ParsedAgentActions {
   actions: ExecutableAgentAction[]
   displayText: string
+  hasFinalTag: boolean
+  hasActionTag: boolean
+  hasInvalidAction: boolean
 }
 
 export type PromptBlockType =
@@ -114,10 +164,12 @@ export type PromptBlockType =
   | 'runtime_catalog'
   | 'conversation_state'
   | 'user_input'
-  | 'skill_doc'
+  | 'read_result'
+  | 'read_error'
   | 'skill_call'
   | 'skill_result'
   | 'skill_error'
+  | 'tag_error'
 
 export interface PromptBlock {
   type: PromptBlockType

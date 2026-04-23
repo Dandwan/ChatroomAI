@@ -2,16 +2,20 @@ import { parse, stringify } from 'yaml'
 import type { SkillDocument, SkillFrontmatter } from './types'
 
 const FRONTMATTER_PATTERN = /^---\s*\n([\s\S]*?)\n---\s*\n?/
-const HEADING_PATTERN = /^##\s+(.+?)\s*$/gm
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
 
+const stripDisallowedControlCharacters = (value: string): string =>
+  Array.from(value)
+    .filter((character) => {
+      const code = character.charCodeAt(0)
+      return code >= 0x20 || code === 0x09 || code === 0x0a
+    })
+    .join('')
+
 const normalizeFrontmatterText = (value: string): string =>
-  value
-    .replace(/^\uFEFF/, '')
-    .replace(/\r\n?/g, '\n')
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+  stripDisallowedControlCharacters(value.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n'))
 
 export const parseSkillDocument = (content: string): SkillDocument => {
   const match = content.match(FRONTMATTER_PATTERN)
@@ -37,27 +41,11 @@ export const parseSkillDocument = (content: string): SkillDocument => {
         ? frontmatterRaw.description.trim()
         : '未提供描述。',
   }
-  const sections: Record<string, string> = {}
-
-  const headings = [...body.matchAll(HEADING_PATTERN)]
-  if (headings.length === 0) {
-    sections.Overview = body
-  } else {
-    for (const [index, heading] of headings.entries()) {
-      const title = heading[1].trim()
-      const start = heading.index ?? 0
-      const contentStart = start + heading[0].length
-      const next = headings[index + 1]
-      const end = next?.index ?? body.length
-      sections[title] = body.slice(contentStart, end).trim()
-    }
-  }
 
   return {
     frontmatter,
     body,
     content,
-    sections,
   }
 }
 

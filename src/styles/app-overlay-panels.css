@@ -546,6 +546,35 @@
   gap: 8px;
 }
 
+.settings-toggle-card {
+  gap: 10px;
+}
+
+.settings-toggle-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-toggle-card-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settings-toggle-card-state {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.settings-toggle-card-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .settings-entity-list {
   display: flex;
   flex-direction: column;

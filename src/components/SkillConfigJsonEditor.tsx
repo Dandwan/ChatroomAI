@@ -1,6 +1,8 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -395,27 +397,49 @@ const useAnimatedMountState = (
   const [visible, setVisible] = useState(open)
   const mountedRef = useRef(open)
   const closeTimerRef = useRef<number | null>(null)
+  const openFrameRef = useRef<number[]>([])
+
+  const clearCloseTimer = useCallback((): void => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+  }, [])
+
+  const clearOpenFrames = useCallback((): void => {
+    openFrameRef.current.forEach((frameId) => window.cancelAnimationFrame(frameId))
+    openFrameRef.current = []
+  }, [])
 
   useEffect(() => {
     mountedRef.current = mounted
   }, [mounted])
 
   useEffect(() => {
-    if (closeTimerRef.current !== null) {
-      window.clearTimeout(closeTimerRef.current)
-      closeTimerRef.current = null
-    }
+    clearCloseTimer()
+    clearOpenFrames()
 
     if (open) {
       mountedRef.current = true
-      setMounted(true)
-      const frameId = window.requestAnimationFrame(() => setVisible(true))
-      return () => window.cancelAnimationFrame(frameId)
+      const mountFrameId = window.requestAnimationFrame(() => {
+        setMounted(true)
+        const visibleFrameId = window.requestAnimationFrame(() => {
+          setVisible(true)
+          openFrameRef.current = []
+        })
+        openFrameRef.current = [visibleFrameId]
+      })
+      openFrameRef.current = [mountFrameId]
+      return clearOpenFrames
     }
 
-    setVisible(false)
+    const hideFrameId = window.requestAnimationFrame(() => {
+      setVisible(false)
+      openFrameRef.current = []
+    })
+    openFrameRef.current = [hideFrameId]
     if (!mountedRef.current) {
-      return
+      return clearOpenFrames
     }
 
     closeTimerRef.current = window.setTimeout(() => {
@@ -425,20 +449,17 @@ const useAnimatedMountState = (
     }, durationMs)
 
     return () => {
-      if (closeTimerRef.current !== null) {
-        window.clearTimeout(closeTimerRef.current)
-        closeTimerRef.current = null
-      }
+      clearOpenFrames()
+      clearCloseTimer()
     }
-  }, [durationMs, open])
+  }, [clearCloseTimer, clearOpenFrames, durationMs, open])
 
   useEffect(
     () => () => {
-      if (closeTimerRef.current !== null) {
-        window.clearTimeout(closeTimerRef.current)
-      }
+      clearOpenFrames()
+      clearCloseTimer()
     },
-    [],
+    [clearCloseTimer, clearOpenFrames],
   )
 
   return { mounted, visible }
@@ -536,19 +557,15 @@ const moveJsonArrayItem = (
 }
 
 function JsonObjectKeyInput({ onCommit, siblingKeys, value }: JsonObjectKeyInputProps) {
-  const [draft, setDraft] = useState(value)
+  const [draft, setDraft] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    setDraft(value)
-    setError(null)
-  }, [value])
+  const displayValue = draft ?? value
 
   const commit = (): void => {
-    const nextKey = draft.trim()
+    const nextKey = displayValue.trim()
     if (nextKey === value) {
       setError(null)
-      setDraft(value)
+      setDraft(null)
       return
     }
     if (!nextKey) {
@@ -560,6 +577,7 @@ function JsonObjectKeyInput({ onCommit, siblingKeys, value }: JsonObjectKeyInput
       return
     }
     onCommit(nextKey)
+    setDraft(null)
     setError(null)
   }
 
@@ -570,7 +588,7 @@ function JsonObjectKeyInput({ onCommit, siblingKeys, value }: JsonObjectKeyInput
       return
     }
     if (event.key === 'Escape') {
-      setDraft(value)
+      setDraft(null)
       setError(null)
     }
   }
@@ -580,7 +598,7 @@ function JsonObjectKeyInput({ onCommit, siblingKeys, value }: JsonObjectKeyInput
       <span>键名</span>
       <ChatInputBox
         className="settings-chat-input settings-chat-input-compact json-text-input"
-        value={draft}
+        value={displayValue}
         onChange={(event) => {
           setDraft(sanitizeSingleLineInput(event.target.value))
           if (error) {
@@ -598,31 +616,27 @@ function JsonObjectKeyInput({ onCommit, siblingKeys, value }: JsonObjectKeyInput
 }
 
 function JsonNumberInput({ onCommit, value }: JsonNumberInputProps) {
-  const [draft, setDraft] = useState(String(value))
+  const [draft, setDraft] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    setDraft(String(value))
-    setError(null)
-  }, [value])
+  const displayValue = draft ?? String(value)
 
   const commit = (): void => {
-    const trimmed = draft.trim()
+    const trimmed = displayValue.trim()
     if (!trimmed) {
-      setDraft(String(value))
+      setDraft(null)
       setError('请输入有效数字。')
       return
     }
 
     const parsed = Number(trimmed)
     if (!Number.isFinite(parsed)) {
-      setDraft(String(value))
+      setDraft(null)
       setError('数字格式无效。')
       return
     }
 
     onCommit(parsed)
-    setDraft(String(parsed))
+    setDraft(null)
     setError(null)
   }
 
@@ -633,7 +647,7 @@ function JsonNumberInput({ onCommit, value }: JsonNumberInputProps) {
       return
     }
     if (event.key === 'Escape') {
-      setDraft(String(value))
+      setDraft(null)
       setError(null)
     }
   }
@@ -644,7 +658,7 @@ function JsonNumberInput({ onCommit, value }: JsonNumberInputProps) {
       <ChatInputBox
         className="settings-chat-input settings-chat-input-compact json-text-input"
         inputMode="decimal"
-        value={draft}
+        value={displayValue}
         onChange={(event) => {
           const nextDraft = sanitizeSingleLineInput(event.target.value)
           setDraft(nextDraft)
@@ -674,19 +688,19 @@ function JsonTypePicker({ onChange, value }: JsonTypePickerProps) {
   const openFrameRef = useRef<number[]>([])
   const currentLabel = getJsonValueTypeLabel(value)
 
-  const clearCloseTimer = (): void => {
+  const clearCloseTimer = useCallback((): void => {
     if (closeTimerRef.current !== null) {
       window.clearTimeout(closeTimerRef.current)
       closeTimerRef.current = null
     }
-  }
+  }, [])
 
-  const clearOpenFrames = (): void => {
+  const clearOpenFrames = useCallback((): void => {
     openFrameRef.current.forEach((frameId) => window.cancelAnimationFrame(frameId))
     openFrameRef.current = []
-  }
+  }, [])
 
-  const updateLayout = (measuredHeight?: number): JsonTypePopoverLayout | null => {
+  const updateLayout = useCallback((measuredHeight?: number): JsonTypePopoverLayout | null => {
     const triggerElement = triggerRef.current
     if (!triggerElement) {
       return null
@@ -700,9 +714,9 @@ function JsonTypePicker({ onChange, value }: JsonTypePickerProps) {
     )
     setLayout(nextLayout)
     return nextLayout
-  }
+  }, [])
 
-  const closePopover = (): void => {
+  const closePopover = useCallback((): void => {
     clearCloseTimer()
     clearOpenFrames()
     setOpen(false)
@@ -712,9 +726,9 @@ function JsonTypePicker({ onChange, value }: JsonTypePickerProps) {
       setLayout(null)
       closeTimerRef.current = null
     }, ANIMATED_VISIBILITY_DURATION_MS)
-  }
+  }, [clearCloseTimer, clearOpenFrames])
 
-  const openPopover = (): void => {
+  const openPopover = useCallback((): void => {
     clearCloseTimer()
     clearOpenFrames()
     updateLayout()
@@ -732,7 +746,7 @@ function JsonTypePicker({ onChange, value }: JsonTypePickerProps) {
     })
 
     openFrameRef.current = [firstFrameId]
-  }
+  }, [clearCloseTimer, clearOpenFrames, updateLayout])
 
   useEffect(() => {
     if (!mounted) {
@@ -764,11 +778,10 @@ function JsonTypePicker({ onChange, value }: JsonTypePickerProps) {
       document.removeEventListener('touchstart', handlePointerDown)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [mounted])
+  }, [closePopover, mounted])
 
   useLayoutEffect(() => {
     if (!mounted) {
-      setLayout(null)
       return
     }
 
@@ -784,14 +797,14 @@ function JsonTypePicker({ onChange, value }: JsonTypePickerProps) {
       window.removeEventListener('resize', handleLayoutChange)
       window.removeEventListener('scroll', handleLayoutChange, true)
     }
-  }, [mounted])
+  }, [mounted, updateLayout])
 
   useEffect(
     () => () => {
       clearCloseTimer()
       clearOpenFrames()
     },
-    [],
+    [clearCloseTimer, clearOpenFrames],
   )
 
   return (
@@ -890,7 +903,6 @@ function JsonAnimatedSection({
 
   useLayoutEffect(() => {
     if (!mounted) {
-      setHeight(0)
       return
     }
 
@@ -1444,13 +1456,14 @@ function JsonEditorNode({
 function SkillConfigJsonEditor({ onChange, value }: SkillConfigJsonEditorProps) {
   const [openNodes, setOpenNodes] = useState<CollapseStateMap>({})
   const [expandedStructures, setExpandedStructures] = useState<CollapseStateMap>({})
-
-  useEffect(() => {
-    setOpenNodes((previous) => syncCollapseStateMap(previous, collectNodePathKeys(value), false))
-    setExpandedStructures((previous) =>
-      syncCollapseStateMap(previous, collectStructurePathKeys(value), false),
-    )
-  }, [value])
+  const syncedOpenNodes = useMemo(
+    () => syncCollapseStateMap(openNodes, collectNodePathKeys(value), false),
+    [openNodes, value],
+  )
+  const syncedExpandedStructures = useMemo(
+    () => syncCollapseStateMap(expandedStructures, collectStructurePathKeys(value), false),
+    [expandedStructures, value],
+  )
 
   const toggleNode = (path: JsonPath): void => {
     const pathKey = formatJsonPath(path)
@@ -1483,8 +1496,8 @@ function SkillConfigJsonEditor({ onChange, value }: SkillConfigJsonEditorProps) 
         }
         onAddArrayItem={(path, nextType) => onChange(addJsonArrayItem(value, path, nextType))}
         onMoveArrayItem={(path, direction) => onChange(moveJsonArrayItem(value, path, direction))}
-        openNodes={openNodes}
-        expandedStructures={expandedStructures}
+        openNodes={syncedOpenNodes}
+        expandedStructures={syncedExpandedStructures}
         onToggleNode={toggleNode}
         onToggleStructure={toggleStructure}
       />

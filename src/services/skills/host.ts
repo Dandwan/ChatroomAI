@@ -1,5 +1,11 @@
 import { parseSkillDocument } from './frontmatter'
 import {
+  MAX_READ_LIST_ENTRIES,
+  isTextFileLikely,
+  normalizeReadRelativePath,
+  sanitizeReadDepth,
+} from '../read-utils'
+import {
   SKILL_DIRECTORIES,
   deletePath,
   initializeStorage,
@@ -9,10 +15,11 @@ import {
   pathExists,
   readJsonFile,
   readTextFile,
+  statPath,
   writeTextFile,
   writeJsonFile,
 } from './storage'
-import type { SkillDocument, SkillInstallResult, SkillRecord } from './types'
+import type { ReadListEntry, SkillDocument, SkillInstallResult, SkillRecord } from './types'
 
 const builtinUnionSearchFiles = import.meta.glob('../../../builtin-skills/union-search/**/*', {
   query: '?raw',
@@ -71,7 +78,6 @@ const createFallbackSkillDocument = (skillId: string, markdown: string): SkillDo
     },
     body,
     content: markdown,
-    sections: body ? { Overview: body } : {},
   }
 }
 
@@ -122,8 +128,203 @@ const BUILTIN_SKILLS: BuiltinSkillDefinition[] = [
   createBuiltinSkillDefinition('runtime-shell', builtinRuntimeShellFiles),
 ].filter((skill): skill is BuiltinSkillDefinition => skill !== null)
 
+const toEntryKind = (type?: string): 'file' | 'directory' =>
+  type === 'directory' ? 'directory' : 'file'
+
+const sortReadEntries = (entries: ReadListEntry[]): ReadListEntry[] =>
+  [...entries].sort((left, right) => {
+    if (left.kind !== right.kind) {
+      return left.kind === 'directory' ? -1 : 1
+    }
+    return left.path.localeCompare(right.path)
+  })
+
 export const getBuiltinSkillRoot = (skillId: string): string =>
   joinRelativePath(SKILL_DIRECTORIES.builtin, skillId)
+
+export const resolveSkillRoot = async (
+  skillId: string,
+): Promise<{
+  root: string
+  skill: SkillRecord
+}> => {
+  await initializeSkillHost()
+  const skill = (await listSkills()).find((item) => item.id === skillId)
+  if (!skill) {
+    throw new Error(`未找到 skill：${skillId}`)
+  }
+
+  const root =
+    skill.source === 'builtin'
+      ? getBuiltinSkillRoot(skill.id)
+      : joinRelativePath(INSTALLED_SKILLS_PATH, skill.id)
+
+  if (!(await pathExists(root))) {
+    throw new Error(`skill 根目录不存在：${skillId}`)
+  }
+
+  return {
+    root,
+    skill,
+  }
+}
+
+const buildSkillTargetPath = (root: string, relativePath: string): string =>
+  relativePath ? joinRelativePath(root, relativePath) : root
+
+const enumerateSkillDirectory = async (
+  root: string,
+  relativePath: string,
+  depth: number,
+): Promise<{
+  entries: ReadListEntry[]
+  truncated: boolean
+}> => {
+  const queue: Array<{ path: string; level: number }> = [{ path: relativePath, level: 1 }]
+  const entries: ReadListEntry[] = []
+  let truncated = false
+
+  while (queue.length > 0) {
+    const current = queue.shift()
+    if (!current) {
+      continue
+    }
+
+    const currentStoragePath = buildSkillTargetPath(root, current.path)
+    const childNames = (await listDirectory(currentStoragePath)).sort((left, right) => left.localeCompare(right))
+
+    for (const childName of childNames) {
+      const childRelativePath = current.path ? joinRelativePath(current.path, childName) : childName
+      const childStoragePath = buildSkillTargetPath(root, childRelativePath)
+      const childStat = await statPath(childStoragePath)
+      const kind = toEntryKind(childStat.type)
+      entries.push({
+        path: childRelativePath,
+        name: childName,
+        kind,
+        size: kind === 'file' ? childStat.size : undefined,
+      })
+
+      if (entries.length >= MAX_READ_LIST_ENTRIES) {
+        truncated = true
+        return {
+          entries: sortReadEntries(entries),
+          truncated,
+        }
+      }
+
+      if (kind === 'directory' && current.level < depth) {
+        queue.push({
+          path: childRelativePath,
+          level: current.level + 1,
+        })
+      }
+    }
+  }
+
+  return {
+    entries: sortReadEntries(entries),
+    truncated,
+  }
+}
+
+export const listSkillDirectory = async (
+  skillId: string,
+  path?: string,
+  depth?: number,
+): Promise<{
+  path: string
+  depth: number
+  entries: ReadListEntry[]
+  truncated: boolean
+}> => {
+  const { root } = await resolveSkillRoot(skillId)
+  const relativePath = normalizeReadRelativePath(path)
+  const targetPath = buildSkillTargetPath(root, relativePath)
+  const targetStat = await statPath(targetPath).catch(() => null)
+
+  if (!targetStat) {
+    throw new Error(`skill 路径不存在：${skillId}/${relativePath || '.'}`)
+  }
+  if (toEntryKind(targetStat.type) !== 'directory') {
+    throw new Error(`目标不是目录：${skillId}/${relativePath || '.'}`)
+  }
+
+  const safeDepth = sanitizeReadDepth(depth)
+  const result = await enumerateSkillDirectory(root, relativePath, safeDepth)
+  return {
+    path: relativePath || '.',
+    depth: safeDepth,
+    entries: result.entries,
+    truncated: result.truncated,
+  }
+}
+
+export const statSkillPath = async (
+  skillId: string,
+  path: string,
+): Promise<{
+  path: string
+  entryType: 'file' | 'directory'
+  size?: number
+  textLikely?: boolean
+}> => {
+  const { root } = await resolveSkillRoot(skillId)
+  const relativePath = normalizeReadRelativePath(path)
+  if (!relativePath) {
+    return {
+      path: '.',
+      entryType: 'directory',
+    }
+  }
+
+  const targetPath = buildSkillTargetPath(root, relativePath)
+  const targetStat = await statPath(targetPath).catch(() => null)
+  if (!targetStat) {
+    throw new Error(`skill 路径不存在：${skillId}/${relativePath}`)
+  }
+
+  const entryType = toEntryKind(targetStat.type)
+  return {
+    path: relativePath,
+    entryType,
+    size: entryType === 'file' ? targetStat.size : undefined,
+    textLikely: entryType === 'file' ? isTextFileLikely(relativePath) : undefined,
+  }
+}
+
+export const readSkillFile = async (
+  skillId: string,
+  path: string,
+): Promise<{
+  path: string
+  content: string
+}> => {
+  const { root } = await resolveSkillRoot(skillId)
+  const relativePath = normalizeReadRelativePath(path)
+  if (!relativePath) {
+    throw new Error(`read 缺少 skill 文件路径：${skillId}`)
+  }
+
+  const targetPath = buildSkillTargetPath(root, relativePath)
+  const targetStat = await statPath(targetPath).catch(() => null)
+  if (!targetStat) {
+    throw new Error(`skill 路径不存在：${skillId}/${relativePath}`)
+  }
+  if (toEntryKind(targetStat.type) !== 'file') {
+    throw new Error(`目标不是文件：${skillId}/${relativePath}`)
+  }
+
+  const content = await readTextFile(targetPath)
+  if (!isTextFileLikely(relativePath, content)) {
+    throw new Error(`目标不是可读取的文本文件：${skillId}/${relativePath}`)
+  }
+
+  return {
+    path: relativePath,
+    content,
+  }
+}
 
 const materializeBuiltinSkill = async (skill: BuiltinSkillDefinition): Promise<void> => {
   const root = getBuiltinSkillRoot(skill.id)
@@ -247,25 +448,6 @@ export const listSkills = async (): Promise<SkillRecord[]> => {
 
   merged.push(...Array.from(installedById.values()))
   return merged.sort((left, right) => left.id.localeCompare(right.id))
-}
-
-export const getSkillDocument = async (skillId: string): Promise<SkillDocument> => {
-  await initializeSkillHost()
-  const installedPath = joinRelativePath(INSTALLED_SKILLS_PATH, skillId, 'SKILL.md')
-  if (await pathExists(installedPath)) {
-    return parseSkillDocument(await readTextFile(installedPath))
-  }
-
-  const builtin = BUILTIN_SKILLS.find((item) => item.id === skillId)
-  if (builtin) {
-    try {
-      return parseSkillDocument(builtin.markdown)
-    } catch {
-      return createFallbackSkillDocument(builtin.id, builtin.markdown)
-    }
-  }
-
-  throw new Error(`未找到 skill：${skillId}`)
 }
 
 export const readSkillConfig = async (skillId: string): Promise<Record<string, unknown>> => {

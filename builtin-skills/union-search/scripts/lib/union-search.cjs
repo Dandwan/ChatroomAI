@@ -1,5 +1,7 @@
 const http = require('node:http')
 const https = require('node:https')
+const fs = require('node:fs')
+const path = require('node:path')
 const zlib = require('node:zlib')
 const { URL, URLSearchParams } = require('node:url')
 
@@ -14,6 +16,8 @@ const DEFAULT_HEADERS = {
 const DEFAULT_TIMEOUT_MS = 15000
 const FETCH_TIMEOUT_MS = 20000
 const MAX_RESULTS = 20
+const OUTPUT_FORMATS = new Set(['json', 'markdown', 'text'])
+const MARKDOWN_PREVIEW_LIMIT = 12
 const DEFAULT_WEB_PROVIDERS = [
   'baidu_direct',
   'bing_cn_direct',
@@ -224,10 +228,354 @@ function parseArgv(argv) {
   return { values, flags, positionals }
 }
 
+function parseOutputOptions(argv) {
+  const passthrough = []
+  let format = 'json'
+  let pretty = true
+  let outputPath = ''
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const current = argv[index]
+
+    if (current === '--format') {
+      const next = argv[index + 1]
+      if (!next || next.startsWith('-')) {
+        throw new Error('--format requires a value: json, markdown, or text')
+      }
+      const normalized = normalizeWhitespace(next).toLowerCase()
+      if (!OUTPUT_FORMATS.has(normalized)) {
+        throw new Error(`Unsupported --format value: ${next}`)
+      }
+      format = normalized
+      index += 1
+      continue
+    }
+
+    if (current === '--markdown') {
+      format = 'markdown'
+      continue
+    }
+    if (current === '--json') {
+      format = 'json'
+      continue
+    }
+    if (current === '--text') {
+      format = 'text'
+      continue
+    }
+    if (current === '--pretty') {
+      pretty = true
+      continue
+    }
+    if (current === '--compact') {
+      pretty = false
+      continue
+    }
+
+    if (current === '--output' || current === '-o') {
+      const next = argv[index + 1]
+      if (!next || next.startsWith('-')) {
+        throw new Error(`${current} requires a file path`)
+      }
+      outputPath = next
+      index += 1
+      continue
+    }
+
+    passthrough.push(current)
+  }
+
+  return {
+    argv: passthrough,
+    format,
+    pretty,
+    outputPath,
+  }
+}
+
 function normalizeWhitespace(value) {
   return String(value || '')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function truncateText(value, maxLength) {
+  const normalized = normalizeWhitespace(value)
+  if (!normalized) {
+    return ''
+  }
+  if (normalized.length <= maxLength) {
+    return normalized
+  }
+  return `${normalized.slice(0, Math.max(1, maxLength - 1))}…`
+}
+
+function markdownEscapeInline(value) {
+  return String(value || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/\[/g, '\\[')
+    .replace(/\]/g, '\\]')
+    .replace(/\|/g, '\\|')
+    .replace(/`/g, '\\`')
+}
+
+function getObjectString(input, keys) {
+  if (!input || typeof input !== 'object') {
+    return ''
+  }
+  for (const key of keys) {
+    const raw = input[key]
+    if (typeof raw === 'string' && normalizeWhitespace(raw)) {
+      return normalizeWhitespace(raw)
+    }
+  }
+  return ''
+}
+
+function getObjectCount(input, key) {
+  if (!input || typeof input !== 'object') {
+    return 0
+  }
+  const value = Number.parseInt(String(input[key] ?? ''), 10)
+  return Number.isFinite(value) ? value : 0
+}
+
+function formatMarkdownItem(item, index) {
+  const title =
+    getObjectString(item, ['title', 'name']) ||
+    getObjectString(item, ['url', 'link', 'imageUrl', 'thumbnailUrl']) ||
+    `结果 ${index}`
+  const url = getObjectString(item, ['url', 'link', 'imageUrl', 'thumbnailUrl', 'permalink'])
+  const source = getObjectString(item, ['platform', 'source', 'provider', 'engine'])
+  const snippet = truncateText(getObjectString(item, ['snippet', 'description', 'content', 'summary']), 180)
+  const publishedAt = getObjectString(item, ['publishedAt', 'published', 'time'])
+
+  const lines = [
+    url
+      ? `${index}. [${markdownEscapeInline(truncateText(title, 100))}](${url})`
+      : `${index}. ${markdownEscapeInline(truncateText(title, 100))}`,
+  ]
+  if (source) {
+    lines.push(`   - 来源: ${markdownEscapeInline(source)}`)
+  }
+  if (snippet) {
+    lines.push(`   - 摘要: ${markdownEscapeInline(snippet)}`)
+  }
+  if (publishedAt) {
+    lines.push(`   - 时间: ${markdownEscapeInline(publishedAt)}`)
+  }
+  return lines
+}
+
+function renderFetchUrlMarkdown(payload) {
+  const title = getObjectString(payload, ['title']) || 'URL 抽取结果'
+  const url = getObjectString(payload, ['url'])
+  const description = getObjectString(payload, ['description'])
+  const engine = getObjectString(payload, ['engine'])
+  const content = String(payload && typeof payload === 'object' ? payload.content || '' : '').trim()
+  const lines = [`# ${markdownEscapeInline(title)}`, '']
+
+  if (url) {
+    lines.push(`- **URL**: ${url}`)
+  }
+  if (engine) {
+    lines.push(`- **引擎**: ${markdownEscapeInline(engine)}`)
+  }
+  if (description) {
+    lines.push(`- **描述**: ${markdownEscapeInline(description)}`)
+  }
+  if (content) {
+    lines.push('', '## 正文', '', content)
+  }
+  return lines.join('\n')
+}
+
+function renderUnionSearchMarkdown(payload) {
+  const query = getObjectString(payload, ['query'])
+  const platforms = Array.isArray(payload && payload.platforms) ? payload.platforms : []
+  const summary = payload && typeof payload === 'object' ? payload.summary : null
+  const results = payload && typeof payload === 'object' ? payload.results : null
+  const groups = payload && typeof payload === 'object' ? payload.groups : null
+  const items = Array.isArray(payload && payload.items) ? payload.items : []
+
+  const hasPlatformMetadata =
+    platforms.length > 0 && platforms.some((item) => item && typeof item === 'object')
+  const hasSearchPayload = Boolean(query || summary || results || items.length > 0)
+  if (!hasSearchPayload && (hasPlatformMetadata || (groups && typeof groups === 'object'))) {
+    const lines = ['# Union Search 平台信息', '']
+    if (platforms.length > 0) {
+      lines.push('## 平台')
+      for (const platform of platforms) {
+        if (platform && typeof platform === 'object') {
+          const id = getObjectString(platform, ['id']) || '-'
+          const label = getObjectString(platform, ['label']) || id
+          const site = getObjectString(platform, ['site'])
+          lines.push(
+            site
+              ? `- **${markdownEscapeInline(id)}**: ${markdownEscapeInline(label)} (${markdownEscapeInline(site)})`
+              : `- **${markdownEscapeInline(id)}**: ${markdownEscapeInline(label)}`,
+          )
+          continue
+        }
+        lines.push(`- ${markdownEscapeInline(String(platform || ''))}`)
+      }
+    }
+    if (groups && typeof groups === 'object') {
+      lines.push('', '## 分组')
+      for (const [groupName, groupPlatforms] of Object.entries(groups)) {
+        const values = Array.isArray(groupPlatforms)
+          ? groupPlatforms.map((item) => markdownEscapeInline(String(item || ''))).join(', ')
+          : '-'
+        lines.push(`- **${markdownEscapeInline(groupName)}**: ${values}`)
+      }
+    }
+    return lines.join('\n')
+  }
+
+  const platformNames = platforms
+    .map((platform) => {
+      if (typeof platform === 'string') {
+        return normalizeWhitespace(platform)
+      }
+      if (platform && typeof platform === 'object') {
+        return getObjectString(platform, ['id', 'label'])
+      }
+      return ''
+    })
+    .filter(Boolean)
+
+  const lines = ['# Union Search 结果', '']
+
+  if (query) {
+    lines.push(`- **查询**: ${markdownEscapeInline(query)}`)
+  }
+  if (platformNames.length > 0) {
+    lines.push(`- **平台**: ${platformNames.map((item) => markdownEscapeInline(item)).join(', ')}`)
+  }
+  if (summary && typeof summary === 'object') {
+    lines.push(`- **成功/失败**: ${getObjectCount(summary, 'successful')} / ${getObjectCount(summary, 'failed')}`)
+    lines.push(`- **结果数**: ${getObjectCount(summary, 'total_items')}`)
+    if (Object.prototype.hasOwnProperty.call(summary, 'deduplicated_items')) {
+      lines.push(`- **去重后结果数**: ${getObjectCount(summary, 'deduplicated_items')}`)
+    }
+  }
+
+  if (results && typeof results === 'object') {
+    lines.push('', '## 平台状态')
+    for (const [platform, detail] of Object.entries(results)) {
+      const success = Boolean(detail && typeof detail === 'object' ? detail.success : false)
+      const total = getObjectCount(detail, 'total')
+      const timing = getObjectCount(detail, 'timing_ms')
+      const mode = getObjectString(detail, ['mode']) || '-'
+      const error = getObjectString(detail, ['error'])
+      let line = `- **${markdownEscapeInline(platform)}**: ${success ? '✅' : '❌'} ${total} 条，${timing}ms，mode=${markdownEscapeInline(mode)}`
+      if (error) {
+        line += `，error=${markdownEscapeInline(truncateText(error, 140))}`
+      }
+      lines.push(line)
+    }
+  }
+
+  if (items.length > 0) {
+    lines.push('', '## 结果预览')
+    const preview = items.slice(0, MARKDOWN_PREVIEW_LIMIT)
+    for (let index = 0; index < preview.length; index += 1) {
+      lines.push(...formatMarkdownItem(preview[index], index + 1))
+    }
+    if (items.length > preview.length) {
+      lines.push(`- ... 还有 ${items.length - preview.length} 条结果`)
+    }
+  }
+
+  return lines.join('\n')
+}
+
+function renderGenericMarkdown(scriptName, payload) {
+  const heading = scriptName.replace(/\.internal$/i, '')
+  const query = getObjectString(payload, ['query'])
+  const items = Array.isArray(payload && payload.items) ? payload.items : []
+  const providers = Array.isArray(payload && payload.providers) ? payload.providers : []
+  const feeds = Array.isArray(payload && payload.feeds) ? payload.feeds : []
+  const errors = Array.isArray(payload && payload.errors) ? payload.errors : []
+  const lines = [`# ${markdownEscapeInline(heading)} 结果`, '']
+
+  if (query) {
+    lines.push(`- **查询**: ${markdownEscapeInline(query)}`)
+  }
+  if (providers.length > 0) {
+    lines.push(`- **Providers**: ${providers.map((item) => markdownEscapeInline(item)).join(', ')}`)
+  }
+  if (feeds.length > 0) {
+    lines.push(`- **RSS Feeds**: ${feeds.map((item) => markdownEscapeInline(item)).join(', ')}`)
+  }
+  lines.push(`- **结果数**: ${items.length}`)
+  if (errors.length > 0) {
+    lines.push(`- **错误数**: ${errors.length}`)
+  }
+
+  if (items.length > 0) {
+    lines.push('', '## 结果预览')
+    const preview = items.slice(0, MARKDOWN_PREVIEW_LIMIT)
+    for (let index = 0; index < preview.length; index += 1) {
+      lines.push(...formatMarkdownItem(preview[index], index + 1))
+    }
+    if (items.length > preview.length) {
+      lines.push(`- ... 还有 ${items.length - preview.length} 条结果`)
+    }
+  }
+
+  if (errors.length > 0) {
+    lines.push('', '## 错误')
+    for (const error of errors) {
+      lines.push(`- ${markdownEscapeInline(truncateText(String(error || ''), 200))}`)
+    }
+  }
+
+  return lines.join('\n')
+}
+
+function renderTextOutput(scriptName, payload) {
+  const lines = [`script=${scriptName}`]
+  const query = getObjectString(payload, ['query'])
+  if (query) {
+    lines.push(`query=${query}`)
+  }
+  const itemCount = Array.isArray(payload && payload.items) ? payload.items.length : 0
+  lines.push(`items=${itemCount}`)
+  const summary = payload && typeof payload === 'object' ? payload.summary : null
+  if (summary && typeof summary === 'object') {
+    lines.push(`platforms=${getObjectCount(summary, 'total_platforms')}`)
+    lines.push(`successful=${getObjectCount(summary, 'successful')}`)
+    lines.push(`failed=${getObjectCount(summary, 'failed')}`)
+  }
+  return lines.join('\n')
+}
+
+function renderOutput(scriptName, payload, format, pretty) {
+  if (format === 'markdown') {
+    if (scriptName === 'fetch_url.internal') {
+      return renderFetchUrlMarkdown(payload)
+    }
+    if (scriptName === 'union_search.internal') {
+      return renderUnionSearchMarkdown(payload)
+    }
+    return renderGenericMarkdown(scriptName, payload)
+  }
+  if (format === 'text') {
+    return renderTextOutput(scriptName, payload)
+  }
+  return pretty ? JSON.stringify(payload, null, 2) : JSON.stringify(payload)
+}
+
+function writeOutputFile(outputPath, content) {
+  if (!outputPath) {
+    return
+  }
+  const target = path.isAbsolute(outputPath)
+    ? outputPath
+    : path.resolve(process.cwd(), outputPath)
+  fs.mkdirSync(path.dirname(target), { recursive: true })
+  fs.writeFileSync(target, `${content}\n`, 'utf8')
 }
 
 function decodeHtmlEntities(value) {
@@ -1970,8 +2318,11 @@ async function dispatch(scriptName, argv) {
 }
 
 async function main(scriptName, argv) {
-  const payload = await dispatch(scriptName, argv)
-  process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`)
+  const outputOptions = parseOutputOptions(argv)
+  const payload = await dispatch(scriptName, outputOptions.argv)
+  const rendered = renderOutput(scriptName, payload, outputOptions.format, outputOptions.pretty)
+  writeOutputFile(outputOptions.outputPath, rendered)
+  process.stdout.write(`${rendered}\n`)
 }
 
 module.exports = {
