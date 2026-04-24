@@ -86,6 +86,7 @@ import {
   createDeviceInfoPromptSnapshot,
   createWorkspaceInfoPromptSnapshot,
   normalizeInfoPromptOverride,
+  resolveWorkspaceInfoPromptPath,
   type InfoPromptDefinition,
   type InfoPromptSettingKey,
 } from './services/skills/info-system-prompts'
@@ -1284,18 +1285,21 @@ const TRANSCRIPT_REPLAY_SYSTEM_PROMPT = `
 3. 只有你当前正在生成的这一次回复中的动作标签会被宿主解析和执行。
 `.trim()
 
-const buildSkillAgentSystemPrompt = (
+const buildSkillAgentSystemPrompt = async (
   settings: Pick<ActiveProviderRequestSettings, PromptEditorKey | InfoPromptSettingKey>,
   skills: SkillRecord[],
   runtimes: RuntimeRecord[],
   conversationId: string,
   transcript: TranscriptEvent[],
-): string => {
+): Promise<string> => {
   const conversationSnapshot = createConversationFromTranscript(conversationId, transcript)
+  const workspacePath = settings.workspaceInfoPromptEnabled
+    ? await resolveWorkspaceInfoPromptPath(conversationSnapshot.id)
+    : ''
   const workspaceInfoPrompt = settings.workspaceInfoPromptEnabled
     ? buildWorkspaceInfoPromptMarkdown(
         createWorkspaceInfoPromptSnapshot(
-          conversationSnapshot.id,
+          workspacePath,
           conversationSnapshot.createdAt,
           conversationSnapshot.updatedAt,
         ),
@@ -3962,7 +3966,7 @@ function App() {
         return
       }
 
-      const systemPrompt = buildSkillAgentSystemPrompt(
+      const systemPrompt = await buildSkillAgentSystemPrompt(
         settingsSnapshot,
         skillRecords,
         runtimeRecords,
