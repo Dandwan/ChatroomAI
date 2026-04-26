@@ -79,11 +79,15 @@ files/skill-host/runtimes/<runtime-id>/
 
 - `PATH`: 追加运行时 `bin/`
 - `LD_LIBRARY_PATH`: 追加运行时 `lib/`
+- `HOME`: 指向运行时私有可写目录
 - `PYTHONHOME`: Python 运行时根目录
 - `SSL_CERT_FILE`: 指向 `etc/tls/cert.pem`
 - `SSL_CERT_DIR`: 指向 `etc/ssl/certs`
 - `NODE_EXTRA_CA_CERTS`: Node 额外 CA 文件
 - `OPENSSL_CONF`: 指向 `etc/tls/openssl.cnf`
+- `MPLBACKEND`: Python 运行时默认设为 `Agg`
+- `MPLCONFIGDIR`: Python 运行时的 Matplotlib 可写配置目录
+- `PIP_CACHE_DIR`: Python 运行时的 pip 缓存目录
 - `SKILL_NODE_EXECUTABLE`: 当前可用 Node 解释器绝对路径
 - `SKILL_PYTHON_EXECUTABLE`: 当前可用 Python 解释器绝对路径
 
@@ -130,9 +134,93 @@ npm run runtime:package:node
 dist/runtime-packages/<runtime-id>.zip
 ```
 
-## 7. 设计约束
+## 7. 当前 Python 科学运行时打包约定
+
+本仓库新增了 Python 打包脚本：
+
+```bash
+npm run runtime:package:python
+```
+
+当前实现基于 Termux aarch64 预编译包，默认会优先组合：
+
+- `python`
+- `python-pip` / `pip`
+- `python-numpy`
+- `python-pandas`
+- `matplotlib`
+
+并递归拉取它们的依赖。脚本会优先使用官方 Termux 主仓，缺失包再回退到 TUR (`https://tur.kcubeterm.com`)。
+
+脚本默认还会尽量纳入一批常用包；若仓库里有可用的 Termux 包，会自动并入运行时，例如：
+
+- `python-lxml`
+- `python-httpx`
+- `python-openai`
+- `python-pydantic`
+- `python-dotenv`
+- `python-requests`
+- `python-pyyaml`
+- `python-rich`
+- `python-click`
+- `python-markdown`
+- `python-tqdm`
+
+默认输出仍位于：
+
+```text
+dist/runtime-packages/<runtime-id>.zip
+```
+
+如果要刷新 App 内置资产，推荐显式输出到：
+
+```bash
+node scripts/package-python-runtime.mjs --output-dir public/runtime-packages
+```
+
+默认缓存目录位于：
+
+```text
+.local/runtime-package-cache/python/
+```
+
+其中：
+
+- `indexes/` 保存 `Packages` 索引快照
+- `packages/` 保存下载好的 `.deb` 缓存
+
+如果主机无法联网，但缓存已准备好，可以直接离线组包：
+
+```bash
+node scripts/package-python-runtime.mjs --offline true --output-dir public/runtime-packages
+```
+
+当前 Python 科学运行时还会额外补一层“补充 wheel”：
+
+- `python-dateutil`
+- `six`
+- `cycler`
+- `fonttools`
+- `packaging`
+- `pyparsing`
+
+这些依赖不会完全依赖 Termux `.deb` 关系，而是从本地 wheel 缓存注入，以修正上游包元数据不完整的问题。
+
+对于 `matplotlib`，当前打包器会把 `kiwisolver` 从启动时强制版本检查里移除。
+这意味着：
+
+- 基础 `import matplotlib` 和常见静态出图路径可以工作
+- 依赖 `kiwisolver` 的布局能力（例如部分 `constrained layout` 相关路径）若无该包，仍会在真正使用时失败
+
+打包机需要具备：
+
+- 外网访问 Termux / TUR 包源
+- `ar`
+- `tar`
+
+## 8. 设计约束
 
 - 运行时包必须对 skill 通用，不能为某个具体 skill 特化目录或补丁
 - skill 业务逻辑必须保留在 skill 自身，不进入宿主 App
 - 宿主可以提供“可选内置运行时”，但结构仍需遵守同一套规范
-- 未来如果增加 Python 打包器，应复用同样的 ZIP 结构和 `runtime.json` 约定
+- Python 运行时若内置科学栈，应优先复用仓库打包器而不是手工拼装 ZIP

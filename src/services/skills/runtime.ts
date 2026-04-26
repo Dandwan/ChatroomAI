@@ -43,6 +43,10 @@ const BUNDLED_RUNTIME_ARCHIVES = [
     id: 'nodejs-termux-aarch64',
     assetPath: 'public/runtime-packages/nodejs-termux-aarch64.zip',
   },
+  {
+    id: 'python-termux-aarch64-scientific',
+    assetPath: 'public/runtime-packages/python-termux-aarch64-scientific.zip',
+  },
 ] as const
 
 const guessRuntimeType = (folderName: string): RuntimeType => {
@@ -60,6 +64,40 @@ const readState = async (): Promise<RuntimeHostState> => readJsonFile(STATE_PATH
 
 const writeState = async (state: RuntimeHostState): Promise<void> => {
   await writeJsonFile(STATE_PATH, state)
+}
+
+const ensureDefaultRuntimeSelection = (
+  state: RuntimeHostState,
+  runtimes: Array<Pick<RuntimeRecord, 'id' | 'type' | 'enabled'>>,
+): void => {
+  for (const type of ['python', 'node'] as const) {
+    const current = state.defaultByType[type]
+    const currentExists = runtimes.some((runtime) => runtime.id === current && runtime.type === type)
+    if (currentExists) {
+      continue
+    }
+    const fallback = runtimes.find((runtime) => runtime.type === type && runtime.enabled)
+    if (fallback) {
+      state.defaultByType[type] = fallback.id
+      continue
+    }
+    delete state.defaultByType[type]
+  }
+}
+
+const persistInstalledRuntimeMetadata = (
+  state: RuntimeHostState,
+  runtimeId: string,
+  metadata: RuntimeMetadata,
+): void => {
+  state.enabledById[runtimeId] = state.enabledById[runtimeId] ?? true
+  state.metadataById[runtimeId] = {
+    ...metadata,
+    id: runtimeId,
+  }
+  if ((metadata.type === 'python' || metadata.type === 'node') && !state.defaultByType[metadata.type]) {
+    state.defaultByType[metadata.type] = runtimeId
+  }
 }
 
 const shouldRefreshRuntimeMetadata = (
@@ -164,25 +202,39 @@ export const ensureBundledRuntimesInstalled = async (): Promise<void> => {
     return
   }
   await initializeRuntimeHost()
+  const state = await readState()
   const installed = new Set(await listDirectory(RUNTIMES_ROOT))
   for (const bundled of BUNDLED_RUNTIME_ARCHIVES) {
-    if (installed.has(bundled.id)) {
-      const existing = await inspectRuntimeDirectory(bundled.id)
-      if (existing.executablePath) {
-        continue
+    try {
+      if (installed.has(bundled.id)) {
+        const existing = await inspectRuntimeDirectory(bundled.id)
+        if (existing.executablePath) {
+          persistInstalledRuntimeMetadata(state, bundled.id, existing)
+          continue
+        }
       }
+
+      await nativeInstallBundledRuntime(bundled.assetPath, bundled.id)
+      await nativePreparePath(joinRelativePath(RUNTIMES_ROOT, bundled.id))
+      const metadata = await inspectRuntimeDirectory(bundled.id)
+      persistInstalledRuntimeMetadata(state, bundled.id, metadata)
+      installed.add(bundled.id)
+    } catch (error) {
+      console.warn(
+        `Bundled runtime install skipped for ${bundled.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      )
     }
-    await nativeInstallBundledRuntime(bundled.assetPath, bundled.id)
-    await nativePreparePath(joinRelativePath(RUNTIMES_ROOT, bundled.id))
-    installed.add(bundled.id)
   }
+  await writeState(state)
 }
 
 export const listRuntimes = async (): Promise<RuntimeRecord[]> => {
   await initializeRuntimeHost()
   const state = await readState()
   const folders = await listDirectory(RUNTIMES_ROOT)
-  const results: RuntimeRecord[] = []
+  const results: Array<RuntimeRecord & { isDefault: boolean }> = []
 
   for (const folderName of folders) {
     const cached = state.metadataById[folderName]
@@ -198,16 +250,23 @@ export const listRuntimes = async (): Promise<RuntimeRecord[]> => {
       ...metadata,
       id: folderName,
       enabled: state.enabledById[folderName] ?? true,
-      isDefault:
-        (metadata.type === 'python' || metadata.type === 'node') &&
-        state.defaultByType[metadata.type] === folderName,
+      isDefault: false,
       installedAt: 0,
       folderName,
     })
   }
 
+  const sorted = results.sort((left, right) => left.id.localeCompare(right.id))
+  ensureDefaultRuntimeSelection(state, sorted)
+  const normalized = sorted.map((runtime) => ({
+    ...runtime,
+    isDefault:
+      (runtime.type === 'python' || runtime.type === 'node') &&
+      state.defaultByType[runtime.type] === runtime.id,
+  }))
+
   await writeState(state)
-  return results.sort((left, right) => left.id.localeCompare(right.id))
+  return normalized
 }
 
 export const installRuntimePackage = async (file: File): Promise<RuntimeInstallResult> => {
@@ -217,14 +276,7 @@ export const installRuntimePackage = async (file: File): Promise<RuntimeInstallR
   const relativePath = joinRelativePath(RUNTIMES_ROOT, rootFolder)
   await nativePreparePath(relativePath)
   const metadata = await inspectRuntimeDirectory(rootFolder)
-  state.enabledById[rootFolder] = true
-  state.metadataById[rootFolder] = {
-    ...metadata,
-    id: rootFolder,
-  }
-  if ((metadata.type === 'python' || metadata.type === 'node') && !state.defaultByType[metadata.type]) {
-    state.defaultByType[metadata.type] = rootFolder
-  }
+  persistInstalledRuntimeMetadata(state, rootFolder, metadata)
   await writeState(state)
 
   return {

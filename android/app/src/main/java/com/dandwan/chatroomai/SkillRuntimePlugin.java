@@ -181,6 +181,7 @@ public class SkillRuntimePlugin extends Plugin {
         execute(() -> {
             try {
                 String relativeSkillRoot = call.getString("relativeSkillRoot");
+                String relativeWorkingDirectory = call.getString("relativeWorkingDirectory");
                 String scriptPath = call.getString("scriptPath");
                 Long timeoutMs = call.getLong("timeoutMs", 30000L);
                 String stdin = call.getString("stdin");
@@ -195,6 +196,18 @@ public class SkillRuntimePlugin extends Plugin {
                 }
 
                 File skillRoot = resolveAppRelativePath(relativeSkillRoot);
+                File workingDirectory = skillRoot;
+                if (relativeWorkingDirectory != null && !relativeWorkingDirectory.trim().isEmpty()) {
+                    workingDirectory = resolveAppRelativePath(relativeWorkingDirectory);
+                    if (!workingDirectory.exists() && !workingDirectory.mkdirs()) {
+                        call.reject("Failed to create working directory");
+                        return;
+                    }
+                    if (!workingDirectory.isDirectory()) {
+                        call.reject("Working directory is not a directory");
+                        return;
+                    }
+                }
                 File script = resolveWithinRoot(skillRoot, scriptPath);
                 List<String> argv = toStringList(argvArray);
                 if (pythonExecutablePath != null && !pythonExecutablePath.trim().isEmpty()) {
@@ -218,7 +231,7 @@ public class SkillRuntimePlugin extends Plugin {
 
                 ProcessResult processResult = runProcess(
                     resolution.command,
-                    skillRoot,
+                    workingDirectory,
                     envObject,
                     stdin,
                     timeoutMs
@@ -684,14 +697,36 @@ public class SkillRuntimePlugin extends Plugin {
             return;
         }
 
+        File runtimeVarDir = new File(runtimeRoot, "var");
+        File runtimeHomeDir = new File(runtimeVarDir, "home");
+        runtimeHomeDir.mkdirs();
+        if (!environment.containsKey("HOME") || environment.get("HOME") == null || environment.get("HOME").trim().isEmpty()) {
+            environment.put("HOME", runtimeHomeDir.getAbsolutePath());
+        }
+
         File libDir = new File(runtimeRoot, "lib");
         if (libDir.exists()) {
             environment.put(
                 "LD_LIBRARY_PATH",
                 libDir.getAbsolutePath() + ":" + environment.getOrDefault("LD_LIBRARY_PATH", "")
             );
-            if (executable.getName().toLowerCase().contains("python")) {
-                environment.put("PYTHONHOME", runtimeRoot.getAbsolutePath());
+        }
+
+        boolean isPythonRuntime = executable.getName().toLowerCase().contains("python");
+        if (isPythonRuntime) {
+            File matplotlibConfigDir = new File(runtimeVarDir, "matplotlib");
+            File pipCacheDir = new File(runtimeVarDir, "pip-cache");
+            matplotlibConfigDir.mkdirs();
+            pipCacheDir.mkdirs();
+            environment.put("PYTHONHOME", runtimeRoot.getAbsolutePath());
+            if (!environment.containsKey("MPLBACKEND") || environment.get("MPLBACKEND") == null || environment.get("MPLBACKEND").trim().isEmpty()) {
+                environment.put("MPLBACKEND", "Agg");
+            }
+            if (!environment.containsKey("MPLCONFIGDIR") || environment.get("MPLCONFIGDIR") == null || environment.get("MPLCONFIGDIR").trim().isEmpty()) {
+                environment.put("MPLCONFIGDIR", matplotlibConfigDir.getAbsolutePath());
+            }
+            if (!environment.containsKey("PIP_CACHE_DIR") || environment.get("PIP_CACHE_DIR") == null || environment.get("PIP_CACHE_DIR").trim().isEmpty()) {
+                environment.put("PIP_CACHE_DIR", pipCacheDir.getAbsolutePath());
             }
         }
 

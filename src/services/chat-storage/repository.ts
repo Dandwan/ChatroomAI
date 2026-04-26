@@ -1199,3 +1199,8 @@ export const persistChatState = async (state: ChatStorageState): Promise<Persist
 }
 
 export const getChatStatePersistenceSignature = createStateSignature
+
+export const deleteConversationStorage = async (conversationId: string): Promise<void> => {
+  await initializeChatStorage()
+  await deletePath(buildConversationDirectory(conversationId))
+}

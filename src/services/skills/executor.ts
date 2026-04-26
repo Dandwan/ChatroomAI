@@ -7,10 +7,12 @@ import {
   statSkillPath,
 } from './host'
 import {
+  buildConversationWorkspaceDirectory,
   listConversationWorkspace,
   readConversationWorkspaceFile,
   statConversationWorkspacePath,
 } from '../chat-storage/repository'
+import { ensureDirectory } from '../chat-storage/filesystem'
 import { sliceTextByLineWindow } from '../read-utils'
 import { executeDeviceInfoSkillCall } from './device-info'
 import { nativeExecuteProcess } from './native-runtime'
@@ -161,7 +163,10 @@ export const executeReadAction = async (
   return buildReadTextResult(action, file.path, file.content)
 }
 
-export const executeSkillCall = async (action: SkillCallAction): Promise<SkillExecutionResult> => {
+export const executeSkillCall = async (
+  action: SkillCallAction,
+  conversationId: string,
+): Promise<SkillExecutionResult> => {
   if (!action.skill?.trim()) {
     throw new Error('skill_call 缺少 skill id')
   }
@@ -192,6 +197,8 @@ export const executeSkillCall = async (action: SkillCallAction): Promise<SkillEx
   }
 
   const runtimePaths = await getPreferredRuntimePaths()
+  const relativeWorkingDirectory = buildConversationWorkspaceDirectory(conversationId)
+  await ensureDirectory(relativeWorkingDirectory)
   return nativeExecuteProcess({
     skillId: action.skill,
     scriptPath: action.script,
@@ -203,6 +210,7 @@ export const executeSkillCall = async (action: SkillCallAction): Promise<SkillEx
     },
     timeoutMs: resolveTimeoutMs(action),
     relativeSkillRoot,
+    relativeWorkingDirectory,
     pythonExecutablePath: runtimePaths.pythonExecutablePath,
     nodeExecutablePath: runtimePaths.nodeExecutablePath,
   })

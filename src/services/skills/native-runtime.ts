@@ -23,6 +23,7 @@ interface InspectRuntimeResult {
 
 interface ExecuteProcessOptions extends SkillExecutionRequest {
   relativeSkillRoot: string
+  relativeWorkingDirectory?: string
   pythonExecutablePath?: string
   nodeExecutablePath?: string
 }

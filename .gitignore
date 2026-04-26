@@ -26,6 +26,8 @@ app-debug.apk
 app-release*.apk
 android/gradle/gradle-8.14.3-all.zip
 .codex
+.gradle-local*/
+.local/
 android/.gradle-home/
 android/keystore.properties
 android/keystore/

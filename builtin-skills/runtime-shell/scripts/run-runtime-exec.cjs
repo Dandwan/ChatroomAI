@@ -134,19 +134,28 @@ const prependPath = (baseValue, prependValue) => {
   return baseValue ? `${prependValue}:${baseValue}` : prependValue
 }
 
+const ensureDirectory = (directoryPath) => {
+  fs.mkdirSync(directoryPath, { recursive: true })
+}
+
 const buildRuntimeEnvironment = (executable, baseEnv) => {
   const nextEnv = { ...baseEnv }
   const runtimeBinDir = path.dirname(executable)
   const runtimeRoot = path.dirname(runtimeBinDir)
   const runtimeLibDir = path.join(runtimeRoot, 'lib')
+  const runtimeVarDir = path.join(runtimeRoot, 'var')
+  const runtimeHomeDir = path.join(runtimeVarDir, 'home')
   const certFile = path.join(runtimeRoot, 'etc', 'tls', 'cert.pem')
   const opensslConf = path.join(runtimeRoot, 'etc', 'tls', 'openssl.cnf')
   const certDir = path.join(runtimeRoot, 'etc', 'ssl', 'certs')
+  const isPythonRuntime = path.basename(executable).toLowerCase().startsWith('python')
 
   nextEnv.PATH = prependPath(nextEnv.PATH, runtimeBinDir)
   if (fs.existsSync(runtimeLibDir)) {
     nextEnv.LD_LIBRARY_PATH = prependPath(nextEnv.LD_LIBRARY_PATH, runtimeLibDir)
   }
+  ensureDirectory(runtimeHomeDir)
+  nextEnv.HOME = nextEnv.HOME || runtimeHomeDir
   if (fs.existsSync(certFile)) {
     nextEnv.SSL_CERT_FILE = certFile
     nextEnv.NODE_EXTRA_CA_CERTS = certFile
@@ -156,6 +165,16 @@ const buildRuntimeEnvironment = (executable, baseEnv) => {
   }
   if (fs.existsSync(certDir)) {
     nextEnv.SSL_CERT_DIR = certDir
+  }
+  if (isPythonRuntime) {
+    const matplotlibConfigDir = path.join(runtimeVarDir, 'matplotlib')
+    const pipCacheDir = path.join(runtimeVarDir, 'pip-cache')
+    ensureDirectory(matplotlibConfigDir)
+    ensureDirectory(pipCacheDir)
+    nextEnv.PYTHONHOME = runtimeRoot
+    nextEnv.MPLBACKEND = nextEnv.MPLBACKEND || 'Agg'
+    nextEnv.MPLCONFIGDIR = nextEnv.MPLCONFIGDIR || matplotlibConfigDir
+    nextEnv.PIP_CACHE_DIR = nextEnv.PIP_CACHE_DIR || pipCacheDir
   }
   return nextEnv
 }
