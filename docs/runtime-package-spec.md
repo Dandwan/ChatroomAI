@@ -218,6 +218,12 @@ node scripts/package-python-runtime.mjs --offline true --output-dir public/runti
 - `ar`
 - `tar`
 
+默认工程约定是：
+
+- Python 科学运行时 ZIP 作为构建 / release 产物管理
+- 仓库提交打包脚本、依赖锁定和文档，不把该大体积 ZIP 作为普通 Git blob 提交
+- Android 打包前应先显式生成该 ZIP 到 `public/runtime-packages/`
+
 ## 8. 设计约束
 
 - 运行时包必须对 skill 通用，不能为某个具体 skill 特化目录或补丁
