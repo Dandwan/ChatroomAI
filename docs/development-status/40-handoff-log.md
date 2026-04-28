@@ -15,6 +15,7 @@
 - package/app versions were moved to `1.4.0` / `1400`
 - the final signed release artifact was copied as `ActiChat-v1.4.0-android-release.apk`
 - repo release notes were added at `docs/releases/v1.4.0.md`
+- GitHub release `v1.4.0` is now published at `https://github.com/Dandwan/ChatroomAI/releases/tag/v1.4.0`
 
 ### Validation Snapshot
 
@@ -33,7 +34,6 @@
 
 ### Open Follow-Up
 
-- publish/push the prepared `v1.4.0` commit and GitHub release if that has not yet been done in the current handoff
 - if future branding work also needs repo-name, Java-package, or asset-filename migration away from `ChatroomAI`, treat that as a separate compatibility-sensitive change
 
 ## 2026-04-28 20:48 +08:00

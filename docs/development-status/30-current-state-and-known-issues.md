@@ -38,6 +38,7 @@ As of 2026-04-28:
 - a signed `v1.4.0` release APK was built from the clean release worktree as `ActiChat-v1.4.0-android-release.apk`
 - `apksigner verify --print-certs` passed for that `v1.4.0` APK and confirmed the existing `CN=Dandwan, OU=ChatroomAI, O=Dandwan, L=Shanghai, ST=Shanghai, C=CN` signer
 - static APK inspection confirmed the packaged release contains both bundled runtime assets plus `assets/browser-page-extractor.js`
+- GitHub release `v1.4.0` is now published at `https://github.com/Dandwan/ChatroomAI/releases/tag/v1.4.0`
 
 ## Android Install Quirk
 
