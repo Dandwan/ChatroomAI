@@ -58,6 +58,8 @@ export interface AssistantMessageTranscriptEvent {
 export type HostMessageCategory =
   | 'read_result'
   | 'read_error'
+  | 'run_result'
+  | 'run_error'
   | 'skill_result'
   | 'skill_error'
   | 'tag_error'

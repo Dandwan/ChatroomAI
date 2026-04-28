@@ -49,7 +49,12 @@ import {
   type TranscriptTokenUsage,
   type UserMessageTranscriptEvent,
 } from './services/chat-transcript'
-import { executeReadAction, executeSkillCall } from './services/skills/executor'
+import {
+  executeReadAction,
+  executeRunAction,
+  executeSkillCall,
+  materializeRunAction,
+} from './services/skills/executor'
 import {
   deleteSkill,
   initializeSkillHost,
@@ -73,7 +78,7 @@ import {
 import {
   DEFAULT_GENERAL_TAG_SYSTEM_PROMPT,
   DEFAULT_READ_SYSTEM_PROMPT,
-  DEFAULT_SKILL_CALL_SYSTEM_PROMPT,
+  DEFAULT_RUN_SYSTEM_PROMPT,
   DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT,
   LEGACY_DEFAULT_TAG_SYSTEM_PROMPT,
   migrateLegacyTagSystemPrompts,
@@ -101,6 +106,7 @@ import {
 } from './services/skills/runtime'
 import type {
   PromptBlock,
+  RunAction,
   RuntimeRecord,
   SkillCallAction,
   SkillRecord,
@@ -651,7 +657,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   topLevelTagSystemPrompt: DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT,
   generalTagSystemPrompt: DEFAULT_GENERAL_TAG_SYSTEM_PROMPT,
   readSystemPrompt: DEFAULT_READ_SYSTEM_PROMPT,
-  skillCallSystemPrompt: DEFAULT_SKILL_CALL_SYSTEM_PROMPT,
+  skillCallSystemPrompt: DEFAULT_RUN_SYSTEM_PROMPT,
   ...DEFAULT_INFO_PROMPT_SETTINGS,
   deprecatedTagPrompts: '',
   themeMode: 'system',
@@ -1277,7 +1283,7 @@ const formatReadLocation = ({
   skill,
   path,
 }: {
-  root?: 'skill' | 'workspace'
+  root?: 'skill' | 'workspace' | 'home' | 'absolute'
   skill?: string
   path?: string
 }): string => {
@@ -1313,6 +1319,27 @@ const formatSkillStepTarget = (step: AssistantFlowSkillNode): string => {
     })
     return step.op ? `${location} / ${step.op}` : location
   }
+  if (step.actionKind === 'run') {
+    const rootLabel =
+      step.root === 'skill'
+        ? step.skill
+          ? `skill / ${step.skill}`
+          : 'skill'
+        : step.root === 'workspace'
+          ? 'workspace'
+          : step.root === 'home'
+            ? 'home'
+            : step.root === 'absolute'
+              ? 'absolute'
+              : 'run'
+    if (step.command) {
+      return `${rootLabel} / ${step.command}`
+    }
+    if (step.cwd) {
+      return `${rootLabel} / ${step.cwd}`
+    }
+    return rootLabel
+  }
   if (step.actionKind === 'skill_call') {
     if (step.skill && step.script) {
       return `${step.skill} / ${step.script}`
@@ -1346,7 +1373,7 @@ const vibrateInteraction = (): void => {
 const TRANSCRIPT_REPLAY_SYSTEM_PROMPT = `
 历史上下文会以原始多轮转录的形式回放：
 
-1. 历史 assistant 输出中可能出现 <progress>、<read>、<skill_call>、<final> 等标签，它们只是历史记录，不会再次执行。
+1. 历史 assistant 输出中可能出现 <progress>、<read>、<run>、<skill_call>、<final> 等标签，它们只是历史记录，不会再次执行。
 2. 宿主会以 user 角色注入 <host_message>...</host_message> 作为工具结果或运行时反馈；这些内容不是用户新的自然语言输入。
 3. 只有你当前正在生成的这一次回复中的动作标签会被宿主解析和执行。
 `.trim()
@@ -1398,17 +1425,30 @@ const buildSkillAgentSystemPrompt = async (
     .join('\n\n')
 }
 
-const parseSkillExecutionPayload = (
-  action: SkillCallAction,
+const parseActionExecutionPayload = (
+  action: SkillCallAction | RunAction,
   stdout: string,
   stderr: string,
 ): Record<string, unknown> => {
+  const metadata =
+    action.kind === 'run'
+      ? {
+          id: action.id,
+          root: action.root,
+          skill: action.skill,
+          cwd: action.cwd,
+          command: action.command,
+          session: action.session,
+        }
+      : {
+          id: action.id,
+          skill: action.skill,
+          script: action.script,
+        }
   const trimmedStdout = stdout.trim()
   if (!trimmedStdout) {
     return {
-      id: action.id,
-      skill: action.skill,
-      script: action.script,
+      ...metadata,
       stdout: '',
       stderr: stderr.trim(),
     }
@@ -1418,9 +1458,7 @@ const parseSkillExecutionPayload = (
     const parsed = JSON.parse(trimmedStdout) as unknown
     if (isRecord(parsed)) {
       return {
-        id: action.id,
-        skill: action.skill,
-        script: action.script,
+        ...metadata,
         ...parsed,
         stderr: stderr.trim() || undefined,
       }
@@ -1430,9 +1468,7 @@ const parseSkillExecutionPayload = (
   }
 
   return {
-    id: action.id,
-    skill: action.skill,
-    script: action.script,
+    ...metadata,
     stdout: trimmedStdout,
     stderr: stderr.trim() || undefined,
   }
@@ -1658,6 +1694,26 @@ const applyPermissionGatesToSkillCall = (
   return {
     ...action,
     argv,
+  }
+}
+
+const applyPermissionGatesToRun = (
+  action: RunAction,
+  permissionToggles: PermissionToggles,
+): RunAction => {
+  if (action.root !== 'skill' || action.skill !== 'device-info') {
+    return action
+  }
+  if (permissionToggles.location) {
+    return action
+  }
+  const command = action.command?.trim()
+  if (!command || /\s--no-location(?:\s|$)/.test(` ${command} `)) {
+    return action
+  }
+  return {
+    ...action,
+    command: `${command} --no-location`,
   }
 }
 
@@ -3775,6 +3831,10 @@ function App() {
         depth: preview.depth,
         startLine: preview.startLine,
         endLine: preview.endLine,
+        cwd: preview.cwd,
+        command: preview.command,
+        session: preview.session,
+        waitMs: preview.waitMs,
         script: preview.script,
         argv: preview.argv,
         stdin: preview.stdin,
@@ -3801,13 +3861,16 @@ function App() {
       patch: {
         actionKind?: SkillStepKind
         status?: 'running' | 'success' | 'error'
-        root?: 'skill' | 'workspace'
+        root?: 'skill' | 'workspace' | 'home' | 'absolute'
         op?: 'list' | 'read' | 'stat'
         skill?: string
         path?: string
         depth?: number
         startLine?: number
         endLine?: number
+        cwd?: string
+        command?: string
+        session?: string
         script?: string
         error?: string
         result?: string
@@ -3906,7 +3969,12 @@ function App() {
             actionKind: eventKind,
             status: event.type === 'close' && event.error ? 'error' : 'running',
             root:
-              eventKind === 'read' && (preview.root === 'skill' || preview.root === 'workspace')
+              (eventKind === 'read' && (preview.root === 'skill' || preview.root === 'workspace')) ||
+              (eventKind === 'run' &&
+                (preview.root === 'skill' ||
+                  preview.root === 'workspace' ||
+                  preview.root === 'home' ||
+                  preview.root === 'absolute'))
                 ? preview.root
                 : undefined,
             op:
@@ -3917,13 +3985,21 @@ function App() {
             skill:
               typeof preview.skill === 'string' && preview.skill.trim()
                 ? preview.skill
-                : event.type === 'open' && (eventKind === 'skill_call' || preview.root === 'skill')
+                : event.type === 'open' &&
+                    (eventKind === 'skill_call' ||
+                      (eventKind === 'run' && preview.root === 'skill') ||
+                      preview.root === 'skill')
                   ? '未命名技能'
                   : undefined,
             path: eventKind === 'read' && typeof preview.path === 'string' ? preview.path : undefined,
             depth: eventKind === 'read' ? preview.depth : undefined,
             startLine: eventKind === 'read' ? preview.startLine : undefined,
             endLine: eventKind === 'read' ? preview.endLine : undefined,
+            cwd: eventKind === 'run' && typeof preview.cwd === 'string' ? preview.cwd : undefined,
+            command:
+              eventKind === 'run' && typeof preview.command === 'string' ? preview.command : undefined,
+            session:
+              eventKind === 'run' && typeof preview.session === 'string' ? preview.session : undefined,
             script: eventKind === 'skill_call' && typeof preview.script === 'string' ? preview.script : undefined,
             error: event.type === 'close' ? event.error : undefined,
             result: formatLiveActionPreview(eventKind, preview, event.error),
@@ -4260,13 +4336,24 @@ function App() {
                   startLine: action.startLine,
                   endLine: action.endLine,
                 }
-              : {
-                  kind: action.kind,
-                  id: action.id,
-                  skill: action.skill,
-                  script: action.script,
-                  argv: action.argv ?? [],
-                },
+              : action.kind === 'run'
+                ? {
+                    kind: action.kind,
+                    id: action.id,
+                    root: action.root,
+                    skill: action.skill,
+                    cwd: action.cwd,
+                    command: action.command,
+                    session: action.session,
+                    waitMs: action.waitMs,
+                  }
+                : {
+                    kind: action.kind,
+                    id: action.id,
+                    skill: action.skill,
+                    script: action.script,
+                    argv: action.argv ?? [],
+                  },
                 )
               : [],
         })
@@ -4436,6 +4523,141 @@ function App() {
             continue
           }
 
+          if (action.kind === 'run') {
+            const actionToken =
+              roundContext.skillTokenOrder[actionIndex] || `round-${roundId}-run-${actionIndex + 1}`
+            const gatedAction = applyPermissionGatesToRun(action, settings.permissionToggles)
+            let executableAction: RunAction
+
+            try {
+              executableAction = materializeRunAction(gatedAction)
+            } catch (error) {
+              const message = error instanceof Error ? error.message : 'run 执行失败'
+              const payload = {
+                id: gatedAction.id,
+                root: gatedAction.root,
+                skill: gatedAction.skill,
+                cwd: gatedAction.cwd,
+                command: gatedAction.command,
+                session: gatedAction.session,
+                error: message,
+              }
+              patchRoundSkillNode(roundContext, assistantId, actionToken, {
+                actionKind: 'run',
+                root: gatedAction.root,
+                skill: gatedAction.skill,
+                cwd: gatedAction.cwd,
+                command: gatedAction.command,
+                session: gatedAction.session,
+                status: 'error',
+                error: message,
+                result: formatSkillStepResult(payload),
+              })
+              appendHostMessage({
+                kind: 'host_message',
+                id: createId(),
+                turnId,
+                roundId,
+                createdAt: Date.now(),
+                category: 'run_error',
+                payload: {
+                  request: gatedAction,
+                  result: payload,
+                },
+              })
+              continue
+            }
+
+            patchRoundSkillNode(roundContext, assistantId, actionToken, {
+              actionKind: 'run',
+              root: executableAction.root,
+              skill: executableAction.skill,
+              cwd: executableAction.cwd,
+              command: executableAction.command,
+              session: executableAction.session,
+              status: 'running',
+              error: undefined,
+            })
+
+            try {
+              const execution = await executeRunAction(executableAction, conversationId)
+              const payload = {
+                id: executableAction.id,
+                root: executableAction.root,
+                skill: executableAction.skill,
+                cwd: executableAction.cwd,
+                command: executableAction.command,
+                session: execution.session,
+                running: execution.running,
+                stdout: execution.stdout,
+                stderr: execution.stderr,
+                exitCode: execution.exitCode,
+                elapsedMs: Math.round(execution.elapsedMs),
+                waitedMs: execution.waitedMs,
+                resolvedCommand: execution.resolvedCommand,
+                resolvedCwd: execution.resolvedCwd,
+                inferredRuntime: execution.inferredRuntime,
+                pid: execution.pid,
+                startedAt: execution.startedAt,
+                updatedAt: execution.updatedAt,
+                completedAt: execution.completedAt,
+              }
+              patchRoundSkillNode(roundContext, assistantId, actionToken, {
+                actionKind: 'run',
+                status: execution.running ? 'running' : execution.ok ? 'success' : 'error',
+                error:
+                  execution.running
+                    ? undefined
+                    : execution.ok
+                      ? undefined
+                      : execution.stderr.trim() || `退出码 ${execution.exitCode}`,
+                result: formatSkillStepResult(payload),
+              })
+              appendHostMessage({
+                kind: 'host_message',
+                id: createId(),
+                turnId,
+                roundId,
+                createdAt: Date.now(),
+                category: execution.ok ? 'run_result' : 'run_error',
+                payload: {
+                  request: executableAction,
+                  result: payload,
+                },
+              })
+            } catch (error) {
+              const message = error instanceof Error ? error.message : 'run 执行失败'
+              const payload = {
+                id: executableAction.id,
+                root: executableAction.root,
+                skill: executableAction.skill,
+                cwd: executableAction.cwd,
+                command: executableAction.command,
+                session: executableAction.session,
+                error: message,
+              }
+              patchRoundSkillNode(roundContext, assistantId, actionToken, {
+                actionKind: 'run',
+                status: 'error',
+                error: message,
+                result: formatSkillStepResult(payload),
+              })
+              appendHostMessage({
+                kind: 'host_message',
+                id: createId(),
+                turnId,
+                roundId,
+                createdAt: Date.now(),
+                category: 'run_error',
+                payload: {
+                  request: executableAction,
+                  result: payload,
+                },
+              })
+            }
+            continue
+          }
+
           const actionToken =
             roundContext.skillTokenOrder[actionIndex] || `round-${roundId}-skill-call-${actionIndex + 1}`
           const executableAction = applyPermissionGatesToSkillCall(action, settings.permissionToggles)
@@ -4450,7 +4672,7 @@ function App() {
           try {
             const execution = await executeSkillCall(executableAction, conversationId)
             const payload = {
-              ...parseSkillExecutionPayload(executableAction, execution.stdout, execution.stderr),
+              ...parseActionExecutionPayload(executableAction, execution.stdout, execution.stderr),
               exitCode: execution.exitCode,
               elapsedMs: Math.round(execution.elapsedMs),
               resolvedCommand: execution.resolvedCommand,
@@ -6887,8 +7109,8 @@ function App() {
             <span className="settings-entry-title">标签提示词</span>
             <span className="settings-entry-meta">
               {settings.skillModeEnabled
-                ? '分别配置一般标签、顶层标签、<read> 与 <skill_call>，并支持一键恢复默认。'
-                : '技能模式关闭时暂不生效；开启后会用于控制一般标签、顶层标签、<read> 与 <skill_call>。'}
+                ? '分别配置一般标签、顶层标签、<read> 与 <run>，并支持一键恢复默认。'
+                : '技能模式关闭时暂不生效；开启后会用于控制一般标签、顶层标签、<read> 与 <run>。'}
             </span>
           </button>
         </div>
@@ -7189,7 +7411,7 @@ function App() {
             <div className="settings-entry-title">标签提示词</div>
             <div className="settings-entry-meta">
               {
-                '分别控制一般标签、顶层标签、<read> 与 <skill_call> 在技能模式下的行为。信息提示词开关会把当前设备信息与当前对话 workspace 信息以 Markdown 形式拼进系统提示词。页面底部的已废弃提示词会以板块形式保存旧版与后续废弃提示词。'
+                '分别控制一般标签、顶层标签、<read> 与 <run> 在技能模式下的行为。信息提示词开关会把当前设备信息与当前对话 workspace 信息以 Markdown 形式拼进系统提示词。页面底部的已废弃提示词会以板块形式保存旧版与后续废弃提示词。'
               }
             </div>
           </div>
@@ -7247,11 +7469,11 @@ function App() {
           {renderPromptEditorPanel({
             isOpen: openPromptEditors.skillCallSystemPrompt,
             onToggle: () => togglePromptEditor('skillCallSystemPrompt'),
-            title: '<skill_call> 标签提示词',
+            title: '<run> 标签提示词',
             value: settings.skillCallSystemPrompt,
             onChange: (value) => updateSetting('skillCallSystemPrompt', value),
-            placeholder: '你可以在此配置 <skill_call> 标签提示词',
-            helperText: '控制模型何时输出 <skill_call> 标签，以及如何组织技能调用。',
+            placeholder: '你可以在此配置 <run> 标签提示词',
+            helperText: '控制模型何时输出 <run> 标签，以及如何组织命令执行。',
             actionLabel: '重置为默认提示词',
             onAction: () => resetPromptToDefault('skillCallSystemPrompt'),
             actionDisabled:
@@ -7380,12 +7602,12 @@ function App() {
             {renderPromptEditorPanel({
               isOpen: openProviderPromptEditors.skillCallSystemPrompt,
               onToggle: () => toggleProviderPromptEditor('skillCallSystemPrompt'),
-              title: '<skill_call> 标签提示词覆盖',
+              title: '<run> 标签提示词覆盖',
               value: providerDetailTarget.skillCallSystemPrompt ?? '',
               onChange: (value) =>
                 updateProviderPromptOverride(providerDetailTarget.id, 'skillCallSystemPrompt', value),
-              placeholder: '留空时使用全局 <skill_call> 标签提示词',
-              helperText: '控制服务商专属的 <skill_call> 输出规则；留空时完全跟随全局配置。',
+              placeholder: '留空时使用全局 <run> 标签提示词',
+              helperText: '控制服务商专属的 <run> 输出规则；留空时完全跟随全局配置。',
               actionLabel: '恢复跟随全局',
               onAction: () =>
                 clearProviderPromptOverride(providerDetailTarget.id, 'skillCallSystemPrompt'),
@@ -7734,7 +7956,7 @@ function App() {
               >
                 <span className="settings-entry-title">标签提示词</span>
                 <span className="settings-entry-meta">
-                  {'分别覆盖一般标签、顶层标签、<read> 与 <skill_call>；留空时跟随全局。'}
+                  {'分别覆盖一般标签、顶层标签、<read> 与 <run>；留空时跟随全局。'}
                 </span>
               </button>
             </div>
@@ -8187,7 +8409,7 @@ function App() {
   const renderSettingsPage = () => {
     const showBack = settingsView !== 'main'
     const shouldAnimateSettingsView = settingsView !== 'main'
-    let title = 'Chatroom 设置'
+    let title = '动话 设置'
     let settingsContent = renderMainSettings()
 
     switch (settingsView) {
@@ -8407,7 +8629,7 @@ function App() {
             ) : (
               <div className={`title-display ${titleTransition ? 'is-hidden' : ''}`}>
                 <span ref={titleTextRef} className="title-text">
-                  {activeConversation?.title ?? 'Chatroom'}
+                  {activeConversation?.title ?? '动话'}
                 </span>
                 <button
                   ref={titleRenameButtonRef}
@@ -8447,7 +8669,7 @@ function App() {
       ) : !chatStateLoaded ? (
         <main className="message-list page-transition">
           <section className="empty-state">
-            <h2>Chatroom</h2>
+            <h2>动话</h2>
             <p className="empty-state-line">正在加载聊天记录…</p>
           </section>
         </main>
@@ -8476,9 +8698,9 @@ function App() {
             {activeMessages.length === 0 ? (
               <>
                 <section className="empty-state">
-              <h2>Chatroom</h2>
+              <h2>动话</h2>
               <p className="empty-state-line empty-state-intro">
-                我是<span className="empty-state-nowrap">ChatroomAI</span>！
+                我是<span className="empty-state-nowrap">动话</span>！
                 <wbr />
                 欢迎找我聊天呀<span className="empty-state-emoticon">ʕ˶'༥'˶ʔ♡</span>
               </p>
@@ -8982,7 +9204,7 @@ function App() {
         >
           <aside className="drawer-panel frosted-surface" onClick={(event) => event.stopPropagation()}>
             <div className="drawer-header">
-              <h2>Chatroom</h2>
+              <h2>动话</h2>
             </div>
 
             <div

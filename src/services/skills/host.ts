@@ -33,12 +33,6 @@ const builtinDeviceInfoFiles = import.meta.glob('../../../builtin-skills/device-
   eager: true,
 }) as Record<string, string>
 
-const builtinRuntimeShellFiles = import.meta.glob('../../../builtin-skills/runtime-shell/**/*', {
-  query: '?raw',
-  import: 'default',
-  eager: true,
-}) as Record<string, string>
-
 interface SkillHostState {
   enabledById: Record<string, boolean>
   deletedBuiltinIds: string[]
@@ -125,7 +119,6 @@ const createBuiltinSkillDefinition = (
 const BUILTIN_SKILLS: BuiltinSkillDefinition[] = [
   createBuiltinSkillDefinition('union-search', builtinUnionSearchFiles),
   createBuiltinSkillDefinition('device-info', builtinDeviceInfoFiles),
-  createBuiltinSkillDefinition('runtime-shell', builtinRuntimeShellFiles),
 ].filter((skill): skill is BuiltinSkillDefinition => skill !== null)
 
 const toEntryKind = (type?: string): 'file' | 'directory' =>
@@ -333,6 +326,25 @@ const materializeBuiltinSkill = async (skill: BuiltinSkillDefinition): Promise<v
   }
 }
 
+const synchronizeBuiltinSkills = async (): Promise<void> => {
+  const expectedIds = new Set(BUILTIN_SKILLS.map((skill) => skill.id))
+  const existingIds = await listDirectory(SKILL_DIRECTORIES.builtin)
+
+  for (const existingId of existingIds) {
+    if (!expectedIds.has(existingId)) {
+      await deletePath(getBuiltinSkillRoot(existingId))
+    }
+  }
+
+  for (const skill of BUILTIN_SKILLS) {
+    const root = getBuiltinSkillRoot(skill.id)
+    if (await pathExists(root)) {
+      await deletePath(root)
+    }
+    await materializeBuiltinSkill(skill)
+  }
+}
+
 const readState = async (): Promise<SkillHostState> =>
   readJsonFile<SkillHostState>(STATE_PATH, DEFAULT_STATE)
 
@@ -410,7 +422,7 @@ const readInstalledSkillRecord = async (
 
 export const initializeSkillHost = async (): Promise<void> => {
   await initializeStorage()
-  await Promise.all(BUILTIN_SKILLS.map((skill) => materializeBuiltinSkill(skill)))
+  await synchronizeBuiltinSkills()
   const state = await readState()
   const deletedBuiltinIds = Array.isArray(state.deletedBuiltinIds)
     ? state.deletedBuiltinIds.filter((item) => BUILTIN_SKILLS.some((skill) => skill.id === item))

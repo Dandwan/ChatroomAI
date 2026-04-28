@@ -45,13 +45,16 @@ interface LegacySkillStep {
   id: string
   kind: LegacySkillStepKind
   token?: string
-  root?: 'skill' | 'workspace'
+  root?: 'skill' | 'workspace' | 'home' | 'absolute'
   op?: 'list' | 'read' | 'stat'
   skill?: string
   path?: string
   depth?: number
   startLine?: number
   endLine?: number
+  cwd?: string
+  command?: string
+  session?: string
   script?: string
   explanation?: string
   result?: string
@@ -106,6 +109,9 @@ const isLegacyReadLikeNode = (item: Record<string, unknown>): boolean => {
 }
 
 const normalizeLegacyAssistantActionKind = (value: unknown): AssistantFlowSkillKind | undefined => {
+  if (value === 'run') {
+    return 'run'
+  }
   if (value === 'skill_call') {
     return 'skill_call'
   }
@@ -115,8 +121,10 @@ const normalizeLegacyAssistantActionKind = (value: unknown): AssistantFlowSkillK
   return undefined
 }
 
-const normalizeLegacyReadRoot = (item: Record<string, unknown>): 'skill' | 'workspace' | undefined => {
-  if (item.root === 'workspace' || item.root === 'skill') {
+const normalizeLegacyReadRoot = (
+  item: Record<string, unknown>,
+): 'skill' | 'workspace' | 'home' | 'absolute' | undefined => {
+  if (item.root === 'workspace' || item.root === 'skill' || item.root === 'home' || item.root === 'absolute') {
     return item.root
   }
   if (isLegacyReadLikeNode(item)) {
@@ -214,6 +222,9 @@ const normalizeStoredAssistantFlow = (value: unknown): AssistantFlowNode[] | und
         depth: toFiniteNumber(item.depth),
         startLine: toFiniteNumber(item.startLine),
         endLine: toFiniteNumber(item.endLine),
+        cwd: typeof item.cwd === 'string' && item.cwd.trim() ? item.cwd : undefined,
+        command: typeof item.command === 'string' && item.command.trim() ? item.command : undefined,
+        session: typeof item.session === 'string' && item.session.trim() ? item.session : undefined,
         script: typeof item.script === 'string' && item.script.trim() ? item.script : undefined,
         explanation: typeof item.explanation === 'string' ? item.explanation : undefined,
         result: typeof item.result === 'string' ? item.result : undefined,
@@ -295,7 +306,8 @@ const normalizeStoredLegacySkillSteps = (value: unknown): LegacySkillStep[] | un
       continue
     }
 
-    const kind: LegacySkillStepKind = item.kind === 'skill_call' ? 'skill_call' : 'read'
+    const kind: LegacySkillStepKind =
+      item.kind === 'run' ? 'run' : item.kind === 'skill_call' ? 'skill_call' : 'read'
     const script = typeof item.script === 'string' && item.script.trim() ? item.script : undefined
     if (kind === 'skill_call' && !script) {
       continue
@@ -306,13 +318,21 @@ const normalizeStoredLegacySkillSteps = (value: unknown): LegacySkillStep[] | un
       id: item.id,
       kind,
       token,
-      root: kind === 'read' ? 'skill' : undefined,
+      root:
+        kind === 'read'
+          ? 'skill'
+          : item.root === 'skill' || item.root === 'workspace' || item.root === 'home' || item.root === 'absolute'
+            ? item.root
+            : undefined,
       op: kind === 'read' ? 'read' : undefined,
       skill:
         typeof item.skill === 'string' && item.skill.trim()
           ? item.skill
           : undefined,
       path: kind === 'read' ? 'SKILL.md' : undefined,
+      cwd: typeof item.cwd === 'string' && item.cwd.trim() ? item.cwd : undefined,
+      command: typeof item.command === 'string' && item.command.trim() ? item.command : undefined,
+      session: typeof item.session === 'string' && item.session.trim() ? item.session : undefined,
       script,
       explanation: typeof item.explanation === 'string' ? item.explanation : undefined,
       result: typeof item.result === 'string' ? item.result : undefined,
@@ -384,6 +404,9 @@ const buildAssistantFlowFromLegacy = (
         depth: step.depth,
         startLine: step.startLine,
         endLine: step.endLine,
+        cwd: step.cwd,
+        command: step.command,
+        session: step.session,
         script: step.script,
         explanation: step.explanation,
         result: step.result,

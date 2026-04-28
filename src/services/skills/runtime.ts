@@ -21,13 +21,18 @@ interface RuntimeHostState {
   metadataById: Record<string, RuntimeMetadata>
 }
 
-type RuntimeMetadata = Pick<RuntimeRecord, 'id' | 'type' | 'version' | 'executablePath' | 'displayName'>
+type RuntimeMetadata = Pick<
+  RuntimeRecord,
+  'id' | 'type' | 'version' | 'executablePath' | 'binDirectoryPath' | 'commands' | 'displayName'
+>
 
 interface RuntimeManifestFile {
   type?: string
   version?: string
   displayName?: string
   entrypoint?: string
+  binDirectory?: string
+  commands?: string[]
 }
 
 const DEFAULT_STATE: RuntimeHostState = {
@@ -64,6 +69,72 @@ const readState = async (): Promise<RuntimeHostState> => readJsonFile(STATE_PATH
 
 const writeState = async (state: RuntimeHostState): Promise<void> => {
   await writeJsonFile(STATE_PATH, state)
+}
+
+const normalizeCommandName = (value: string): string => value.trim().replace(/\\/g, '/')
+
+const sanitizeRuntimeCommands = (values: string[] | undefined): string[] | undefined => {
+  if (!values || values.length === 0) {
+    return undefined
+  }
+
+  const normalized = values
+    .map((value) => normalizeCommandName(value))
+    .filter((value) => value.length > 0 && !value.includes('/'))
+
+  if (normalized.length === 0) {
+    return undefined
+  }
+
+  return Array.from(new Set(normalized)).sort((left, right) => left.localeCompare(right))
+}
+
+const resolveRuntimeBinDirectoryPath = async (
+  relativeRoot: string,
+  executablePath: string,
+  explicitBinDirectory?: string,
+): Promise<string | undefined> => {
+  const manifestBinDirectory = explicitBinDirectory?.trim()
+  if (manifestBinDirectory) {
+    const manifestPath = joinRelativePath(relativeRoot, manifestBinDirectory)
+    if (await pathExists(manifestPath)) {
+      return manifestPath
+    }
+  }
+
+  const conventionalPath = joinRelativePath(relativeRoot, 'bin')
+  if (await pathExists(conventionalPath)) {
+    return conventionalPath
+  }
+
+  const normalizedExecutablePath = executablePath.trim()
+  if (!normalizedExecutablePath) {
+    return undefined
+  }
+
+  const segments = normalizedExecutablePath.split('/').filter(Boolean)
+  if (segments.length <= 1) {
+    return undefined
+  }
+
+  return segments.slice(0, -1).join('/')
+}
+
+const inspectRuntimeCommands = async (
+  relativeBinDirectoryPath: string | undefined,
+  manifestCommands?: string[],
+): Promise<string[] | undefined> => {
+  const explicitCommands = sanitizeRuntimeCommands(manifestCommands)
+  if (explicitCommands) {
+    return explicitCommands
+  }
+
+  if (!relativeBinDirectoryPath || !(await pathExists(relativeBinDirectoryPath))) {
+    return undefined
+  }
+
+  const discovered = sanitizeRuntimeCommands(await listDirectory(relativeBinDirectoryPath))
+  return discovered && discovered.length > 0 ? discovered : undefined
 }
 
 const ensureDefaultRuntimeSelection = (
@@ -112,6 +183,14 @@ const shouldRefreshRuntimeMetadata = (
     return true
   }
 
+  if (!cached.binDirectoryPath?.trim()) {
+    return true
+  }
+
+  if (!cached.commands || cached.commands.length === 0) {
+    return true
+  }
+
   if (cached.type !== 'unknown' && cached.version === folderName && cached.displayName === folderName) {
     return true
   }
@@ -143,12 +222,20 @@ const inspectRuntimeManifest = async (folderName: string): Promise<RuntimeMetada
     entrypoint && (await pathExists(joinRelativePath(relativeRoot, entrypoint)))
       ? joinRelativePath(relativeRoot, entrypoint)
       : ''
+  const binDirectoryPath = await resolveRuntimeBinDirectoryPath(
+    relativeRoot,
+    executablePath,
+    manifest.binDirectory,
+  )
+  const commands = await inspectRuntimeCommands(binDirectoryPath, manifest.commands)
 
   return {
     id: folderName,
     type: normalizeRuntimeType(manifest.type, folderName),
     version: manifest.version?.trim() || folderName,
     executablePath,
+    binDirectoryPath,
+    commands,
     displayName: manifest.displayName?.trim() || folderName,
   }
 }
@@ -165,11 +252,20 @@ const inspectRuntimeDirectory = async (folderName: string): Promise<RuntimeMetad
       ...(await nativeInspectRuntime(relativePath)),
       id: folderName,
     }
+    const executablePath = nativeMetadata.executablePath || manifestMetadata?.executablePath || ''
+    const binDirectoryPath = await resolveRuntimeBinDirectoryPath(
+      relativePath,
+      executablePath,
+      undefined,
+    )
+    const commands = await inspectRuntimeCommands(binDirectoryPath, manifestMetadata?.commands)
     return {
       id: folderName,
       type: normalizeRuntimeType(nativeMetadata.type, folderName),
       version: nativeMetadata.version?.trim() || manifestMetadata?.version || folderName,
-      executablePath: nativeMetadata.executablePath || manifestMetadata?.executablePath || '',
+      executablePath,
+      binDirectoryPath,
+      commands,
       displayName: nativeMetadata.displayName?.trim() || manifestMetadata?.displayName || folderName,
     }
   } catch {
@@ -182,6 +278,8 @@ const inspectRuntimeDirectory = async (folderName: string): Promise<RuntimeMetad
       type,
       version: folderName,
       executablePath: '',
+      binDirectoryPath: undefined,
+      commands: undefined,
       displayName: folderName,
     }
   }

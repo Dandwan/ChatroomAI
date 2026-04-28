@@ -18,6 +18,7 @@ import { executeDeviceInfoSkillCall } from './device-info'
 import { nativeExecuteProcess } from './native-runtime'
 import { getPreferredRuntimePaths } from './runtime'
 import { joinRelativePath, pathExists } from './storage'
+export { executeRunAction, materializeRunAction } from './run-executor'
 import type {
   ReadAction,
   ReadExecutionResult,
@@ -27,37 +28,11 @@ import type {
 
 const INSTALLED_SKILL_ROOT = 'skill-host/skills'
 
-const pickNumericArgValue = (argv: string[] | undefined, option: string): number | undefined => {
-  if (!argv || argv.length === 0) {
-    return undefined
-  }
-  const index = argv.findIndex((item) => item === option)
-  if (index === -1) {
-    return undefined
-  }
-  const raw = argv[index + 1]
-  if (!raw) {
-    return undefined
-  }
-  const parsed = Number.parseInt(raw, 10)
-  if (!Number.isFinite(parsed)) {
-    return undefined
-  }
-  return parsed
-}
-
 const resolveTimeoutMs = (action: SkillCallAction): number => {
   if (typeof action.timeoutMs === 'number' && Number.isFinite(action.timeoutMs)) {
     return Math.max(0, Math.round(action.timeoutMs))
   }
-  if (action.skill !== 'runtime-shell') {
-    return 30000
-  }
-  const waitMs = pickNumericArgValue(action.argv, '--wait-ms')
-  if (waitMs === undefined) {
-    return 30000
-  }
-  return Math.max(30000, waitMs + 5000)
+  return 30000
 }
 
 const normalizeLineNumber = (value: number | undefined, fallback: number): number =>

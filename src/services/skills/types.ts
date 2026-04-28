@@ -3,6 +3,7 @@ export interface SkillFrontmatter {
   description: string
   author?: string
   version?: string
+  hidden?: boolean
   [key: string]: unknown
 }
 
@@ -41,6 +42,8 @@ export interface RuntimeRecord {
   installedAt: number
   folderName: string
   executablePath: string
+  binDirectoryPath?: string
+  commands?: string[]
   displayName: string
   testStatus?: 'ok' | 'error'
   testMessage?: string
@@ -70,8 +73,81 @@ export interface SkillExecutionResult {
   inferredRuntime: RuntimeType | 'shell' | 'native'
 }
 
+export interface RunExecutionResult {
+  ok: boolean
+  running: boolean
+  session: string
+  stdout: string
+  stderr: string
+  exitCode: number | null
+  elapsedMs: number
+  waitedMs: number
+  resolvedCommand: string[]
+  resolvedCwd: string
+  inferredRuntime: RuntimeType | 'shell' | 'native' | 'system'
+  pid?: number | null
+  startedAt?: number
+  updatedAt: number
+  completedAt?: number
+}
+
+export interface BrowserVisitHeading {
+  level: number
+  text: string
+}
+
+export interface BrowserVisitLink {
+  text: string
+  url: string
+  title?: string
+}
+
+export interface BrowserVisitImage {
+  alt?: string
+  url: string
+  title?: string
+}
+
+export interface BrowserVisitMetadata {
+  requestedUrl?: string
+  finalUrl?: string
+  title?: string
+  description?: string
+  lang?: string
+  canonicalUrl?: string
+  siteName?: string
+  author?: string
+  publishedAt?: string
+  modifiedAt?: string
+  keywords?: string
+  contentType?: string
+  status?: number
+  blockedBy?: string
+  questionId?: string
+  challengeScriptUrl?: string
+  [key: string]: unknown
+}
+
+export interface BrowserVisitResult {
+  title: string
+  url: string
+  finalUrl?: string
+  description?: string
+  content: string
+  contentFormat: 'markdown'
+  contentText?: string
+  engine: string
+  headings?: BrowserVisitHeading[]
+  links?: BrowserVisitLink[]
+  images?: BrowserVisitImage[]
+  metadata?: BrowserVisitMetadata
+  warnings?: string[]
+  truncated?: boolean
+}
+
 export type ReadRoot = 'skill' | 'workspace'
 export type ReadOp = 'list' | 'read' | 'stat'
+export type RunRoot = 'skill' | 'workspace' | 'home' | 'absolute'
 
 export interface ReadAction {
   kind: 'read'
@@ -124,7 +200,7 @@ export interface ReadTextResult {
 
 export type ReadExecutionResult = ReadListResult | ReadStatResult | ReadTextResult
 
-export type AgentActionKind = 'none' | 'read' | 'skill_call'
+export type AgentActionKind = 'none' | 'read' | 'run' | 'skill_call'
 
 export interface SkillCallAction {
   kind: 'skill_call'
@@ -137,13 +213,44 @@ export interface SkillCallAction {
   timeoutMs?: number
 }
 
+export interface RunAction {
+  kind: 'run'
+  id: string
+  root: RunRoot
+  skill?: string
+  cwd?: string
+  command?: string
+  stdin?: string
+  env?: Record<string, string>
+  waitMs?: number
+  session?: string
+}
+
+export interface RunCommandRegistration {
+  command: string
+  executablePath: string
+  env?: Record<string, string>
+  source: string
+}
+
+export type RunLaunchKind = 'file' | 'executable'
+
+export interface RunResolvedLaunch {
+  kind: RunLaunchKind
+  targetPath: string
+  args: string[]
+  pythonExecutablePath?: string
+  nodeExecutablePath?: string
+  inferredRuntime?: RuntimeType | 'shell' | 'native' | 'system'
+}
+
 export interface NoAction {
   kind: 'none'
   text: string
 }
 
-export type AgentAction = ReadAction | SkillCallAction | NoAction
-export type ExecutableAgentAction = ReadAction | SkillCallAction
+export type AgentAction = ReadAction | RunAction | SkillCallAction | NoAction
+export type ExecutableAgentAction = ReadAction | RunAction | SkillCallAction
 
 export interface ParsedAgentAction {
   action: AgentAction
@@ -166,6 +273,9 @@ export type PromptBlockType =
   | 'user_input'
   | 'read_result'
   | 'read_error'
+  | 'run'
+  | 'run_result'
+  | 'run_error'
   | 'skill_call'
   | 'skill_result'
   | 'skill_error'

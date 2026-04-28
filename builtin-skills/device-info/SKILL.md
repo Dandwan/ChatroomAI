@@ -13,7 +13,7 @@ version: "0.1.0"
 
 ## Scripts
 
-### scripts/get_device_info.internal
+### scripts/get_device_info
 
 返回 JSON，主要字段：
 

@@ -91,23 +91,18 @@ files/skill-host/runtimes/<runtime-id>/
 - `SKILL_NODE_EXECUTABLE`: 当前可用 Node 解释器绝对路径
 - `SKILL_PYTHON_EXECUTABLE`: 当前可用 Python 解释器绝对路径
 
-其中 `SKILL_NODE_EXECUTABLE` / `SKILL_PYTHON_EXECUTABLE` 适合给 shell wrapper 使用，例如 `.internal` 入口先由 `sh` 启动，再显式转调真实解释器。
+这些环境变量会在宿主直接启动脚本、解释器或二进制时一并注入。若脚本本身需要显式选择解释器，可以自行读取它们；不再推荐为了转调解释器而额外套一层 `/system/bin/sh` wrapper。
 
 ## 5. 与 Skill 的配合方式
 
-Skill 脚本可以直接是：
+Skill 脚本或运行时包命令可以直接是：
 
 - Python 脚本：shebang 包含 `python`
 - Node 脚本：shebang 包含 `node`
-- Shell wrapper：再通过 `SKILL_NODE_EXECUTABLE` 或 `SKILL_PYTHON_EXECUTABLE` 转调实际入口
+- 原生二进制：ELF 可执行文件
+- 显式解释器调用：例如在 `run` 中直接写 `python main.py`、`node cli.js`
 
-推荐 shell wrapper 形式用于无扩展名入口，例如：
-
-```sh
-#!/system/bin/sh
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
-exec "$SKILL_NODE_EXECUTABLE" "$SCRIPT_DIR/run-skill.cjs" "$(basename "$0")" "$@"
-```
+若要提供无扩展名入口，推荐直接把入口文件做成可执行文件本身，而不是再包一层 shell wrapper。
 
 ## 6. 当前 Node 运行时打包约定
 
@@ -217,12 +212,6 @@ node scripts/package-python-runtime.mjs --offline true --output-dir public/runti
 - 外网访问 Termux / TUR 包源
 - `ar`
 - `tar`
-
-默认工程约定是：
-
-- Python 科学运行时 ZIP 作为构建 / release 产物管理
-- 仓库提交打包脚本、依赖锁定和文档，不把该大体积 ZIP 作为普通 Git blob 提交
-- Android 打包前应先显式生成该 ZIP 到 `public/runtime-packages/`
 
 ## 8. 设计约束
 

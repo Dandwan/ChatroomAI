@@ -1,4 +1,4 @@
-<h1 align="center">ChatroomAI</h1>
+<h1 align="center">ActiChat（动话）</h1>
 
 <p align="center">
   面向手机场景的 AI 聊天应用。<br />
@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src="./README.assets/01-home.jpg" alt="ChatroomAI 主页面" width="260" />
+  <img src="./README.assets/01-home.jpg" alt="ActiChat（动话）主页面" width="260" />
 </p>
 
 ## 下载
@@ -30,7 +30,7 @@
 ### Android
 
 - [查看最新 Release](https://github.com/Dandwan/ChatroomAI/releases/latest)
-- [下载 Android APK（v1.1.1）](https://github.com/Dandwan/ChatroomAI/releases/download/v1.1.1/ChatroomAI-v1.1.1-android-release.apk)
+- [下载 Android APK（v1.4.0）](https://github.com/Dandwan/ChatroomAI/releases/download/v1.4.0/ActiChat-v1.4.0-android-release.apk)
 
 ## 功能特性
 
@@ -63,24 +63,24 @@
 <table>
   <tr>
     <td align="center" width="25%">
-      <img src="./README.assets/01-home.jpg" alt="ChatroomAI 主页面截图" width="220" />
+      <img src="./README.assets/01-home.jpg" alt="ActiChat（动话）主页面截图" width="220" />
       <br />
       <strong>1. 主页面</strong>
     </td>
     <td align="center" width="25%">
-      <img src="./README.assets/02-math.jpg" alt="ChatroomAI 公式渲染截图" width="220" />
+      <img src="./README.assets/02-math.jpg" alt="ActiChat（动话）公式渲染截图" width="220" />
       <br />
       <strong>2. 公式渲染</strong>
     </td>
   </tr>
   <tr>
     <td align="center" width="25%">
-      <img src="./README.assets/03-history.jpg" alt="ChatroomAI 历史对话选择截图" width="220" />
+      <img src="./README.assets/03-history.jpg" alt="ActiChat（动话）历史对话选择截图" width="220" />
       <br />
       <strong>3. 历史对话选择</strong>
     </td>
     <td align="center" width="25%">
-      <img src="./README.assets/04-settings.jpg" alt="ChatroomAI 设置页面截图" width="220" />
+      <img src="./README.assets/04-settings.jpg" alt="ActiChat（动话）设置页面截图" width="220" />
       <br />
       <strong>4. 设置页面</strong>
     </td>

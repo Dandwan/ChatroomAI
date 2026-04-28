@@ -13,6 +13,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const TAGS = {
   progress: 'progress',
   read: 'read',
+  run: 'run',
   skillCall: 'skill_call',
   final: 'final',
 }
@@ -20,6 +21,7 @@ const TAGS = {
 const OPEN_TAGS = {
   progress: `<${TAGS.progress}>`,
   read: `<${TAGS.read}>`,
+  run: `<${TAGS.run}>`,
   skillCall: `<${TAGS.skillCall}>`,
   think: '<think>',
   final: `<${TAGS.final}>`,
@@ -28,16 +30,17 @@ const OPEN_TAGS = {
 const CLOSE_TAGS = {
   progress: `</${TAGS.progress}>`,
   read: `</${TAGS.read}>`,
+  run: `</${TAGS.run}>`,
   skillCall: `</${TAGS.skillCall}>`,
   think: '</think>',
   final: `</${TAGS.final}>`,
 } as const
 
-type StreamParserMode = 'root' | 'progress' | 'final' | 'read' | 'skill_call' | 'think'
-type SkillActionTag = 'read' | 'skill_call'
+type StreamParserMode = 'root' | 'progress' | 'final' | 'read' | 'run' | 'skill_call' | 'think'
+type SkillActionTag = 'read' | 'run' | 'skill_call'
 
 export interface SkillActionPreview {
-  kind: 'read' | 'skill_call'
+  kind: 'read' | 'run' | 'skill_call'
   id?: string
   root?: string
   op?: string
@@ -46,6 +49,10 @@ export interface SkillActionPreview {
   depth?: number
   startLine?: number
   endLine?: number
+  cwd?: string
+  command?: string
+  session?: string
+  waitMs?: number
   script?: string
   argv?: string[]
   stdin?: string
@@ -207,17 +214,20 @@ const getExpectedTagsForMode = (mode: StreamParserMode): string[] => {
         OPEN_TAGS.progress,
         CLOSE_TAGS.progress,
         OPEN_TAGS.read,
+        OPEN_TAGS.run,
         OPEN_TAGS.skillCall,
         OPEN_TAGS.think,
         OPEN_TAGS.final,
         CLOSE_TAGS.final,
       ]
     case 'progress':
-      return [OPEN_TAGS.read, OPEN_TAGS.skillCall, OPEN_TAGS.think, CLOSE_TAGS.progress]
+      return [OPEN_TAGS.read, OPEN_TAGS.run, OPEN_TAGS.skillCall, OPEN_TAGS.think, CLOSE_TAGS.progress]
     case 'final':
-      return [OPEN_TAGS.read, OPEN_TAGS.skillCall, OPEN_TAGS.think, CLOSE_TAGS.final]
+      return [OPEN_TAGS.read, OPEN_TAGS.run, OPEN_TAGS.skillCall, OPEN_TAGS.think, CLOSE_TAGS.final]
     case 'read':
       return [CLOSE_TAGS.read]
+    case 'run':
+      return [CLOSE_TAGS.run]
     case 'skill_call':
       return [CLOSE_TAGS.skillCall]
     case 'think':
@@ -233,6 +243,8 @@ const getNextModeForTag = (tag: string): StreamParserMode | null => {
       return 'progress'
     case OPEN_TAGS.read:
       return 'read'
+    case OPEN_TAGS.run:
+      return 'run'
     case OPEN_TAGS.skillCall:
       return 'skill_call'
     case OPEN_TAGS.think:
@@ -250,6 +262,8 @@ const getClosedModeForTag = (tag: string): StreamParserMode | null => {
       return 'progress'
     case CLOSE_TAGS.read:
       return 'read'
+    case CLOSE_TAGS.run:
+      return 'run'
     case CLOSE_TAGS.skillCall:
       return 'skill_call'
     case CLOSE_TAGS.think:
@@ -371,6 +385,21 @@ const buildSkillActionPreview = (
     }
   }
 
+  if (tag === 'run') {
+    return {
+      kind: 'run',
+      id: pickPartialString(body, ['id', 'callId']),
+      root: pickPartialString(body, ['root']),
+      skill: pickPartialString(body, ['skill', 'skillId', 'name']),
+      cwd: pickPartialString(body, ['cwd']),
+      command: pickPartialString(body, ['command']),
+      session: pickPartialString(body, ['session']),
+      stdin: pickPartialString(body, ['stdin', 'input']),
+      env: pickPartialStringRecord(body, ['env']),
+      waitMs: pickPartialNumber(body, ['waitMs']),
+    }
+  }
+
   return {
     kind: 'skill_call',
     id: pickPartialString(body, ['id', 'callId']),
@@ -409,7 +438,7 @@ export const createAgentStreamParser = (): AgentStreamParser => {
     const nextMode = getNextModeForTag(tag)
     if (nextMode) {
       modeStack.push(nextMode)
-      if (nextMode === 'read' || nextMode === 'skill_call') {
+      if (nextMode === 'read' || nextMode === 'run' || nextMode === 'skill_call') {
         activeActionToken += 1
         activeAction = {
           token: `action-${activeActionToken}`,
@@ -435,7 +464,7 @@ export const createAgentStreamParser = (): AgentStreamParser => {
 
     if (getCurrentMode() === closedMode && modeStack.length > 1) {
       if (
-        (closedMode === 'read' || closedMode === 'skill_call') &&
+        (closedMode === 'read' || closedMode === 'run' || closedMode === 'skill_call') &&
         activeAction &&
         activeAction.tag === closedMode
       ) {
@@ -444,6 +473,8 @@ export const createAgentStreamParser = (): AgentStreamParser => {
         const parsedAction =
           closedMode === 'read'
             ? parseReadAction(body)
+            : closedMode === 'run'
+              ? parseRunAction(body)
             : parseSkillCallAction(body)
         delta.actionEvents.push({
           type: 'close',
@@ -470,7 +501,7 @@ export const createAgentStreamParser = (): AgentStreamParser => {
     ): void => {
       appendAgentStreamDelta(delta, mode, value)
       if (
-        (mode === 'read' || mode === 'skill_call') &&
+        (mode === 'read' || mode === 'run' || mode === 'skill_call') &&
         activeAction &&
         activeAction.tag === mode
       ) {
@@ -530,7 +561,7 @@ export const createAgentStreamParser = (): AgentStreamParser => {
     ): void => {
       appendAgentStreamDelta(delta, mode, value)
       if (
-        (mode === 'read' || mode === 'skill_call') &&
+        (mode === 'read' || mode === 'run' || mode === 'skill_call') &&
         activeAction &&
         activeAction.tag === mode
       ) {
@@ -560,7 +591,7 @@ export const createAgentStreamParser = (): AgentStreamParser => {
     flush,
     hasSeenFinalTag: () => hasSeenFinalTag,
     hasOpenAction: () =>
-      activeAction !== null || modeStack.some((mode) => mode === 'read' || mode === 'skill_call'),
+      activeAction !== null || modeStack.some((mode) => mode === 'read' || mode === 'run' || mode === 'skill_call'),
   }
 }
 
@@ -693,6 +724,48 @@ const parseSkillCallAction = (body: string): ExecutableAgentAction | null => {
   }
 }
 
+const parseRunAction = (body: string): ExecutableAgentAction | null => {
+  try {
+    const payload = JSON.parse(body) as unknown
+    if (!isRecord(payload)) {
+      return null
+    }
+
+    const root = pickString(payload, ['root'])
+    if (root !== 'skill' && root !== 'workspace' && root !== 'home' && root !== 'absolute') {
+      return null
+    }
+
+    const skill = pickString(payload, ['skill', 'skillId', 'name'])
+    if (root === 'skill' && !skill) {
+      return null
+    }
+
+    const command = pickString(payload, ['command'])
+    const session = pickString(payload, ['session'])
+
+    return {
+      kind: 'run',
+      id:
+        pickString(payload, ['id', 'callId']) ??
+        `${root}:${skill ?? ''}:${pickString(payload, ['cwd']) ?? '.'}:${session ?? 'auto'}`,
+      root,
+      skill,
+      cwd: pickString(payload, ['cwd']),
+      command,
+      stdin: pickString(payload, ['stdin', 'input']),
+      env: pickStringRecord(payload, ['env']),
+      waitMs:
+        typeof payload.waitMs === 'number' && Number.isFinite(payload.waitMs)
+          ? Math.max(0, Math.round(payload.waitMs))
+          : undefined,
+      session,
+    }
+  } catch {
+    return null
+  }
+}
+
 type ProtocolTopLevelKind = 'progress' | 'final'
 
 interface ParsedTopLevelEnvelope {
@@ -735,7 +808,7 @@ export const extractSkillAgentProtocolText = (text: string): SkillAgentProtocolE
 
 const countTag = (text: string, pattern: RegExp): number => [...text.matchAll(pattern)].length
 
-const hasActionMarkup = (text: string): boolean => /<\/?(read|skill_call)>/i.test(text)
+const hasActionMarkup = (text: string): boolean => /<\/?(read|run|skill_call)>/i.test(text)
 
 const parseTopLevelEnvelope = (text: string): ParsedTopLevelEnvelope | null => {
   const trimmed = normalizeProtocolText(text).trim()
@@ -801,8 +874,8 @@ const parseTopLevelEnvelope = (text: string): ParsedTopLevelEnvelope | null => {
   }
 }
 
-const ACTION_TAG_PATTERN = /<(read|skill_call)>([\s\S]*?)<\/\1>/gi
-const LOOSE_ACTION_TAG_PATTERN = /<\/?(read|skill_call)>/i
+const ACTION_TAG_PATTERN = /<(read|run|skill_call)>([\s\S]*?)<\/\1>/gi
+const LOOSE_ACTION_TAG_PATTERN = /<\/?(read|run|skill_call)>/i
 
 const parseActionBody = (bodyText: string): ParsedActionBody => {
   const normalizedBody = normalizeProtocolText(bodyText)
@@ -822,7 +895,14 @@ const parseActionBody = (bodyText: string): ParsedActionBody => {
     hasActionTag = true
     const tag = match[1]?.toLowerCase()
     const body = match[2]?.trim() ?? ''
-    const action = tag === 'read' ? parseReadAction(body) : tag === 'skill_call' ? parseSkillCallAction(body) : null
+    const action =
+      tag === 'read'
+        ? parseReadAction(body)
+        : tag === 'run'
+          ? parseRunAction(body)
+          : tag === 'skill_call'
+            ? parseSkillCallAction(body)
+            : null
     if (!action) {
       hasInvalidAction = true
       break
@@ -880,6 +960,26 @@ const serializeAction = (action: ExecutableAgentAction): string => {
     ].join('')
   }
 
+  if (action.kind === 'run') {
+    return [
+      '<run>',
+      JSON.stringify(
+        {
+          id: action.id,
+          root: action.root,
+          ...(action.skill ? { skill: action.skill } : {}),
+          ...(action.cwd ? { cwd: action.cwd } : {}),
+          ...(action.command ? { command: action.command } : {}),
+          ...(action.stdin ? { stdin: action.stdin } : {}),
+          ...(action.env && Object.keys(action.env).length > 0 ? { env: action.env } : {}),
+          ...(action.waitMs !== undefined ? { waitMs: action.waitMs } : {}),
+          ...(action.session ? { session: action.session } : {}),
+        },
+      ),
+      '</run>',
+    ].join('')
+  }
+
   return [
     '<skill_call>',
     JSON.stringify(
@@ -925,10 +1025,10 @@ const buildProtocolRetryPrompt = (reason: SkillAgentProtocolRetryReason): string
     case 'empty_response':
       return '上一轮回复为空。请重发一条完整回复：继续处理时输出 `<progress>...</progress>`；直接交付用户时输出 `<final>...</final>`。'
     case 'progress_without_actions':
-      return '上一轮使用了 `<progress>`，但其中没有合法的 `<read>` 或 `<skill_call>` 动作，宿主无法继续。请重发：继续处理时输出包含合法动作的 `<progress>...</progress>`；若应直接交付用户，请输出 `<final>...</final>`。'
+      return '上一轮使用了 `<progress>`，但其中没有合法的 `<read>` 或 `<run>` 动作，宿主无法继续。请重发：继续处理时输出包含合法动作的 `<progress>...</progress>`；若应直接交付用户，请输出 `<final>...</final>`。'
     case 'invalid_action_payload':
     default:
-      return '上一轮回复中的动作标签格式不合法，宿主未执行。请重发一条完整回复：继续处理时输出包含合法 `<read>` / `<skill_call>` 的 `<progress>...</progress>`；若已完成或需直接交付用户，请输出 `<final>...</final>`。'
+      return '上一轮回复中的动作标签格式不合法，宿主未执行。请重发一条完整回复：继续处理时输出包含合法 `<read>` / `<run>` 的 `<progress>...</progress>`；若已完成或需直接交付用户，请输出 `<final>...</final>`。'
   }
 }
 
@@ -1133,7 +1233,7 @@ export const formatStructuredMarkdown = (value: unknown): string => renderMarkdo
 
 export const buildSkillsCatalogBlock = (skills: SkillRecord[]): PromptBlock => {
   const items = skills
-    .filter((skill) => skill.enabled)
+    .filter((skill) => skill.enabled && skill.frontmatter.hidden !== true)
     .map((skill) => ({
       id: skill.id,
       source: skill.source,
@@ -1162,6 +1262,10 @@ export const buildRuntimeCatalogBlock = (runtimes: RuntimeRecord[]): PromptBlock
               `  version: ${runtime.version}`,
               `  enabled: ${runtime.enabled}`,
               `  executablePath: ${runtime.executablePath || '(missing)'}`,
+              ...(runtime.binDirectoryPath ? [`  binDirectoryPath: ${runtime.binDirectoryPath}`] : []),
+              ...(runtime.commands && runtime.commands.length > 0
+                ? [`  commands: ${runtime.commands.join(', ')}`]
+                : []),
             ].join('\n'),
           )
           .join('\n'),

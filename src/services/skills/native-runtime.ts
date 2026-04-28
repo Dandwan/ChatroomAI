@@ -1,5 +1,11 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
-import type { RuntimeType, SkillExecutionRequest, SkillExecutionResult } from './types'
+import type {
+  BrowserVisitResult,
+  RunExecutionResult,
+  RuntimeType,
+  SkillExecutionRequest,
+  SkillExecutionResult,
+} from './types'
 
 interface PreparePathOptions {
   relativePath: string
@@ -18,6 +24,8 @@ interface InspectRuntimeResult {
   type: RuntimeType
   version: string
   executablePath: string
+  binDirectoryPath?: string
+  commands?: string[]
   displayName: string
 }
 
@@ -26,6 +34,34 @@ interface ExecuteProcessOptions extends SkillExecutionRequest {
   relativeWorkingDirectory?: string
   pythonExecutablePath?: string
   nodeExecutablePath?: string
+}
+
+interface ExecuteRunOptions {
+  sessionId: string
+  session?: string
+  workingDirectoryPath: string
+  waitMs?: number
+  stdin?: string
+  env?: Record<string, string>
+  launchKind?: 'file' | 'executable'
+  targetPath?: string
+  args?: string[]
+  pythonExecutablePath?: string
+  nodeExecutablePath?: string
+  inferredRuntime?: string
+}
+
+interface ExtractWebPageOptions {
+  url: string
+  timeoutMs?: number
+  maxContentChars?: number
+  maxLinks?: number
+  maxImages?: number
+  maxHeadings?: number
+  includeMetadata?: boolean
+  includeHeadings?: boolean
+  includeLinkIndex?: boolean
+  includeImageIndex?: boolean
 }
 
 interface TestRuntimeOptions {
@@ -58,6 +94,8 @@ interface NativeRuntimePlugin {
   installBundledRuntime(options: InstallBundledRuntimeOptions): Promise<void>
   inspectRuntime(options: InspectRuntimeOptions): Promise<InspectRuntimeResult>
   executeProcess(options: ExecuteProcessOptions): Promise<SkillExecutionResult>
+  executeRun(options: ExecuteRunOptions): Promise<RunExecutionResult>
+  extractWebPage(options: ExtractWebPageOptions): Promise<BrowserVisitResult>
   testRuntime(options: TestRuntimeOptions): Promise<TestRuntimeResult>
   getLastKnownLocation(): Promise<LastKnownLocationResult>
   addListener(eventName: string, listenerFunc: (data: unknown) => void): Promise<PluginListenerHandle>
@@ -77,6 +115,12 @@ const NativeRuntime = registerPlugin<NativeRuntimePlugin>('SkillRuntime', {
     },
     async executeProcess() {
       throw new Error('当前平台不支持外部脚本执行。')
+    },
+    async executeRun() {
+      throw new Error('当前平台不支持 run 执行。')
+    },
+    async extractWebPage() {
+      throw new Error('当前平台不支持浏览器模式网页访问。')
     },
     async testRuntime() {
       throw new Error('当前平台不支持运行时测试。')
@@ -126,6 +170,14 @@ export const nativeInspectRuntime = async (relativePath: string): Promise<Inspec
 export const nativeExecuteProcess = async (
   options: ExecuteProcessOptions,
 ): Promise<SkillExecutionResult> => NativeRuntime.executeProcess(options)
+
+export const nativeExecuteRun = async (
+  options: ExecuteRunOptions,
+): Promise<RunExecutionResult> => NativeRuntime.executeRun(options)
+
+export const nativeExtractWebPage = async (
+  options: ExtractWebPageOptions,
+): Promise<BrowserVisitResult> => NativeRuntime.extractWebPage(options)
 
 export const nativeTestRuntime = async (
   executablePath: string,

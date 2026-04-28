@@ -1,4 +1,4 @@
-export const LEGACY_DEFAULT_TAG_SYSTEM_PROMPT = `
+const LEGACY_DEFAULT_TAG_SYSTEM_PROMPT_SNAPSHOT = `
 你正在一个支持工具动作的聊天运行时中工作。你必须遵循以下规则：
 
 1. 在一次回复里，你可以按顺序输出零个、一个或多个动作标签。只有在你需要读取文件内容或执行 skill 时，才输出以下标签之一：
@@ -32,7 +32,7 @@ export const LEGACY_DEFAULT_TAG_SYSTEM_PROMPT = `
 13. 你要主动动手解决问题。复杂问题应尽量借助可用 skill、Node 运行时或 Python 运行时来降低出错率。
 `.trim()
 
-const PREVIOUS_DEFAULT_GENERAL_TAG_SYSTEM_PROMPT = `
+const PREVIOUS_DEFAULT_GENERAL_TAG_SYSTEM_PROMPT_SNAPSHOT = `
 你正在一个支持工具动作的聊天运行时中工作。你必须遵循以下规则：
 
 1. 在一次回复里，你可以按顺序输出零个、一个或多个动作标签。只有在你需要读取文件内容或执行 skill 时，才输出以下标签之一：
@@ -45,7 +45,7 @@ const PREVIOUS_DEFAULT_GENERAL_TAG_SYSTEM_PROMPT = `
 4. 如果不需要调用任何动作，直接输出给用户的最终答复，不要包任何额外标签。
 `.trim()
 
-const PREVIOUS_DEFAULT_READ_SYSTEM_PROMPT = `
+const PREVIOUS_DEFAULT_READ_SYSTEM_PROMPT_SNAPSHOT = `
 1. <read> 用于读取当前对话 workspace 中的文本文件，或读取某个 skill 目录中的文件与目录结构。
 2. <read> 结构必须显式填写：
    - root: \`skill\` 或 \`workspace\`
@@ -61,15 +61,27 @@ const PREVIOUS_DEFAULT_READ_SYSTEM_PROMPT = `
 4. 读取 skill 内部脚本前，应该先使用 <read> 阅读该 skill 的文档或相关脚本，再决定是否调用 <skill_call>。
 `.trim()
 
-const SKILL_CALL_PROMPT_BODY = `
-1. <skill_call> 最小结构必须包含：
-   - skill: 技能 id
-   - script: 要执行的脚本路径
-   - 其余字段（id、argv、stdin、env、timeoutMs）可选
-2. 不要直接捏造外部信息。需要最新信息、网页内容、时间日期、跨站搜索时，优先通过可用 skill 获取。
-3. 如果当前上下文里已经有 read_result、read_error、skill_result 或 skill_error，就基于这些信息继续决策，避免重复读取同一内容。
-4. 调用动作时必须严格遵守标签格式，请求内部不要出现代码块。
-5. 你要主动动手解决问题。复杂问题应尽量借助可用 skill、Node 运行时或 Python 运行时来降低出错率。
+const RUN_PROMPT_BODY = `
+1. <run> 是唯一的执行动作，用于运行已有文件或查看同一会话的当前输出。
+2. <run> 常用字段：
+   - root: \`skill\`、\`workspace\`、\`home\` 或 \`absolute\`
+   - 当 root=\`skill\` 时，必须提供 skill
+   - cwd: 可选，表示命令的工作目录；非 \`absolute\` root 下使用相对路径
+   - command: 启动命令时必填；查看既有会话时可省略
+   - session: 启动命令时可省略；省略时宿主会自动生成一个 session 并在结果里返回。查看既有会话时必须显式提供 session
+   - waitMs: 可选，启动后或查看前等待的毫秒数
+   - stdin、env: 可选
+3. command 应尽量使用接近 shell 的命令写法，例如：
+   - <run>{"root":"workspace","cwd":".","command":"python main.py","waitMs":3000}</run>
+   - <run>{"root":"workspace","cwd":".","command":"./tool --flag value","session":"build"}</run>
+   - <run>{"root":"workspace","cwd":".","session":"build","waitMs":1000}</run>
+   - <run>{"root":"skill","skill":"union-search","cwd":"scripts","command":"./union_search --query \\"OpenAI agent\\""}</run>
+   - <run>{"root":"skill","skill":"union-search","cwd":"scripts","command":"./visit_url --url \\"https://example.com\\""}</run>
+4. 宿主不会按后缀猜路径。若要执行当前目录文件，请写精确文件名，例如 \`./tool\`，不要假设 \`tool\` 会自动补到 \`tool.py\` 或 \`tool.sh\`。
+5. 运行 skill 内部文件前，先使用 <read> 阅读该 skill 的文档或相关脚本。
+6. 如果当前上下文里已经有 read_result、read_error、run_result 或 run_error，就基于这些信息继续决策，避免重复执行。
+7. 调用动作时必须严格遵守标签格式，请求内部不要出现代码块。
+8. 你要主动动手解决问题。复杂问题应尽量借助可用 skill、已安装运行时和已有命令来降低出错率。
 `.trim()
 
 export const DEFAULT_GENERAL_TAG_SYSTEM_PROMPT = `
@@ -226,7 +238,7 @@ export const DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT = `
 \`<progress>先读取说明文件，确认参数格式后再继续。<read>...</read></progress>\`
 
 7. 继续执行下一步
-\`<progress>说明已确认，接下来执行必要调用并等待结果。<skill_call>...</skill_call></progress>\`
+\`<progress>说明已确认，接下来执行必要调用并等待结果。<run>...</run></progress>\`
 
 8. 多轮宿主处理中的中间轮次
 \`<progress>上一轮结果已返回，但还需再读取一个依赖文件后才能得出结论。<read>...</read></progress>\`
@@ -279,7 +291,7 @@ export const DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT = `
 
 8. 在 final 中混入可执行请求后的总结
 错误：
-\`<final>我先运行测试，然后把结果告诉你。<skill_call>...</skill_call></final>\`
+\`<final>我先运行测试，然后把结果告诉你。<run>...</run></final>\`
 原因：
 \`<final>\` 不得包含可执行请求
 
@@ -306,7 +318,10 @@ export const DEFAULT_READ_SYSTEM_PROMPT = `
    - <read>{"root":"workspace","op":"read","path":"notes/todo.md","startLine":1,"endLine":120}</read>
 `.trim()
 
-export const DEFAULT_SKILL_CALL_SYSTEM_PROMPT = SKILL_CALL_PROMPT_BODY
+export const DEFAULT_RUN_SYSTEM_PROMPT = RUN_PROMPT_BODY
+export const LEGACY_DEFAULT_TAG_SYSTEM_PROMPT = DEFAULT_RUN_SYSTEM_PROMPT
+// Kept for storage/schema compatibility. The effective default prompt is now the run version.
+export const DEFAULT_SKILL_CALL_SYSTEM_PROMPT = DEFAULT_RUN_SYSTEM_PROMPT
 
 export interface LegacyTagSystemPromptMigrationResult {
   topLevelTagSystemPrompt: string
@@ -340,7 +355,7 @@ export const migrateLegacyTagSystemPrompts = (
   }
 
   if (storedReadSystemPrompt !== undefined) {
-    const legacySharedPrefix = `${PREVIOUS_DEFAULT_GENERAL_TAG_SYSTEM_PROMPT}\n\n`
+    const legacySharedPrefix = `${PREVIOUS_DEFAULT_GENERAL_TAG_SYSTEM_PROMPT_SNAPSHOT}\n\n`
     const stripLegacySharedPrefix = (value: string, fallback: string): string => {
       const normalized = value.trim()
       if (!normalized) {
@@ -361,14 +376,14 @@ export const migrateLegacyTagSystemPrompts = (
       generalTagSystemPrompt: DEFAULT_GENERAL_TAG_SYSTEM_PROMPT,
       readSystemPrompt: stripLegacySharedPrefix(
         storedReadSystemPrompt,
-        PREVIOUS_DEFAULT_READ_SYSTEM_PROMPT,
+        PREVIOUS_DEFAULT_READ_SYSTEM_PROMPT_SNAPSHOT,
       ),
       skillCallSystemPrompt:
         storedSkillCallSystemPrompt === undefined
           ? DEFAULT_SKILL_CALL_SYSTEM_PROMPT
           : stripLegacySharedPrefix(storedSkillCallSystemPrompt, DEFAULT_SKILL_CALL_SYSTEM_PROMPT),
       legacyGlobalTagSystemPrompt: hasLegacySharedPrefix
-        ? PREVIOUS_DEFAULT_GENERAL_TAG_SYSTEM_PROMPT
+        ? PREVIOUS_DEFAULT_GENERAL_TAG_SYSTEM_PROMPT_SNAPSHOT
         : undefined,
     }
   }
@@ -382,7 +397,7 @@ export const migrateLegacyTagSystemPrompts = (
     }
   }
 
-  if (storedSkillCallSystemPrompt.trim() === LEGACY_DEFAULT_TAG_SYSTEM_PROMPT) {
+  if (storedSkillCallSystemPrompt.trim() === LEGACY_DEFAULT_TAG_SYSTEM_PROMPT_SNAPSHOT) {
     return {
       topLevelTagSystemPrompt: DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT,
       generalTagSystemPrompt:

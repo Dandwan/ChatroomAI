@@ -10,6 +10,7 @@ export const SKILL_DIRECTORIES = {
   builtin: `${SKILL_HOST_ROOT}/builtin-skills`,
   skills: `${SKILL_HOST_ROOT}/skills`,
   runtimes: `${SKILL_HOST_ROOT}/runtimes`,
+  home: `${SKILL_HOST_ROOT}/home`,
   state: `${SKILL_HOST_ROOT}/state`,
   temp: `${SKILL_HOST_ROOT}/temp`,
 }
@@ -145,6 +146,33 @@ export const writeJsonFile = async (path: string, value: unknown): Promise<void>
   await writeTextFile(path, JSON.stringify(value, null, 2))
 }
 
+const normalizeAbsoluteUri = (uri: string): string => {
+  const normalized = uri.trim()
+  if (!normalized) {
+    return normalized
+  }
+
+  if (!normalized.startsWith('file://')) {
+    return normalized
+  }
+
+  try {
+    const pathname = decodeURIComponent(new URL(normalized).pathname)
+    return pathname.replace(/^\/([A-Za-z]:\/)/, '$1')
+  } catch {
+    return normalized.replace(/^file:\/\//i, '')
+  }
+}
+
+export const resolveAbsolutePath = async (path: string): Promise<string> => {
+  const safePath = ensureSafeRelativePath(path)
+  const result = await Filesystem.getUri({
+    path: safePath,
+    directory: DIRECTORY,
+  })
+  return normalizeAbsoluteUri(result.uri)
+}
+
 export const listDirectory = async (path: string): Promise<string[]> => {
   try {
     const result = await Filesystem.readdir({
@@ -247,6 +275,7 @@ export const initializeStorage = async (): Promise<void> => {
   await ensureDirectory(SKILL_DIRECTORIES.builtin)
   await ensureDirectory(SKILL_DIRECTORIES.skills)
   await ensureDirectory(SKILL_DIRECTORIES.runtimes)
+  await ensureDirectory(SKILL_DIRECTORIES.home)
   await ensureDirectory(SKILL_DIRECTORIES.state)
   await ensureDirectory(SKILL_DIRECTORIES.temp)
 }
