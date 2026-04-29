@@ -1,5 +1,35 @@
 # Handoff Log
 
+## 2026-04-29 15:07 +08:00
+
+### Scope
+
+- version the repository for `v1.5.0`
+- build a signed Android release APK
+- push the release branch to GitHub and publish a new GitHub release
+
+### Current High-Signal State
+
+- release branch pushed:
+  - `origin/release-v1.5.0`
+- GitHub release published:
+  - `https://github.com/Dandwan/ChatroomAI/releases/tag/v1.5.0`
+- version fields now aligned to `1.5.0` / `1500`
+- signed release artifact created locally:
+  - `ActiChat-v1.5.0-android-release.apk`
+
+### Validation Snapshot
+
+- `npm run android:build:release` with repo-local Gradle home
+- `apksigner verify --print-certs android\\app\\build\\outputs\\apk\\release\\app-release.apk`
+- `Get-FileHash ActiChat-v1.5.0-android-release.apk -Algorithm SHA256`
+- `git push -u origin release-v1.5.0`
+- `gh release create v1.5.0 ActiChat-v1.5.0-android-release.apk --target release-v1.5.0 --title "ActiChat v1.5.0" --notes-file docs/releases/v1.5.0.md --latest`
+
+### Open Follow-Up
+
+- if you want this release branch merged back into `origin/main`, handle that as a separate integration step because the local starting point was behind the remote default branch at the start of this handoff
+
 ## 2026-04-29 10:53 +08:00
 
 ### Scope
