@@ -1,6 +1,6 @@
 import { splitSkillActionPlaceholders } from '../services/skills/protocol'
 
-export type AssistantFlowSkillKind = 'read' | 'skill_call'
+export type AssistantFlowSkillKind = 'read' | 'run' | 'edit' | 'skill_call'
 export type AssistantFlowSkillStatus = 'running' | 'success' | 'error'
 
 export interface AssistantFlowTextNode {
@@ -17,13 +17,16 @@ export interface AssistantFlowSkillNode {
   token?: string
   actionKind?: AssistantFlowSkillKind
   status: AssistantFlowSkillStatus
-  root?: 'skill' | 'workspace'
+  root?: 'skill' | 'workspace' | 'home' | 'absolute'
   op?: 'list' | 'read' | 'stat'
   skill?: string
   path?: string
   depth?: number
   startLine?: number
   endLine?: number
+  cwd?: string
+  command?: string
+  session?: string
   script?: string
   explanation?: string
   result?: string
@@ -55,13 +58,16 @@ interface SkillNodePatch {
   token?: string
   actionKind?: AssistantFlowSkillKind
   status?: AssistantFlowSkillStatus
-  root?: 'skill' | 'workspace'
+  root?: 'skill' | 'workspace' | 'home' | 'absolute'
   op?: 'list' | 'read' | 'stat'
   skill?: string
   path?: string
   depth?: number
   startLine?: number
   endLine?: number
+  cwd?: string
+  command?: string
+  session?: string
   script?: string
   explanation?: string
   result?: string
@@ -269,6 +275,9 @@ export const upsertAssistantFlowSkillNodeByToken = (
     depth: patch.depth,
     startLine: patch.startLine,
     endLine: patch.endLine,
+    cwd: patch.cwd,
+    command: patch.command,
+    session: patch.session,
     script: patch.script,
     explanation: patch.explanation,
     result: patch.result,

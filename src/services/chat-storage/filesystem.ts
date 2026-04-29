@@ -91,6 +91,33 @@ export const readBase64File = async (path: string): Promise<string> => {
   return typeof result.data === 'string' ? result.data : ''
 }
 
+const normalizeAbsoluteUri = (uri: string): string => {
+  const normalized = uri.trim()
+  if (!normalized) {
+    return normalized
+  }
+
+  if (!normalized.startsWith('file://')) {
+    return normalized
+  }
+
+  try {
+    const pathname = decodeURIComponent(new URL(normalized).pathname)
+    return pathname.replace(/^\/([A-Za-z]:\/)/, '$1')
+  } catch {
+    return normalized.replace(/^file:\/\//i, '')
+  }
+}
+
+export const resolveAbsolutePath = async (path: string): Promise<string> => {
+  const safePath = ensureSafeRelativePath(path)
+  const result = await Filesystem.getUri({
+    path: safePath,
+    directory: DIRECTORY,
+  })
+  return normalizeAbsoluteUri(result.uri)
+}
+
 export const writeBase64File = async (path: string, content: string): Promise<void> => {
   await Filesystem.writeFile({
     path: ensureSafeRelativePath(path),

@@ -1,23 +1,16 @@
-const http = require('node:http')
-const https = require('node:https')
 const fs = require('node:fs')
 const path = require('node:path')
-const zlib = require('node:zlib')
 const { URL, URLSearchParams } = require('node:url')
-
-const DEFAULT_HEADERS = {
-  'user-agent':
-    'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Mobile Safari/537.36',
-  accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7',
-  'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
-  'accept-encoding': 'gzip, deflate, br',
-}
+const { extractPageContent } = require('./page-fetch.cjs')
+const { createRequestClient } = require('./request-client.cjs')
 
 const DEFAULT_TIMEOUT_MS = 15000
 const FETCH_TIMEOUT_MS = 20000
 const MAX_RESULTS = 20
 const OUTPUT_FORMATS = new Set(['json', 'markdown', 'text'])
 const MARKDOWN_PREVIEW_LIMIT = 12
+const SUPPORTED_REQUEST_PROTOCOLS = new Set(['http:', 'https:'])
+const DISABLED_SEARCH_PROVIDERS = new Set(['jina'])
 const DEFAULT_WEB_PROVIDERS = [
   'baidu_direct',
   'bing_cn_direct',
@@ -47,7 +40,7 @@ const SITE_MAP = {
 const PLATFORM_GROUPS = {
   dev: ['github', 'reddit', 'zhihu'],
   social: ['xiaohongshu', 'douyin', 'bilibili', 'youtube', 'twitter', 'weibo', 'wechat', 'toutiao', 'xiaoyuzhoufm'],
-  search: ['google', 'tavily', 'jina', 'duckduckgo', 'brave', 'yahoo', 'yandex', 'bing', 'wikipedia', 'metaso', 'volcengine', 'baidu', 'exa', 'serper'],
+  search: ['google', 'tavily', 'duckduckgo', 'brave', 'yahoo', 'yandex', 'bing', 'wikipedia', 'metaso', 'volcengine', 'baidu', 'exa', 'serper'],
   rss: ['rss'],
   no_api_key: [
     'baidu_direct',
@@ -194,6 +187,8 @@ const ENTITY_MAP = {
   quot: '"',
 }
 
+let activeRequestClient = createRequestClient({})
+
 function readConfig() {
   try {
     return JSON.parse(process.env.SKILL_CONFIG_JSON || '{}')
@@ -231,6 +226,7 @@ function parseArgv(argv) {
 function parseOutputOptions(argv) {
   const passthrough = []
   let format = 'json'
+  let formatExplicit = false
   let pretty = true
   let outputPath = ''
 
@@ -247,20 +243,24 @@ function parseOutputOptions(argv) {
         throw new Error(`Unsupported --format value: ${next}`)
       }
       format = normalized
+      formatExplicit = true
       index += 1
       continue
     }
 
     if (current === '--markdown') {
       format = 'markdown'
+      formatExplicit = true
       continue
     }
     if (current === '--json') {
       format = 'json'
+      formatExplicit = true
       continue
     }
     if (current === '--text') {
       format = 'text'
+      formatExplicit = true
       continue
     }
     if (current === '--pretty') {
@@ -288,6 +288,7 @@ function parseOutputOptions(argv) {
   return {
     argv: passthrough,
     format,
+    formatExplicit,
     pretty,
     outputPath,
   }
@@ -370,22 +371,115 @@ function formatMarkdownItem(item, index) {
 function renderFetchUrlMarkdown(payload) {
   const title = getObjectString(payload, ['title']) || 'URL 抽取结果'
   const url = getObjectString(payload, ['url'])
+  const finalUrl = getObjectString(payload, ['finalUrl'])
   const description = getObjectString(payload, ['description'])
   const engine = getObjectString(payload, ['engine'])
   const content = String(payload && typeof payload === 'object' ? payload.content || '' : '').trim()
+  const truncated = Boolean(payload && typeof payload === 'object' ? payload.truncated : false)
+  const metadata = payload && typeof payload === 'object' && payload.metadata && typeof payload.metadata === 'object'
+    ? payload.metadata
+    : null
+  const headings = Array.isArray(payload && payload.headings) ? payload.headings : []
+  const links = Array.isArray(payload && payload.links) ? payload.links : []
+  const images = Array.isArray(payload && payload.images) ? payload.images : []
+  const warnings = Array.isArray(payload && payload.warnings) ? payload.warnings : []
   const lines = [`# ${markdownEscapeInline(title)}`, '']
 
   if (url) {
     lines.push(`- **URL**: ${url}`)
   }
+  if (finalUrl && finalUrl !== url) {
+    lines.push(`- **最终 URL**: ${finalUrl}`)
+  }
   if (engine) {
     lines.push(`- **引擎**: ${markdownEscapeInline(engine)}`)
+  }
+  if (metadata) {
+    const contentType = getObjectString(metadata, ['contentType'])
+    const lang = getObjectString(metadata, ['lang'])
+    const canonicalUrl = getObjectString(metadata, ['canonicalUrl'])
+    const siteName = getObjectString(metadata, ['siteName'])
+    const author = getObjectString(metadata, ['author'])
+    const publishedAt = getObjectString(metadata, ['publishedAt'])
+    const modifiedAt = getObjectString(metadata, ['modifiedAt'])
+    const keywords = getObjectString(metadata, ['keywords'])
+    const status = getObjectCount(metadata, 'status')
+    if (status > 0) {
+      lines.push(`- **状态码**: ${status}`)
+    }
+    if (contentType) {
+      lines.push(`- **内容类型**: ${markdownEscapeInline(contentType)}`)
+    }
+    if (lang) {
+      lines.push(`- **语言**: ${markdownEscapeInline(lang)}`)
+    }
+    if (siteName) {
+      lines.push(`- **站点**: ${markdownEscapeInline(siteName)}`)
+    }
+    if (author) {
+      lines.push(`- **作者**: ${markdownEscapeInline(author)}`)
+    }
+    if (publishedAt) {
+      lines.push(`- **发布时间**: ${markdownEscapeInline(publishedAt)}`)
+    }
+    if (modifiedAt) {
+      lines.push(`- **修改时间**: ${markdownEscapeInline(modifiedAt)}`)
+    }
+    if (canonicalUrl) {
+      lines.push(`- **Canonical**: ${canonicalUrl}`)
+    }
+    if (keywords) {
+      lines.push(`- **关键词**: ${markdownEscapeInline(keywords)}`)
+    }
   }
   if (description) {
     lines.push(`- **描述**: ${markdownEscapeInline(description)}`)
   }
   if (content) {
     lines.push('', '## 正文', '', content)
+  }
+  if (truncated) {
+    lines.push('', '> 页面内容已按长度限制截断。')
+  }
+  if (warnings.length > 0) {
+    lines.push('', '## 提示')
+    for (const warning of warnings) {
+      lines.push(`- ${markdownEscapeInline(String(warning || ''))}`)
+    }
+  }
+  if (headings.length > 0) {
+    lines.push('', '## 标题索引')
+    for (const heading of headings) {
+      const level = getObjectCount(heading, 'level')
+      const text = getObjectString(heading, ['text']) || '-'
+      lines.push(`- H${Math.max(1, Math.min(level || 1, 6))}: ${markdownEscapeInline(text)}`)
+    }
+  }
+  if (links.length > 0) {
+    lines.push('', '## 链接索引')
+    for (let index = 0; index < links.length; index += 1) {
+      const link = links[index]
+      const href = getObjectString(link, ['url'])
+      const text = getObjectString(link, ['text']) || href || `link-${index + 1}`
+      lines.push(
+        href
+          ? `${index + 1}. [${markdownEscapeInline(text)}](${href})`
+          : `${index + 1}. ${markdownEscapeInline(text)}`,
+      )
+    }
+  }
+  if (images.length > 0) {
+    lines.push('', '## 图片索引')
+    for (let index = 0; index < images.length; index += 1) {
+      const image = images[index]
+      const href = getObjectString(image, ['url'])
+      const alt = getObjectString(image, ['alt']) || `image-${index + 1}`
+      lines.push(
+        href
+          ? `${index + 1}. ![${markdownEscapeInline(alt)}](${href})`
+          : `${index + 1}. ${markdownEscapeInline(alt)}`,
+      )
+    }
   }
   return lines.join('\n')
 }
@@ -553,7 +647,7 @@ function renderTextOutput(scriptName, payload) {
 
 function renderOutput(scriptName, payload, format, pretty) {
   if (format === 'markdown') {
-    if (scriptName === 'fetch_url.internal') {
+    if (scriptName === 'fetch_url.internal' || scriptName === 'visit_url.internal') {
       return renderFetchUrlMarkdown(payload)
     }
     if (scriptName === 'union_search.internal') {
@@ -666,8 +760,88 @@ function normalizeImageProviderName(value) {
   return IMAGE_PROVIDER_ALIASES[normalized] || normalized
 }
 
+function assertSearchProviderEnabled(provider) {
+  if (DISABLED_SEARCH_PROVIDERS.has(provider)) {
+    throw new Error(`Provider disabled in this build: ${provider}`)
+  }
+}
+
 function sanitizeUrl(value) {
   return normalizeWhitespace(decodeHtmlEntities(value || ''))
+}
+
+function looksLikeIpv4Host(hostname) {
+  return /^(?:\d{1,3}\.){3}\d{1,3}$/.test(String(hostname || ''))
+}
+
+function isPrivateIpv4Host(hostname) {
+  if (!looksLikeIpv4Host(hostname)) {
+    return false
+  }
+  const segments = String(hostname || '')
+    .split('.')
+    .map((segment) => Number.parseInt(segment, 10))
+  if (segments.some((segment) => !Number.isFinite(segment) || segment < 0 || segment > 255)) {
+    return false
+  }
+  const [first, second] = segments
+  return (
+    first === 10 ||
+    first === 127 ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  )
+}
+
+function looksLikeIpv6Host(hostname) {
+  const normalized = String(hostname || '').replace(/^\[|\]$/g, '')
+  return normalized.includes(':') && /^[0-9a-f:]+$/i.test(normalized)
+}
+
+function looksLikeLocalHost(hostname) {
+  const normalized = String(hostname || '').trim().toLowerCase()
+  if (!normalized) {
+    return false
+  }
+  if (normalized === 'localhost' || normalized === '::1' || normalized === '[::1]') {
+    return true
+  }
+  if (normalized.endsWith('.local') || normalized.endsWith('.internal') || normalized.endsWith('.lan')) {
+    return true
+  }
+  if (isPrivateIpv4Host(normalized) || looksLikeIpv6Host(normalized)) {
+    return true
+  }
+  return !normalized.includes('.')
+}
+
+function inferUrlScheme(candidate) {
+  const authority = String(candidate || '')
+    .split(/[/?#]/, 1)[0]
+    .replace(/^[^@]+@/, '')
+  const hostname = authority.replace(/:\d+$/, '')
+  return looksLikeLocalHost(hostname) ? 'http' : 'https'
+}
+
+function normalizeRequestedUrlInput(value) {
+  const normalized = sanitizeUrl(value)
+  if (!normalized) {
+    return ''
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(normalized)) {
+    return normalized
+  }
+  if (normalized.startsWith('//')) {
+    return `https:${normalized}`
+  }
+  return `${inferUrlScheme(normalized)}://${normalized}`
+}
+
+function assertSupportedRequestUrl(url, contextLabel) {
+  const parsed = new URL(url)
+  if (!SUPPORTED_REQUEST_PROTOCOLS.has(parsed.protocol)) {
+    throw new Error(`${contextLabel} only supports http/https URLs`)
+  }
 }
 
 function unwrapSearchRedirect(rawUrl, baseUrl) {
@@ -713,107 +887,24 @@ function looksLikeWebUrl(value) {
   return /^https?:\/\//i.test(value || '')
 }
 
-function decodeBody(body, encoding) {
-  const lower = String(encoding || '').toLowerCase()
-  try {
-    if (lower.includes('br')) {
-      return zlib.brotliDecompressSync(body)
-    }
-    if (lower.includes('gzip')) {
-      return zlib.gunzipSync(body)
-    }
-    if (lower.includes('deflate')) {
-      return zlib.inflateSync(body)
-    }
-  } catch {
-    return body
-  }
-  return body
+function configureRequestClient(config) {
+  activeRequestClient = createRequestClient(config)
 }
 
 function request(url, options) {
-  const finalOptions = options || {}
-  const target = new URL(url)
-  const transport = target.protocol === 'http:' ? http : https
-  const timeoutMs = Number.isFinite(finalOptions.timeoutMs)
-    ? finalOptions.timeoutMs
-    : DEFAULT_TIMEOUT_MS
-  const headers = { ...DEFAULT_HEADERS, ...(finalOptions.headers || {}) }
-
-  return new Promise((resolve, reject) => {
-    const req = transport.request(
-      target,
-      {
-        method: finalOptions.method || 'GET',
-        headers,
-      },
-      (res) => {
-        const chunks = []
-        res.on('data', (chunk) => chunks.push(chunk))
-        res.on('end', () => {
-          const status = res.statusCode || 0
-          const rawBody = Buffer.concat(chunks)
-          const decodedBody = decodeBody(rawBody, res.headers['content-encoding'])
-
-          if (status >= 300 && status < 400 && res.headers.location && (finalOptions.redirects || 0) < 5) {
-            resolve(
-              request(new URL(res.headers.location, target).toString(), {
-                ...finalOptions,
-                redirects: (finalOptions.redirects || 0) + 1,
-              }),
-            )
-            return
-          }
-
-          resolve({
-            status,
-            headers: res.headers,
-            text: decodedBody.toString('utf-8'),
-          })
-        })
-      },
-    )
-
-    req.setTimeout(timeoutMs, () => {
-      req.destroy(new Error(`Request timed out after ${timeoutMs}ms`))
-    })
-    req.on('error', reject)
-
-    if (finalOptions.body) {
-      req.write(finalOptions.body)
-    }
-    req.end()
-  })
+  return activeRequestClient.request(url, options)
 }
 
 async function requestText(url, options) {
-  const response = await request(url, options)
-  if (response.status < 200 || response.status >= 300) {
-    throw new Error(`Request failed: ${response.status} ${url}`)
-  }
-  return response.text
+  return activeRequestClient.requestText(url, options)
 }
 
 async function requestJson(url, options) {
-  const text = await requestText(url, options)
-  try {
-    return JSON.parse(text)
-  } catch (error) {
-    throw new Error(`Invalid JSON response from ${url}: ${error.message}`)
-  }
+  return activeRequestClient.requestJson(url, options)
 }
 
 async function postJson(url, body, options) {
-  const headers = {
-    'content-type': 'application/json',
-    ...(options && options.headers ? options.headers : {}),
-  }
-  return requestJson(url, {
-    ...(options || {}),
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  })
+  return activeRequestClient.postJson(url, body, options)
 }
 
 function makeItem(title, url, snippet, source, extra) {
@@ -1230,9 +1321,7 @@ async function searchGithub(query, limit, config) {
 async function searchReddit(query, limit) {
   const payload = await requestJson(
     `https://www.reddit.com/search.json?q=${encodeURIComponent(query)}&limit=${limit}`,
-    {
-      headers: { 'user-agent': `${DEFAULT_HEADERS['user-agent']} ChatroomAI/1.1` },
-    },
+    {},
   )
   const children = payload.data && Array.isArray(payload.data.children) ? payload.data.children : []
   return children
@@ -1485,7 +1574,7 @@ async function searchBaiduImages(query, limit, config) {
     `https://image.baidu.com/search/acjson?tn=resultjson_com&word=${encodeURIComponent(query)}&pn=0&rn=${limit}`,
     {
       timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
-      headers: { referer: 'https://image.baidu.com/' },
+      referer: 'https://image.baidu.com/',
     },
   )
   return dedupeItems(
@@ -1511,7 +1600,7 @@ async function searchSo360Images(query, limit, config) {
     `https://image.so.com/j?q=${encodeURIComponent(query)}&src=srp&sn=0&pn=${limit}`,
     {
       timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
-      headers: { referer: 'https://image.so.com/' },
+      referer: 'https://image.so.com/',
     },
   )
   return dedupeItems(
@@ -1692,6 +1781,7 @@ async function searchPreviewImagesBySiteSearch(query, site, limit, config) {
 
 async function readFeedItems(feedUrl, config) {
   const xml = await requestText(feedUrl, {
+    purpose: 'feed',
     timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
   })
   const itemBlocks = xml.match(/<(?:item|entry)\b[\s\S]*?<\/(?:item|entry)>/g) || []
@@ -1737,66 +1827,254 @@ async function searchRss(query, feeds, limit, config) {
   return results
 }
 
-async function fetchUrlViaReader(url) {
-  const normalized = url.replace(/^https?:\/\//i, '')
-  const text = await requestText(`https://r.jina.ai/http://${normalized}`, {
-    headers: { accept: 'text/plain' },
-    timeoutMs: FETCH_TIMEOUT_MS,
-  })
-  const lines = text.split('\n').map((line) => line.trimEnd())
-  const titleLine = lines.find((line) => line.startsWith('Title: '))
-  const descriptionLine = lines.find((line) => line.startsWith('Description: '))
-  const blankIndex = lines.findIndex((line) => line === '')
+function resolveFetchUrlBooleanOption(parsed, enabledFlag, disabledFlag, fallback) {
+  if (parsed.flags.has(disabledFlag)) {
+    return false
+  }
+  if (parsed.flags.has(enabledFlag)) {
+    return true
+  }
+  return fallback
+}
+
+function resolveFetchUrlOptions(parsed, config) {
   return {
-    title: titleLine ? titleLine.slice(7).trim() : url,
-    url,
-    description: descriptionLine ? descriptionLine.slice(13).trim() : '',
-    content: normalizeWhitespace(lines.slice(blankIndex >= 0 ? blankIndex + 1 : 0).join('\n')).slice(0, 8000),
-    engine: 'jina_reader',
+    maxContentChars: parsePositiveInt(
+      parsed.values['max-content-chars'],
+      getNested(config, ['fetchUrl', 'maxContentChars'], 24000),
+    ),
+    maxLinks: parsePositiveInt(parsed.values['max-links'], getNested(config, ['fetchUrl', 'maxLinks'], 40)),
+    maxImages: parsePositiveInt(parsed.values['max-images'], getNested(config, ['fetchUrl', 'maxImages'], 20)),
+    maxHeadings: parsePositiveInt(parsed.values['max-headings'], getNested(config, ['fetchUrl', 'maxHeadings'], 32)),
+    includeMetadata: resolveFetchUrlBooleanOption(
+      parsed,
+      'include-metadata',
+      'no-metadata',
+      getNested(config, ['fetchUrl', 'includeMetadata'], true),
+    ),
+    includeHeadings: resolveFetchUrlBooleanOption(
+      parsed,
+      'include-headings',
+      'no-headings',
+      getNested(config, ['fetchUrl', 'includeHeadings'], true),
+    ),
+    includeLinkIndex: resolveFetchUrlBooleanOption(
+      parsed,
+      'include-links',
+      'no-links',
+      getNested(config, ['fetchUrl', 'includeLinkIndex'], true),
+    ),
+    includeImageIndex: resolveFetchUrlBooleanOption(
+      parsed,
+      'include-images',
+      'no-images',
+      getNested(config, ['fetchUrl', 'includeImageIndex'], true),
+    ),
   }
 }
 
-async function fetchUrlViaHtml(url, config) {
-  const html = await requestText(url, {
+function resolveFetchUrlExtractor(config, extract) {
+  const raw = normalizeWhitespace(extract || getNested(config, ['fetchUrl', 'preferredEngine'], 'html')).toLowerCase()
+  if (!raw || raw === 'html' || raw === 'direct' || raw === 'jina') {
+    return 'html'
+  }
+  return 'html'
+}
+
+function parseJsonObject(text) {
+  try {
+    const parsed = JSON.parse(text)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function resolveZhihuQuestionInfo(url) {
+  try {
+    const parsed = new URL(url)
+    if (!/\.?zhihu\.com$/i.test(parsed.hostname)) {
+      return null
+    }
+    const match = parsed.pathname.match(/^\/question\/(\d+)(?:\/|$)/i)
+    if (!match) {
+      return null
+    }
+    return {
+      questionId: match[1],
+      hostname: parsed.hostname,
+      pathname: parsed.pathname,
+    }
+  } catch {
+    return null
+  }
+}
+
+function extractZhihuChallengeDetails(text, finalUrl) {
+  const challengeScriptMatch = text.match(/<script[^>]+src="([^"]*zse-ck[^"]+)"/i)
+  const challengeScriptUrl = challengeScriptMatch ? toAbsoluteUrl(challengeScriptMatch[1], finalUrl) : ''
+  const jsonError = parseJsonObject(text)
+  const jsonMessage =
+    jsonError &&
+    jsonError.error &&
+    typeof jsonError.error === 'object' &&
+    jsonError.error !== null &&
+    typeof jsonError.error.message === 'string'
+      ? normalizeWhitespace(jsonError.error.message)
+      : ''
+  return {
+    challengeScriptUrl,
+    jsonMessage,
+  }
+}
+
+function createAccessLimitedMarkdown(payload) {
+  const lines = ['# 访问受限', '']
+
+  if (payload.siteLabel) {
+    lines.push(`- **站点**: ${markdownEscapeInline(payload.siteLabel)}`)
+  }
+  if (payload.url) {
+    lines.push(`- **URL**: ${payload.url}`)
+  }
+  if (payload.finalUrl && payload.finalUrl !== payload.url) {
+    lines.push(`- **最终 URL**: ${payload.finalUrl}`)
+  }
+  if (payload.status) {
+    lines.push(`- **状态码**: ${payload.status}`)
+  }
+  if (payload.questionId) {
+    lines.push(`- **问题 ID**: ${markdownEscapeInline(payload.questionId)}`)
+  }
+  if (payload.reason) {
+    lines.push(`- **原因**: ${markdownEscapeInline(payload.reason)}`)
+  }
+
+  if (payload.message) {
+    lines.push('', '## 说明', '', payload.message)
+  }
+
+  if (payload.challengeScriptUrl) {
+    lines.push('', '## 挑战页线索', '', `- [知乎 zse-ck challenge 脚本](${payload.challengeScriptUrl})`)
+  }
+
+  lines.push(
+    '',
+    '## 当前结论',
+    '',
+    '目标页面返回了站点风控/验证页面，当前运行时没有可复用的登录态，也无法稳定通过该站点的反爬挑战，因此不能把这个响应当成正文内容。',
+  )
+
+  return lines.join('\n')
+}
+
+function buildZhihuAccessLimitedPayload(requestedUrl, response) {
+  const question = resolveZhihuQuestionInfo(requestedUrl)
+  if (!question || response.status !== 403) {
+    return null
+  }
+
+  const body = String(response.text || '')
+  const isChallengePage = body.includes('zh-zse-ck') || body.includes('40362') || body.includes('__zse_ck')
+  if (!isChallengePage) {
+    return null
+  }
+
+  const details = extractZhihuChallengeDetails(body, response.url || requestedUrl)
+  const message =
+    details.jsonMessage ||
+    '知乎当前返回了 zse-ck 风控/验证页面，直接 HTML 抓取被拦截。'
+
+  const content = createAccessLimitedMarkdown({
+    siteLabel: '知乎',
+    url: requestedUrl,
+    finalUrl: response.url || requestedUrl,
+    status: response.status,
+    questionId: question.questionId,
+    reason: '知乎风控 / zse-ck challenge',
+    message,
+    challengeScriptUrl: details.challengeScriptUrl,
+  })
+
+  return {
+    title: `知乎问题 ${question.questionId}（访问受限）`,
+    url: requestedUrl,
+    finalUrl: response.url || requestedUrl,
+    description: message,
+    content,
+    contentFormat: 'markdown',
+    contentText: truncateText(`${message} ${content}`, 4000),
+    engine: 'html_blocked',
+    headings: [],
+    links: [
+      {
+        text: '原始问题链接',
+        url: requestedUrl,
+      },
+      ...(details.challengeScriptUrl
+        ? [
+            {
+              text: '知乎 challenge 脚本',
+              url: details.challengeScriptUrl,
+            },
+          ]
+        : []),
+    ],
+    images: [],
+    metadata: {
+      status: response.status,
+      siteName: '知乎',
+      contentType: Array.isArray(response.headers['content-type'])
+        ? response.headers['content-type'].join(', ')
+        : response.headers['content-type'] || undefined,
+      blockedBy: 'zhihu_zse_ck',
+      questionId: question.questionId,
+      challengeScriptUrl: details.challengeScriptUrl || undefined,
+    },
+    warnings: [
+      'direct fetch was blocked by Zhihu challenge page; returned an access-limited summary instead of question正文',
+    ],
+    truncated: false,
+  }
+}
+
+async function fetchUrlViaHtml(url, config, options) {
+  const response = await request(url, {
     timeoutMs: getNested(config, ['requestTimeoutMs'], DEFAULT_TIMEOUT_MS),
   })
-  const title = normalizeText((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || url)
-  const description = decodeHtmlEntities(
-    (html.match(/<meta[^>]+name="description"[^>]+content="([^"]*)"/i) || [])[1] || '',
-  )
-  const body =
-    (html.match(/<article[^>]*>([\s\S]*?)<\/article>/i) || [])[1] ||
-    (html.match(/<main[^>]*>([\s\S]*?)<\/main>/i) || [])[1] ||
-    (html.match(/<body[^>]*>([\s\S]*?)<\/body>/i) || [])[1] ||
-    ''
-  return {
-    title,
-    url,
-    description: normalizeWhitespace(description),
-    content: normalizeText(body).slice(0, 8000),
-    engine: 'html',
+  if (response.status < 200 || response.status >= 300) {
+    const blockedPayload = buildZhihuAccessLimitedPayload(url, response)
+    if (blockedPayload) {
+      return blockedPayload
+    }
+    throw new Error(`Request failed: ${response.status} ${url}`)
   }
+  return extractPageContent(response.text, {
+    requestedUrl: url,
+    finalUrl: response.url || url,
+    contentType: response.headers['content-type'],
+    lastModified: response.headers['last-modified'],
+    status: response.status,
+    ...options,
+  })
 }
 
-async function fetchUrl(url, config, extract) {
-  const preferred = extract || getNested(config, ['fetchUrl', 'preferredEngine'], 'jina')
-  if (preferred !== 'html') {
-    try {
-      return await fetchUrlViaReader(url)
-    } catch (error) {
-      if (preferred === 'jina') {
-        return fetchUrlViaHtml(url, config)
-      }
-      throw error
-    }
+async function fetchUrl(url, config, extract, options, scriptLabel) {
+  const label = normalizeWhitespace(scriptLabel || 'fetch_url')
+  const normalizedUrl = normalizeRequestedUrlInput(url)
+  if (!normalizedUrl) {
+    throw new Error(`${label} requires a non-empty URL`)
   }
-  return fetchUrlViaHtml(url, config)
+  assertSupportedRequestUrl(normalizedUrl, label)
+  resolveFetchUrlExtractor(config, extract)
+  return fetchUrlViaHtml(normalizedUrl, config, options)
 }
 
 async function runProviders(query, providers, limit, site, config) {
   const effectiveQuery = buildSiteQuery(query, site)
   const normalizedProviders = uniqueStrings(providers.map((provider) => normalizeProviderName(provider)))
   const tasks = normalizedProviders.map(async (provider) => {
+    assertSearchProviderEnabled(provider)
     switch (provider) {
       case 'baidu':
       case 'baidu_direct':
@@ -1828,8 +2106,6 @@ async function runProviders(query, providers, limit, site, config) {
         return searchGoogleHtml(effectiveQuery, limit, config, 'www.google.com')
       case 'google_hk_direct':
         return searchGoogleHtml(effectiveQuery, limit, config, 'www.google.com.hk')
-      case 'jina':
-        return searchJina(query, limit, config)
       case 'metaso':
         return searchMetaso(query, limit, config)
       case 'mojeek':
@@ -1909,6 +2185,7 @@ function listPlatformMetadata() {
 
 async function runPlatformSearch(platform, query, limit, config, fallbackProviders) {
   const normalizedPlatform = normalizePlatformName(platform)
+  assertSearchProviderEnabled(normalizedPlatform)
   const startedAt = Date.now()
   const siteProviderList = uniqueStrings(
     getNested(config, ['siteSearchProviders'], fallbackProviders).map((provider) => normalizeProviderName(provider)),
@@ -1961,9 +2238,6 @@ async function runPlatformSearch(platform, query, limit, config, fallbackProvide
         break
       case 'google_hk_direct':
         items = await searchGoogleHtml(query, limit, config, 'www.google.com.hk')
-        break
-      case 'jina':
-        items = await searchJina(query, limit, config)
         break
       case 'metaso':
         items = await searchMetaso(query, limit, config)
@@ -2286,17 +2560,24 @@ async function runRssSearchCommand(argv, config) {
   }
 }
 
-async function runFetchUrl(argv, config) {
+async function runFetchUrl(scriptName, argv, config) {
   const parsed = parseArgv(argv)
   const url = normalizeWhitespace(parsed.values.url || parsed.positionals[0])
+  const label = scriptName.replace(/\.internal$/i, '')
   if (!url) {
-    throw new Error('fetch_url.internal requires --url')
+    throw new Error(`${scriptName} requires --url`)
   }
-  return fetchUrl(url, config, normalizeWhitespace(parsed.values.extract))
+  const extract = normalizeWhitespace(parsed.values.extract)
+  const payload = await fetchUrl(url, config, extract, resolveFetchUrlOptions(parsed, config), label)
+  if (extract.toLowerCase() === 'jina') {
+    payload.warnings = ['jina extractor has been disabled; used direct html fetching instead']
+  }
+  return payload
 }
 
 async function dispatch(scriptName, argv) {
   const config = readConfig()
+  configureRequestClient(config)
   switch (scriptName) {
     case 'web_search.internal':
       return runWebSearch(argv, config)
@@ -2311,7 +2592,8 @@ async function dispatch(scriptName, argv) {
     case 'rss_search.internal':
       return runRssSearchCommand(argv, config)
     case 'fetch_url.internal':
-      return runFetchUrl(argv, config)
+    case 'visit_url.internal':
+      return runFetchUrl(scriptName, argv, config)
     default:
       throw new Error(`Unknown union-search script: ${scriptName}`)
   }
@@ -2320,7 +2602,11 @@ async function dispatch(scriptName, argv) {
 async function main(scriptName, argv) {
   const outputOptions = parseOutputOptions(argv)
   const payload = await dispatch(scriptName, outputOptions.argv)
-  const rendered = renderOutput(scriptName, payload, outputOptions.format, outputOptions.pretty)
+  const format =
+    !outputOptions.formatExplicit && scriptName === 'visit_url.internal'
+      ? 'markdown'
+      : outputOptions.format
+  const rendered = renderOutput(scriptName, payload, format, outputOptions.pretty)
   writeOutputFile(outputOptions.outputPath, rendered)
   process.stdout.write(`${rendered}\n`)
 }

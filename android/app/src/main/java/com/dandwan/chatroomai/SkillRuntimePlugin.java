@@ -1,10 +1,24 @@
 package com.dandwan.chatroomai;
 
 import android.Manifest;
+import android.graphics.Bitmap;
 import android.content.pm.PackageManager;
 import android.location.Location;
 import android.location.LocationManager;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
+import android.view.View;
+import android.view.ViewGroup;
+import android.webkit.CookieManager;
+import android.webkit.ValueCallback;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -28,18 +42,29 @@ import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.json.JSONTokener;
 
 @CapacitorPlugin(name = "SkillRuntime")
 public class SkillRuntimePlugin extends Plugin {
+    private static final String TAG = "SkillRuntimePlugin";
     private final ExecutorService ioExecutor = Executors.newCachedThreadPool();
+    private final Map<String, RunSession> runSessions = new ConcurrentHashMap<>();
+    private volatile String browserPageExtractorScript;
 
     @PluginMethod
     public void preparePath(PluginCall call) {
@@ -181,8 +206,9 @@ public class SkillRuntimePlugin extends Plugin {
         execute(() -> {
             try {
                 String relativeSkillRoot = call.getString("relativeSkillRoot");
+                String relativeWorkingDirectory = call.getString("relativeWorkingDirectory");
                 String scriptPath = call.getString("scriptPath");
-                Long timeoutMs = call.getLong("timeoutMs", 30000L);
+                long timeoutMs = getNonNegativeLongOption(call, "timeoutMs", 30000L);
                 String stdin = call.getString("stdin");
                 String pythonExecutablePath = call.getString("pythonExecutablePath");
                 String nodeExecutablePath = call.getString("nodeExecutablePath");
@@ -195,18 +221,30 @@ public class SkillRuntimePlugin extends Plugin {
                 }
 
                 File skillRoot = resolveAppRelativePath(relativeSkillRoot);
+                File workingDirectory = skillRoot;
+                if (relativeWorkingDirectory != null && !relativeWorkingDirectory.trim().isEmpty()) {
+                    workingDirectory = resolveAppRelativePath(relativeWorkingDirectory);
+                    if (!workingDirectory.exists() && !workingDirectory.mkdirs()) {
+                        call.reject("Failed to create working directory");
+                        return;
+                    }
+                    if (!workingDirectory.isDirectory()) {
+                        call.reject("Working directory is not a directory");
+                        return;
+                    }
+                }
                 File script = resolveWithinRoot(skillRoot, scriptPath);
                 List<String> argv = toStringList(argvArray);
                 if (pythonExecutablePath != null && !pythonExecutablePath.trim().isEmpty()) {
                     envObject.put(
                         "SKILL_PYTHON_EXECUTABLE",
-                        resolveAppRelativePath(pythonExecutablePath).getAbsolutePath()
+                        resolveFlexiblePath(pythonExecutablePath).getAbsolutePath()
                     );
                 }
                 if (nodeExecutablePath != null && !nodeExecutablePath.trim().isEmpty()) {
                     envObject.put(
                         "SKILL_NODE_EXECUTABLE",
-                        resolveAppRelativePath(nodeExecutablePath).getAbsolutePath()
+                        resolveFlexiblePath(nodeExecutablePath).getAbsolutePath()
                     );
                 }
                 RuntimeResolution resolution = resolveCommand(
@@ -218,7 +256,7 @@ public class SkillRuntimePlugin extends Plugin {
 
                 ProcessResult processResult = runProcess(
                     resolution.command,
-                    skillRoot,
+                    workingDirectory,
                     envObject,
                     stdin,
                     timeoutMs
@@ -232,6 +270,264 @@ public class SkillRuntimePlugin extends Plugin {
                 result.put("elapsedMs", processResult.elapsedMs);
                 result.put("resolvedCommand", JSArray.from(processResult.command.toArray(new String[0])));
                 result.put("inferredRuntime", resolution.runtimeType);
+                call.resolve(result);
+            } catch (Exception ex) {
+                call.reject(ex.getMessage(), ex);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void executeRun(PluginCall call) {
+        execute(() -> {
+            try {
+                String sessionId = normalizeOptionalText(call.getString("sessionId"));
+                String sessionLabel = normalizeOptionalText(call.getString("session"));
+                String workingDirectoryPath = normalizeOptionalText(call.getString("workingDirectoryPath"));
+                String launchKind = normalizeOptionalText(call.getString("launchKind"));
+                String targetPath = normalizeOptionalText(call.getString("targetPath"));
+                String stdin = call.getString("stdin");
+                long effectiveWaitMs = getNonNegativeLongOption(call, "waitMs", 3000L);
+                String pythonExecutablePath = call.getString("pythonExecutablePath");
+                String nodeExecutablePath = call.getString("nodeExecutablePath");
+                String inferredRuntime = call.getString("inferredRuntime");
+                JSArray argsArray = call.getArray("args", new JSArray());
+                JSObject envObject = call.getObject("env", new JSObject());
+
+                if (sessionId == null) {
+                    call.reject("sessionId is required");
+                    return;
+                }
+
+                boolean isLaunchRequest = isRunLaunchRequest(launchKind, targetPath);
+                if (!isLaunchRequest) {
+                    JSObject result = readRunSession(sessionId, effectiveWaitMs);
+                    call.resolve(result);
+                    return;
+                }
+
+                if (sessionLabel == null) {
+                    call.reject("session is required when starting a run");
+                    return;
+                }
+                if (workingDirectoryPath == null) {
+                    call.reject("workingDirectoryPath is required");
+                    return;
+                }
+
+                File workingDirectory = resolveFlexiblePath(workingDirectoryPath);
+                if (!workingDirectory.exists() && !workingDirectory.mkdirs()) {
+                    call.reject("Failed to create working directory");
+                    return;
+                }
+                if (!workingDirectory.isDirectory()) {
+                    call.reject("Working directory is not a directory");
+                    return;
+                }
+
+                List<String> args = toStringList(argsArray);
+                RunLaunchResolution resolution = resolveRunLaunch(
+                    launchKind,
+                    targetPath,
+                    args,
+                    pythonExecutablePath,
+                    nodeExecutablePath,
+                    inferredRuntime
+                );
+
+                terminateRunSession(sessionId);
+
+                RunSession session = startRunSession(
+                    sessionId,
+                    sessionLabel,
+                    resolution,
+                    workingDirectory,
+                    envObject,
+                    stdin
+                );
+
+                waitForRunObservationWindow(session, effectiveWaitMs);
+                call.resolve(buildRunSessionResult(session, effectiveWaitMs));
+            } catch (Exception ex) {
+                call.reject(ex.getMessage(), ex);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void extractWebPage(PluginCall call) {
+        execute(() -> {
+            try {
+                String url = normalizeOptionalText(call.getString("url"));
+                if (url == null) {
+                    call.reject("url is required");
+                    return;
+                }
+
+                BrowserExtractionOptions options = new BrowserExtractionOptions(
+                    url,
+                    getNonNegativeLongOption(call, "timeoutMs", 20000L),
+                    getNonNegativeLongOption(call, "maxContentChars", 24000L),
+                    getNonNegativeLongOption(call, "maxLinks", 40L),
+                    getNonNegativeLongOption(call, "maxImages", 20L),
+                    getNonNegativeLongOption(call, "maxHeadings", 32L),
+                    call.getBoolean("includeMetadata", true),
+                    call.getBoolean("includeHeadings", true),
+                    call.getBoolean("includeLinkIndex", true),
+                    call.getBoolean("includeImageIndex", true)
+                );
+
+                JSObject result = extractWebPageInternal(options);
+                call.resolve(result);
+            } catch (Exception ex) {
+                call.reject(ex.getMessage(), ex);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void listAbsoluteDirectory(PluginCall call) {
+        execute(() -> {
+            try {
+                String absolutePath = normalizeOptionalText(call.getString("absolutePath"));
+                if (absolutePath == null) {
+                    call.reject("absolutePath is required");
+                    return;
+                }
+
+                File directory = resolveCanonicalAbsolutePath(absolutePath);
+                if (!directory.exists()) {
+                    call.reject("Path does not exist");
+                    return;
+                }
+                if (!directory.isDirectory()) {
+                    call.reject("Target is not a directory");
+                    return;
+                }
+
+                JSArray entries = new JSArray();
+                File[] children = directory.listFiles();
+                if (children != null) {
+                    java.util.Arrays.sort(children, (left, right) -> left.getName().compareToIgnoreCase(right.getName()));
+                    for (File child : children) {
+                        JSObject entry = new JSObject();
+                        entry.put("path", child.getAbsolutePath());
+                        entry.put("name", child.getName());
+                        entry.put("type", child.isDirectory() ? "directory" : "file");
+                        if (child.isFile()) {
+                            entry.put("size", child.length());
+                        }
+                        entries.put(entry);
+                    }
+                }
+
+                JSObject result = new JSObject();
+                result.put("path", directory.getAbsolutePath());
+                result.put("entries", entries);
+                call.resolve(result);
+            } catch (Exception ex) {
+                call.reject(ex.getMessage(), ex);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void statAbsolutePath(PluginCall call) {
+        execute(() -> {
+            try {
+                String absolutePath = normalizeOptionalText(call.getString("absolutePath"));
+                if (absolutePath == null) {
+                    call.reject("absolutePath is required");
+                    return;
+                }
+
+                File target = resolveCanonicalAbsolutePath(absolutePath);
+                if (!target.exists()) {
+                    call.reject("Path does not exist");
+                    return;
+                }
+
+                JSObject result = new JSObject();
+                result.put("path", target.getAbsolutePath());
+                result.put("type", target.isDirectory() ? "directory" : "file");
+                if (target.isFile()) {
+                    result.put("size", target.length());
+                }
+                call.resolve(result);
+            } catch (Exception ex) {
+                call.reject(ex.getMessage(), ex);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void readAbsoluteTextFile(PluginCall call) {
+        execute(() -> {
+            try {
+                String absolutePath = normalizeOptionalText(call.getString("absolutePath"));
+                if (absolutePath == null) {
+                    call.reject("absolutePath is required");
+                    return;
+                }
+
+                File target = resolveCanonicalAbsolutePath(absolutePath);
+                if (!target.exists()) {
+                    call.reject("Path does not exist");
+                    return;
+                }
+                if (!target.isFile()) {
+                    call.reject("Target is not a file");
+                    return;
+                }
+
+                JSObject result = new JSObject();
+                result.put("path", target.getAbsolutePath());
+                result.put(
+                    "content",
+                    new String(java.nio.file.Files.readAllBytes(target.toPath()), StandardCharsets.UTF_8)
+                );
+                call.resolve(result);
+            } catch (Exception ex) {
+                call.reject(ex.getMessage(), ex);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void writeAbsoluteTextFile(PluginCall call) {
+        execute(() -> {
+            try {
+                String absolutePath = normalizeOptionalText(call.getString("absolutePath"));
+                String content = call.getString("content");
+                if (absolutePath == null) {
+                    call.reject("absolutePath is required");
+                    return;
+                }
+                if (content == null) {
+                    call.reject("content is required");
+                    return;
+                }
+
+                File target = resolveCanonicalAbsolutePath(absolutePath);
+                File parent = target.getParentFile();
+                if (parent != null && !parent.exists() && !parent.mkdirs()) {
+                    call.reject("Failed to create parent directory");
+                    return;
+                }
+                if (target.exists() && target.isDirectory()) {
+                    call.reject("Target is a directory");
+                    return;
+                }
+
+                try (OutputStreamWriter writer = new OutputStreamWriter(
+                    new FileOutputStream(target),
+                    StandardCharsets.UTF_8
+                )) {
+                    writer.write(content);
+                }
+
+                JSObject result = new JSObject();
+                result.put("path", target.getAbsolutePath());
                 call.resolve(result);
             } catch (Exception ex) {
                 call.reject(ex.getMessage(), ex);
@@ -306,6 +602,377 @@ public class SkillRuntimePlugin extends Plugin {
                 call.reject(ex.getMessage(), ex);
             }
         });
+    }
+
+    private JSObject extractWebPageInternal(BrowserExtractionOptions options) throws Exception {
+        if (getActivity() == null) {
+            throw new IOException("Activity is unavailable for browser page extraction");
+        }
+        Log.d(TAG, "extractWebPageInternal start url=" + options.url + " timeoutMs=" + options.timeoutMs);
+
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<JSObject> resultRef = new AtomicReference<>();
+        AtomicReference<Exception> errorRef = new AtomicReference<>();
+
+        getActivity().runOnUiThread(() ->
+            startBrowserExtraction(options, resultRef, errorRef, latch)
+        );
+
+        long waitMs = Math.max(1000L, options.timeoutMs + 5000L);
+        boolean completed = latch.await(waitMs, TimeUnit.MILLISECONDS);
+        if (!completed) {
+            Log.w(TAG, "extractWebPageInternal timeout url=" + options.url + " waitedMs=" + waitMs);
+            throw new IOException("browser page extraction timed out");
+        }
+        if (errorRef.get() != null) {
+            Log.w(TAG, "extractWebPageInternal error url=" + options.url, errorRef.get());
+            throw errorRef.get();
+        }
+        if (resultRef.get() == null) {
+            Log.w(TAG, "extractWebPageInternal empty result url=" + options.url);
+            throw new IOException("browser page extraction returned no result");
+        }
+        Log.d(TAG, "extractWebPageInternal success url=" + options.url);
+        return resultRef.get();
+    }
+
+    private void startBrowserExtraction(
+        BrowserExtractionOptions options,
+        AtomicReference<JSObject> resultRef,
+        AtomicReference<Exception> errorRef,
+        CountDownLatch latch
+    ) {
+        Handler mainHandler = new Handler(Looper.getMainLooper());
+        AtomicBoolean finished = new AtomicBoolean(false);
+        AtomicInteger lastMainFrameStatus = new AtomicInteger(0);
+        AtomicReference<String> lastUrl = new AtomicReference<>(options.url);
+        AtomicReference<String> phaseRef = new AtomicReference<>("created");
+        AtomicReference<ViewGroup> hostViewRef = new AtomicReference<>();
+        WebView webView = new WebView(getContext());
+
+        Runnable cleanup = () -> {
+            Log.d(TAG, "browser extraction cleanup url=" + lastUrl.get());
+            mainHandler.removeCallbacksAndMessages(webView);
+            try {
+                webView.stopLoading();
+            } catch (Exception ignored) {
+            }
+            try {
+                webView.setWebChromeClient(null);
+                webView.setWebViewClient(null);
+                webView.loadUrl("about:blank");
+            } catch (Exception ignored) {
+            }
+            ViewGroup hostView = hostViewRef.get();
+            if (hostView != null) {
+                try {
+                    hostView.removeView(webView);
+                } catch (Exception ignored) {
+                }
+            }
+            try {
+                webView.destroy();
+            } catch (Exception ignored) {
+            }
+        };
+
+        Runnable finishSuccess = () -> {
+            if (!finished.compareAndSet(false, true)) {
+                return;
+            }
+            Log.d(TAG, "browser extraction finishSuccess url=" + lastUrl.get());
+            cleanup.run();
+            latch.countDown();
+        };
+
+        java.util.function.Consumer<Exception> finishError = (error) -> {
+            if (!finished.compareAndSet(false, true)) {
+                return;
+            }
+            Log.w(TAG, "browser extraction finishError url=" + lastUrl.get(), error);
+            errorRef.set(error);
+            cleanup.run();
+            latch.countDown();
+        };
+
+        Runnable extractRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (finished.get()) {
+                    return;
+                }
+
+                try {
+                    phaseRef.set("evaluate_javascript_start");
+                    Log.d(TAG, "browser extraction evaluateJavascript start url=" + lastUrl.get());
+                    JSONObject extractionOptions = options.toJson(lastMainFrameStatus.get());
+                    String script =
+                        "window.__CHATROOMAI_BROWSER_EXTRACTOR_OPTIONS=" +
+                        extractionOptions.toString() +
+                        ";\n" +
+                        loadBrowserPageExtractorScript();
+
+                    webView.evaluateJavascript(script, new ValueCallback<String>() {
+                        @Override
+                        public void onReceiveValue(String value) {
+                            if (finished.get()) {
+                                return;
+                            }
+                            try {
+                                phaseRef.set("evaluate_javascript_callback");
+                                Log.d(
+                                    TAG,
+                                    "browser extraction evaluateJavascript callback url=" +
+                                    lastUrl.get() +
+                                    " rawLength=" +
+                                    (value == null ? 0 : value.length())
+                                );
+                                String payloadText = unwrapJavascriptStringResult(value);
+                                if (payloadText == null || payloadText.trim().isEmpty()) {
+                                    finishError.accept(new IOException("browser extractor returned empty payload"));
+                                    return;
+                                }
+                                resultRef.set(toJSObject(new JSONObject(payloadText)));
+                                finishSuccess.run();
+                            } catch (Exception ex) {
+                                finishError.accept(ex);
+                            }
+                        }
+                    });
+                } catch (Exception ex) {
+                    finishError.accept(ex);
+                }
+            }
+        };
+
+        Runnable timeoutRunnable = () -> {
+            if (finished.get()) {
+                return;
+            }
+            Log.w(TAG, "browser extraction timeoutRunnable url=" + lastUrl.get());
+            finishError.accept(
+                new IOException(
+                    "browser page extraction timed out at phase=" +
+                    phaseRef.get() +
+                    " url=" +
+                    lastUrl.get()
+                )
+            );
+        };
+
+        try {
+            ViewGroup hostView = (ViewGroup) getActivity().findViewById(android.R.id.content);
+            hostViewRef.set(hostView);
+            if (hostView != null) {
+                hostView.addView(
+                    webView,
+                    new ViewGroup.LayoutParams(1, 1)
+                );
+            }
+            webView.setVisibility(View.INVISIBLE);
+            phaseRef.set("webview_created");
+            Log.d(TAG, "browser extraction WebView created url=" + options.url);
+
+            WebSettings settings = webView.getSettings();
+            settings.setJavaScriptEnabled(true);
+            settings.setDomStorageEnabled(true);
+            settings.setDatabaseEnabled(true);
+            settings.setLoadsImagesAutomatically(true);
+            settings.setAllowFileAccess(false);
+            settings.setAllowContentAccess(false);
+            settings.setJavaScriptCanOpenWindowsAutomatically(false);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+            }
+            if (getBridge() != null && getBridge().getWebView() != null) {
+                try {
+                    String userAgent = getBridge().getWebView().getSettings().getUserAgentString();
+                    if (userAgent != null && !userAgent.trim().isEmpty()) {
+                        settings.setUserAgentString(userAgent);
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+
+            CookieManager cookieManager = CookieManager.getInstance();
+            cookieManager.setAcceptCookie(true);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                cookieManager.setAcceptThirdPartyCookies(webView, true);
+            }
+
+            webView.setWebChromeClient(new WebChromeClient());
+            webView.setWebViewClient(new WebViewClient() {
+                @Override
+                public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                    lastUrl.set(url == null ? options.url : url);
+                    phaseRef.set("page_started");
+                    Log.d(TAG, "browser extraction onPageStarted url=" + lastUrl.get());
+                    super.onPageStarted(view, url, favicon);
+                }
+
+                @Override
+                public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                    if (request == null || request.getUrl() == null) {
+                        return false;
+                    }
+                    String scheme = request.getUrl().getScheme();
+                    if (scheme == null) {
+                        return false;
+                    }
+                    String lowerScheme = scheme.toLowerCase();
+                    if (!lowerScheme.equals("http") && !lowerScheme.equals("https")) {
+                        Log.d(TAG, "browser extraction blocked non-http scheme=" + lowerScheme + " url=" + request.getUrl());
+                    }
+                    return !lowerScheme.equals("http") && !lowerScheme.equals("https");
+                }
+
+                @Override
+                public void onPageFinished(WebView view, String url) {
+                    lastUrl.set(url == null ? options.url : url);
+                    phaseRef.set("page_finished");
+                    Log.d(TAG, "browser extraction onPageFinished url=" + lastUrl.get());
+                    if (!finished.get()) {
+                        mainHandler.removeCallbacksAndMessages(webView);
+                        mainHandler.postAtTime(extractRunnable, webView, System.currentTimeMillis() + 1500L);
+                        mainHandler.postAtTime(timeoutRunnable, webView, System.currentTimeMillis() + options.timeoutMs);
+                    }
+                    super.onPageFinished(view, url);
+                }
+
+                @Override
+                public void onReceivedHttpError(
+                    WebView view,
+                    WebResourceRequest request,
+                    WebResourceResponse errorResponse
+                ) {
+                    if (request != null && request.isForMainFrame() && errorResponse != null) {
+                        lastMainFrameStatus.set(errorResponse.getStatusCode());
+                        Log.d(
+                            TAG,
+                            "browser extraction onReceivedHttpError url=" +
+                            request.getUrl() +
+                            " status=" +
+                            errorResponse.getStatusCode()
+                        );
+                        phaseRef.set("http_error_" + errorResponse.getStatusCode());
+                    }
+                    super.onReceivedHttpError(view, request, errorResponse);
+                }
+
+                @Override
+                public void onReceivedError(
+                    WebView view,
+                    WebResourceRequest request,
+                    android.webkit.WebResourceError error
+                ) {
+                    if (error != null) {
+                        String description = String.valueOf(error.getDescription());
+                        if (description.contains("ERR_UNKNOWN_URL_SCHEME")) {
+                            Log.d(TAG, "browser extraction ignore unknown scheme url=" + lastUrl.get());
+                            return;
+                        }
+                    }
+                    if (request != null && request.isForMainFrame() && !finished.get()) {
+                        phaseRef.set("page_error");
+                        finishError.accept(
+                            new IOException(
+                                "browser page load failed: " + error.getDescription()
+                            )
+                        );
+                        return;
+                    }
+                    super.onReceivedError(view, request, error);
+                }
+            });
+
+            Log.d(TAG, "browser extraction loadUrl url=" + options.url);
+            phaseRef.set("load_url");
+            webView.loadUrl(options.url);
+            mainHandler.postAtTime(timeoutRunnable, webView, System.currentTimeMillis() + options.timeoutMs);
+        } catch (Exception ex) {
+            finishError.accept(ex);
+        }
+    }
+
+    private String loadBrowserPageExtractorScript() throws IOException {
+        if (browserPageExtractorScript != null) {
+            return browserPageExtractorScript;
+        }
+
+        try (
+            InputStream stream = getContext().getAssets().open("browser-page-extractor.js");
+            InputStreamReader reader = new InputStreamReader(stream, StandardCharsets.UTF_8);
+            BufferedReader buffered = new BufferedReader(reader)
+        ) {
+            StringBuilder builder = new StringBuilder();
+            String line;
+            while ((line = buffered.readLine()) != null) {
+                builder.append(line).append('\n');
+            }
+            browserPageExtractorScript = builder.toString();
+            return browserPageExtractorScript;
+        }
+    }
+
+    private String unwrapJavascriptStringResult(String rawValue) throws JSONException {
+        if (rawValue == null) {
+            return null;
+        }
+        Object parsed = new JSONTokener(rawValue).nextValue();
+        if (parsed == JSONObject.NULL) {
+            return null;
+        }
+        if (parsed instanceof String) {
+            return (String) parsed;
+        }
+        if (parsed instanceof JSONObject || parsed instanceof JSONArray) {
+            return parsed.toString();
+        }
+        return String.valueOf(parsed);
+    }
+
+    private JSObject toJSObject(JSONObject source) throws JSONException {
+        JSObject result = new JSObject();
+        Iterator<String> keys = source.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            result.put(key, convertJsonValue(source.get(key)));
+        }
+        return result;
+    }
+
+    private Object convertJsonValue(Object value) throws JSONException {
+        if (value == null || value == JSONObject.NULL) {
+            return JSONObject.NULL;
+        }
+        if (value instanceof JSONObject) {
+            return toJSObject((JSONObject) value);
+        }
+        if (value instanceof JSONArray) {
+            JSArray array = new JSArray();
+            JSONArray source = (JSONArray) value;
+            for (int index = 0; index < source.length(); index += 1) {
+                array.put(convertJsonValue(source.get(index)));
+            }
+            return array;
+        }
+        return value;
+    }
+
+    private File resolveFlexiblePath(String path) throws IOException {
+        File file = new File(path);
+        if (file.isAbsolute()) {
+            return file.getCanonicalFile();
+        }
+        return resolveAppRelativePath(path);
+    }
+
+    private File resolveCanonicalAbsolutePath(String absolutePath) throws IOException {
+        File target = new File(absolutePath);
+        if (!target.isAbsolute()) {
+            throw new IOException("Path must be absolute");
+        }
+        return target.getCanonicalFile();
     }
 
     private File resolveAppRelativePath(String relativePath) throws IOException {
@@ -523,6 +1190,46 @@ public class SkillRuntimePlugin extends Plugin {
         return relative.replace(File.separatorChar, '/');
     }
 
+    private RunLaunchResolution resolveRunLaunch(
+        String launchKind,
+        String targetPath,
+        List<String> args,
+        String pythonExecutablePath,
+        String nodeExecutablePath,
+        String inferredRuntime
+    ) throws Exception {
+        File target = resolveFlexiblePath(targetPath);
+
+        if ("file".equals(launchKind)) {
+            RuntimeResolution resolution = resolveCommand(
+                target,
+                args,
+                pythonExecutablePath,
+                nodeExecutablePath
+            );
+            File managedRuntime = resolveManagedRuntimeFromCommand(resolution.command);
+            return new RunLaunchResolution(
+                resolution.runtimeType,
+                resolution.command,
+                managedRuntime
+            );
+        }
+
+        if (!"executable".equals(launchKind)) {
+            throw new IOException("Unsupported run launch kind: " + launchKind);
+        }
+
+        List<String> command = new ArrayList<>();
+        command.add(target.getAbsolutePath());
+        command.addAll(args);
+        File managedRuntime = resolveManagedRuntimeFromCommand(command);
+        return new RunLaunchResolution(
+            inferredRuntime != null && !inferredRuntime.trim().isEmpty() ? inferredRuntime : "native",
+            command,
+            managedRuntime
+        );
+    }
+
     private RuntimeResolution resolveCommand(
         File script,
         List<String> argv,
@@ -538,7 +1245,7 @@ public class SkillRuntimePlugin extends Plugin {
             if (pythonExecutablePath == null || pythonExecutablePath.trim().isEmpty()) {
                 throw new IOException("Python runtime is not installed");
             }
-            File pythonExecutable = resolveAppRelativePath(pythonExecutablePath);
+            File pythonExecutable = resolveFlexiblePath(pythonExecutablePath);
             pythonExecutable.setExecutable(true, false);
             command.add(pythonExecutable.getAbsolutePath());
             command.add(script.getAbsolutePath());
@@ -552,7 +1259,7 @@ public class SkillRuntimePlugin extends Plugin {
             if (nodeExecutablePath == null || nodeExecutablePath.trim().isEmpty()) {
                 throw new IOException("Node runtime is not installed");
             }
-            File nodeExecutable = resolveAppRelativePath(nodeExecutablePath);
+            File nodeExecutable = resolveFlexiblePath(nodeExecutablePath);
             nodeExecutable.setExecutable(true, false);
             command.add(nodeExecutable.getAbsolutePath());
             command.add(script.getAbsolutePath());
@@ -633,6 +1340,202 @@ public class SkillRuntimePlugin extends Plugin {
         );
     }
 
+    private RunSession startRunSession(
+        String sessionId,
+        String sessionLabel,
+        RunLaunchResolution resolution,
+        File workingDirectory,
+        JSObject envObject,
+        String stdin
+    ) throws Exception {
+        long startedAt = System.currentTimeMillis();
+        List<String> launchCommand = new ArrayList<>(resolution.command);
+        ProcessBuilder builder = new ProcessBuilder(launchCommand);
+        builder.directory(workingDirectory);
+
+        Map<String, String> environment = builder.environment();
+        if (envObject != null) {
+            Iterator<String> keys = envObject.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                Object value = envObject.get(key);
+                if (value != null) {
+                    environment.put(key, String.valueOf(value));
+                }
+            }
+        }
+
+        if (resolution.managedRuntime != null) {
+            applyManagedRuntimeEnvironment(environment, resolution.managedRuntime);
+            launchCommand = resolveManagedRuntimeLaunchCommand(launchCommand, resolution.managedRuntime);
+            builder.command(launchCommand);
+        }
+
+        File sessionDirectory = resolveAppRelativePath(
+            "skill-host/state/run-sessions/" + sanitizeSessionId(sessionId)
+        );
+        if (!sessionDirectory.exists() && !sessionDirectory.mkdirs()) {
+            throw new IOException("Failed to create run session directory");
+        }
+        File stdoutFile = new File(sessionDirectory, "stdout.log").getCanonicalFile();
+        File stderrFile = new File(sessionDirectory, "stderr.log").getCanonicalFile();
+        if (!stdoutFile.createNewFile() && !stdoutFile.isFile()) {
+            throw new IOException("Failed to prepare stdout log");
+        }
+        if (!stderrFile.createNewFile() && !stderrFile.isFile()) {
+            throw new IOException("Failed to prepare stderr log");
+        }
+        new FileOutputStream(stdoutFile, false).close();
+        new FileOutputStream(stderrFile, false).close();
+
+        Process process = builder.start();
+        if (stdin != null) {
+            try (OutputStreamWriter writer = new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8)) {
+                writer.write(stdin);
+                writer.flush();
+            }
+        } else {
+            process.getOutputStream().close();
+        }
+
+        RunSession session = new RunSession(
+            sessionId,
+            sessionLabel,
+            process,
+            stdoutFile,
+            stderrFile,
+            launchCommand,
+            workingDirectory.getAbsolutePath(),
+            resolution.inferredRuntime,
+            startedAt
+        );
+        runSessions.put(sessionId, session);
+
+        session.stdoutPump = ioExecutor.submit(() -> {
+            try {
+                pipeStreamToFile(process.getInputStream(), stdoutFile, session);
+            } catch (IOException ignored) {
+            }
+        });
+        session.stderrPump = ioExecutor.submit(() -> {
+            try {
+                pipeStreamToFile(process.getErrorStream(), stderrFile, session);
+            } catch (IOException ignored) {
+            }
+        });
+        session.completionWatcher = ioExecutor.submit(() -> watchRunSessionCompletion(session));
+        return session;
+    }
+
+    private void watchRunSessionCompletion(RunSession session) {
+        try {
+            int exitCode = session.process.waitFor();
+            if (session.stdoutPump != null) {
+                session.stdoutPump.get(1, TimeUnit.SECONDS);
+            }
+            if (session.stderrPump != null) {
+                session.stderrPump.get(1, TimeUnit.SECONDS);
+            }
+            session.exitCode = exitCode;
+            session.completedAt = System.currentTimeMillis();
+            session.updatedAt = session.completedAt;
+        } catch (Exception ignored) {
+            session.completedAt = System.currentTimeMillis();
+            session.updatedAt = session.completedAt;
+        }
+    }
+
+    private void pipeStreamToFile(InputStream stream, File targetFile, RunSession session) throws IOException {
+        try (InputStream input = stream; FileOutputStream output = new FileOutputStream(targetFile, true)) {
+            byte[] buffer = new byte[4096];
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                output.write(buffer, 0, read);
+                output.flush();
+                session.updatedAt = System.currentTimeMillis();
+            }
+        }
+    }
+
+    private void terminateRunSession(String sessionId) {
+        RunSession existing = runSessions.get(sessionId);
+        if (existing == null) {
+            return;
+        }
+
+        try {
+            if (existing.process.isAlive()) {
+                existing.process.destroy();
+                existing.process.waitFor(1500L, TimeUnit.MILLISECONDS);
+                if (existing.process.isAlive()) {
+                    existing.process.destroyForcibly();
+                    existing.process.waitFor(1500L, TimeUnit.MILLISECONDS);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
+        existing.completedAt = System.currentTimeMillis();
+        existing.updatedAt = existing.completedAt;
+        if (existing.exitCode == null) {
+            existing.exitCode = existing.process.exitValue();
+        }
+    }
+
+    private void waitForRunObservationWindow(RunSession session, long waitMs) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + Math.max(0L, waitMs);
+        while (System.currentTimeMillis() < deadline && session.process.isAlive()) {
+            Thread.sleep(120L);
+        }
+    }
+
+    private JSObject readRunSession(String sessionId, long waitMs) throws Exception {
+        RunSession session = runSessions.get(sessionId);
+        if (session == null) {
+            throw new IOException("run session not found: " + sessionId);
+        }
+
+        waitForRunObservationWindow(session, waitMs);
+        return buildRunSessionResult(session, waitMs);
+    }
+
+    private JSObject buildRunSessionResult(RunSession session, long waitMs) throws IOException {
+        JSObject result = new JSObject();
+        result.put("ok", session.exitCode == null || session.exitCode == 0);
+        result.put("running", session.process.isAlive());
+        result.put("session", session.sessionLabel);
+        result.put("stdout", readTail(session.stdoutFile));
+        result.put("stderr", readTail(session.stderrFile));
+        result.put("exitCode", session.exitCode == null ? JSONObject.NULL : session.exitCode);
+        result.put("elapsedMs", System.currentTimeMillis() - session.startedAt);
+        result.put("waitedMs", waitMs);
+        result.put("resolvedCommand", JSArray.from(session.resolvedCommand.toArray(new String[0])));
+        result.put("resolvedCwd", session.resolvedWorkingDirectory);
+        result.put("inferredRuntime", session.inferredRuntime);
+        result.put("pid", JSONObject.NULL);
+        result.put("startedAt", session.startedAt);
+        result.put("updatedAt", session.updatedAt);
+        result.put(
+            "completedAt",
+            session.completedAt == null ? JSONObject.NULL : session.completedAt
+        );
+        return result;
+    }
+
+    private String readTail(File file) throws IOException {
+        if (file == null || !file.exists()) {
+            return "";
+        }
+
+        byte[] content = java.nio.file.Files.readAllBytes(file.toPath());
+        int start = Math.max(0, content.length - 64 * 1024);
+        return new String(content, start, content.length - start, StandardCharsets.UTF_8);
+    }
+
+    private String sanitizeSessionId(String sessionId) {
+        return sessionId.replaceAll("[^a-zA-Z0-9._-]", "_");
+    }
+
     private String readShebang(File file) {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(java.nio.file.Files.newInputStream(file.toPath()), StandardCharsets.UTF_8))) {
             String line = reader.readLine();
@@ -666,6 +1569,15 @@ public class SkillRuntimePlugin extends Plugin {
         return null;
     }
 
+    private File resolveManagedRuntimeFromCommand(List<String> command) throws IOException {
+        if (command.isEmpty()) {
+            return null;
+        }
+
+        File executable = new File(command.get(0)).getCanonicalFile();
+        return isManagedRuntimeExecutable(executable) ? executable : null;
+    }
+
     private boolean isManagedRuntimeExecutable(File executable) {
         String lowerName = executable.getName().toLowerCase();
         return lowerName.equals("node") || lowerName.equals("nodejs") || lowerName.startsWith("python");
@@ -684,14 +1596,36 @@ public class SkillRuntimePlugin extends Plugin {
             return;
         }
 
+        File runtimeVarDir = new File(runtimeRoot, "var");
+        File runtimeHomeDir = new File(runtimeVarDir, "home");
+        runtimeHomeDir.mkdirs();
+        if (!environment.containsKey("HOME") || environment.get("HOME") == null || environment.get("HOME").trim().isEmpty()) {
+            environment.put("HOME", runtimeHomeDir.getAbsolutePath());
+        }
+
         File libDir = new File(runtimeRoot, "lib");
         if (libDir.exists()) {
             environment.put(
                 "LD_LIBRARY_PATH",
                 libDir.getAbsolutePath() + ":" + environment.getOrDefault("LD_LIBRARY_PATH", "")
             );
-            if (executable.getName().toLowerCase().contains("python")) {
-                environment.put("PYTHONHOME", runtimeRoot.getAbsolutePath());
+        }
+
+        boolean isPythonRuntime = executable.getName().toLowerCase().contains("python");
+        if (isPythonRuntime) {
+            File matplotlibConfigDir = new File(runtimeVarDir, "matplotlib");
+            File pipCacheDir = new File(runtimeVarDir, "pip-cache");
+            matplotlibConfigDir.mkdirs();
+            pipCacheDir.mkdirs();
+            environment.put("PYTHONHOME", runtimeRoot.getAbsolutePath());
+            if (!environment.containsKey("MPLBACKEND") || environment.get("MPLBACKEND") == null || environment.get("MPLBACKEND").trim().isEmpty()) {
+                environment.put("MPLBACKEND", "Agg");
+            }
+            if (!environment.containsKey("MPLCONFIGDIR") || environment.get("MPLCONFIGDIR") == null || environment.get("MPLCONFIGDIR").trim().isEmpty()) {
+                environment.put("MPLCONFIGDIR", matplotlibConfigDir.getAbsolutePath());
+            }
+            if (!environment.containsKey("PIP_CACHE_DIR") || environment.get("PIP_CACHE_DIR") == null || environment.get("PIP_CACHE_DIR").trim().isEmpty()) {
+                environment.put("PIP_CACHE_DIR", pipCacheDir.getAbsolutePath());
             }
         }
 
@@ -797,6 +1731,45 @@ public class SkillRuntimePlugin extends Plugin {
         return "";
     }
 
+    private String normalizeOptionalText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
+    }
+
+    private long getNonNegativeLongOption(PluginCall call, String key, long defaultValue) {
+        Long longValue = call.getLong(key);
+        if (longValue != null) {
+            return Math.max(0L, longValue);
+        }
+
+        Double doubleValue = call.getDouble(key);
+        if (doubleValue != null && Double.isFinite(doubleValue)) {
+            return Math.max(0L, Math.round(doubleValue));
+        }
+
+        String stringValue = normalizeOptionalText(call.getString(key));
+        if (stringValue != null) {
+            try {
+                return Math.max(0L, Math.round(Double.parseDouble(stringValue)));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+
+        return defaultValue;
+    }
+
+    private boolean isRunLaunchRequest(String launchKind, String targetPath) throws IOException {
+        boolean hasLaunchKind = launchKind != null;
+        boolean hasTargetPath = targetPath != null;
+        if (hasLaunchKind != hasTargetPath) {
+            throw new IOException("launchKind and targetPath must be provided together");
+        }
+        return hasLaunchKind;
+    }
+
     private static class RuntimeInspection {
         final String type;
         final String version;
@@ -835,6 +1808,18 @@ public class SkillRuntimePlugin extends Plugin {
         }
     }
 
+    private static class RunLaunchResolution {
+        final String inferredRuntime;
+        final List<String> command;
+        final File managedRuntime;
+
+        RunLaunchResolution(String inferredRuntime, List<String> command, File managedRuntime) {
+            this.inferredRuntime = inferredRuntime;
+            this.command = command;
+            this.managedRuntime = managedRuntime;
+        }
+    }
+
     private static class ProcessResult {
         final List<String> command;
         final int exitCode;
@@ -848,6 +1833,102 @@ public class SkillRuntimePlugin extends Plugin {
             this.stdout = stdout;
             this.stderr = stderr;
             this.elapsedMs = elapsedMs;
+        }
+    }
+
+    private static class BrowserExtractionOptions {
+        final String url;
+        final long timeoutMs;
+        final long maxContentChars;
+        final long maxLinks;
+        final long maxImages;
+        final long maxHeadings;
+        final boolean includeMetadata;
+        final boolean includeHeadings;
+        final boolean includeLinkIndex;
+        final boolean includeImageIndex;
+
+        BrowserExtractionOptions(
+            String url,
+            long timeoutMs,
+            long maxContentChars,
+            long maxLinks,
+            long maxImages,
+            long maxHeadings,
+            boolean includeMetadata,
+            boolean includeHeadings,
+            boolean includeLinkIndex,
+            boolean includeImageIndex
+        ) {
+            this.url = url;
+            this.timeoutMs = timeoutMs;
+            this.maxContentChars = maxContentChars;
+            this.maxLinks = maxLinks;
+            this.maxImages = maxImages;
+            this.maxHeadings = maxHeadings;
+            this.includeMetadata = includeMetadata;
+            this.includeHeadings = includeHeadings;
+            this.includeLinkIndex = includeLinkIndex;
+            this.includeImageIndex = includeImageIndex;
+        }
+
+        JSONObject toJson(int httpStatus) throws JSONException {
+            JSONObject object = new JSONObject();
+            object.put("requestedUrl", url);
+            object.put("timeoutMs", timeoutMs);
+            object.put("maxContentChars", maxContentChars);
+            object.put("maxLinks", maxLinks);
+            object.put("maxImages", maxImages);
+            object.put("maxHeadings", maxHeadings);
+            object.put("includeMetadata", includeMetadata);
+            object.put("includeHeadings", includeHeadings);
+            object.put("includeLinkIndex", includeLinkIndex);
+            object.put("includeImageIndex", includeImageIndex);
+            if (httpStatus > 0) {
+                object.put("httpStatus", httpStatus);
+            }
+            return object;
+        }
+    }
+
+    private static class RunSession {
+        final String sessionId;
+        final String sessionLabel;
+        final Process process;
+        final File stdoutFile;
+        final File stderrFile;
+        final List<String> resolvedCommand;
+        final String resolvedWorkingDirectory;
+        final String inferredRuntime;
+        final long startedAt;
+        volatile long updatedAt;
+        volatile Long completedAt;
+        volatile Integer exitCode;
+        volatile Future<?> stdoutPump;
+        volatile Future<?> stderrPump;
+        volatile Future<?> completionWatcher;
+
+        RunSession(
+            String sessionId,
+            String sessionLabel,
+            Process process,
+            File stdoutFile,
+            File stderrFile,
+            List<String> resolvedCommand,
+            String resolvedWorkingDirectory,
+            String inferredRuntime,
+            long startedAt
+        ) {
+            this.sessionId = sessionId;
+            this.sessionLabel = sessionLabel;
+            this.process = process;
+            this.stdoutFile = stdoutFile;
+            this.stderrFile = stderrFile;
+            this.resolvedCommand = resolvedCommand;
+            this.resolvedWorkingDirectory = resolvedWorkingDirectory;
+            this.inferredRuntime = inferredRuntime;
+            this.startedAt = startedAt;
+            this.updatedAt = startedAt;
         }
     }
 }

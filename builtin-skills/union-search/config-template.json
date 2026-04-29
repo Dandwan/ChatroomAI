@@ -36,7 +36,26 @@
     "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml"
   ],
   "fetchUrl": {
-    "preferredEngine": "jina"
+    "preferredEngine": "browser",
+    "browserTimeoutMs": 20000,
+    "maxContentChars": 24000,
+    "maxLinks": 40,
+    "maxImages": 20,
+    "maxHeadings": 32,
+    "includeMetadata": true,
+    "includeHeadings": true,
+    "includeLinkIndex": true,
+    "includeImageIndex": true
+  },
+  "browserProfile": {
+    "id": "desktop_chromium_windows",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+    "acceptLanguage": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+    "acceptEncoding": "gzip, deflate, br",
+    "secChUa": "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\"",
+    "secChUaMobile": "?0",
+    "secChUaPlatform": "\"Windows\"",
+    "extraHeaders": {}
   },
   "apiKeys": {
     "github": "",

@@ -1,4 +1,5 @@
 import { buildConversationWorkspaceDirectory } from '../chat-storage/repository'
+import { resolveAbsolutePath } from '../chat-storage/filesystem'
 
 export const INFO_PROMPT_SETTING_KEYS = [
   'deviceInfoPromptEnabled',
@@ -106,14 +107,25 @@ export const createDeviceInfoPromptSnapshot = (): DeviceInfoPromptSnapshot => {
 }
 
 export const createWorkspaceInfoPromptSnapshot = (
-  conversationId: string,
+  absoluteWorkspacePath: string,
   createdAt: number,
   updatedAt: number,
 ): WorkspaceInfoPromptSnapshot => ({
-  workspacePath: `${buildConversationWorkspaceDirectory(conversationId)}/`,
+  workspacePath: absoluteWorkspacePath,
   createdAt: formatPromptDateTime(new Date(createdAt)),
   updatedAt: formatPromptDateTime(new Date(updatedAt)),
 })
+
+export const resolveWorkspaceInfoPromptPath = async (conversationId: string): Promise<string> => {
+  const relativeWorkspacePath = buildConversationWorkspaceDirectory(conversationId)
+
+  try {
+    const absoluteWorkspacePath = await resolveAbsolutePath(relativeWorkspacePath)
+    return absoluteWorkspacePath.endsWith('/') ? absoluteWorkspacePath : `${absoluteWorkspacePath}/`
+  } catch {
+    return `${relativeWorkspacePath}/`
+  }
+}
 
 export const buildDeviceInfoPromptMarkdown = (snapshot: DeviceInfoPromptSnapshot): string =>
   buildMarkdownSection(

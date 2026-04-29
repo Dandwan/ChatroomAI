@@ -1,4 +1,4 @@
-export const LEGACY_DEFAULT_TAG_SYSTEM_PROMPT = `
+const LEGACY_DEFAULT_TAG_SYSTEM_PROMPT_SNAPSHOT = `
 你正在一个支持工具动作的聊天运行时中工作。你必须遵循以下规则：
 
 1. 在一次回复里，你可以按顺序输出零个、一个或多个动作标签。只有在你需要读取文件内容或执行 skill 时，才输出以下标签之一：
@@ -32,7 +32,7 @@ export const LEGACY_DEFAULT_TAG_SYSTEM_PROMPT = `
 13. 你要主动动手解决问题。复杂问题应尽量借助可用 skill、Node 运行时或 Python 运行时来降低出错率。
 `.trim()
 
-const PREVIOUS_DEFAULT_GENERAL_TAG_SYSTEM_PROMPT = `
+const PREVIOUS_DEFAULT_GENERAL_TAG_SYSTEM_PROMPT_SNAPSHOT = `
 你正在一个支持工具动作的聊天运行时中工作。你必须遵循以下规则：
 
 1. 在一次回复里，你可以按顺序输出零个、一个或多个动作标签。只有在你需要读取文件内容或执行 skill 时，才输出以下标签之一：
@@ -45,7 +45,7 @@ const PREVIOUS_DEFAULT_GENERAL_TAG_SYSTEM_PROMPT = `
 4. 如果不需要调用任何动作，直接输出给用户的最终答复，不要包任何额外标签。
 `.trim()
 
-const PREVIOUS_DEFAULT_READ_SYSTEM_PROMPT = `
+const PREVIOUS_DEFAULT_READ_SYSTEM_PROMPT_SNAPSHOT = `
 1. <read> 用于读取当前对话 workspace 中的文本文件，或读取某个 skill 目录中的文件与目录结构。
 2. <read> 结构必须显式填写：
    - root: \`skill\` 或 \`workspace\`
@@ -61,15 +61,102 @@ const PREVIOUS_DEFAULT_READ_SYSTEM_PROMPT = `
 4. 读取 skill 内部脚本前，应该先使用 <read> 阅读该 skill 的文档或相关脚本，再决定是否调用 <skill_call>。
 `.trim()
 
-const SKILL_CALL_PROMPT_BODY = `
-1. <skill_call> 最小结构必须包含：
-   - skill: 技能 id
-   - script: 要执行的脚本路径
-   - 其余字段（id、argv、stdin、env、timeoutMs）可选
-2. 不要直接捏造外部信息。需要最新信息、网页内容、时间日期、跨站搜索时，优先通过可用 skill 获取。
-3. 如果当前上下文里已经有 read_result、read_error、skill_result 或 skill_error，就基于这些信息继续决策，避免重复读取同一内容。
-4. 调用动作时必须严格遵守标签格式，请求内部不要出现代码块。
-5. 你要主动动手解决问题。复杂问题应尽量借助可用 skill、Node 运行时或 Python 运行时来降低出错率。
+const PREVIOUS_DEFAULT_RUN_EDIT_SYSTEM_PROMPT_SNAPSHOT = `
+1. 宿主当前支持三类动作标签：<read>、<run>、<edit>。
+2. 所有路径类动作统一使用字段 \`location\`。旧字段 \`root\` 只用于兼容历史内容，不建议再输出。
+3. \`location\` 可用值：
+   - \`skill\`：某个 skill 目录
+   - \`workspace\`：当前对话 workspace
+   - \`home\`：宿主私有 home 目录
+   - \`root\`：系统绝对路径空间
+4. 读取或修改 \`location="root"\` 时，\`path\` 必须是系统绝对路径；\`workspace\`、\`home\`、\`skill\` 使用相对路径。
+5. 不清楚文件内容时，先用 <read>；不要盲改。修改文件前，优先读取目标文件或相关上下文。
+
+<run> 规则
+6. <run> 用于运行已有文件或查看同一会话的当前输出。
+7. <run> 常用字段：
+   - location: \`skill\`、\`workspace\`、\`home\` 或 \`root\`
+   - 当 location=\`skill\` 时，必须提供 skill
+   - cwd: 可选，表示命令的工作目录；非 \`root\` location 下使用相对路径
+   - command: 启动命令时必填；查看既有会话时可省略
+   - session: 启动命令时可省略；省略时宿主会自动生成一个 session 并在结果里返回。查看既有会话时必须显式提供 session
+   - waitMs: 可选，启动后或查看前等待的毫秒数
+   - stdin、env: 可选
+8. command 应尽量使用接近 shell 的命令写法，例如：
+   - <run>{"location":"workspace","cwd":".","command":"python main.py","waitMs":3000}</run>
+   - <run>{"location":"workspace","cwd":".","command":"./tool --flag value","session":"build"}</run>
+   - <run>{"location":"workspace","cwd":".","session":"build","waitMs":1000}</run>
+   - <run>{"location":"skill","skill":"union-search","cwd":"scripts","command":"./union_search --query \\"OpenAI agent\\""}</run>
+   - <run>{"location":"skill","skill":"union-search","cwd":"scripts","command":"./visit_url --url \\"https://example.com\\""}</run>
+9. 宿主不会按后缀猜路径。若要执行当前目录文件，请写精确文件名，例如 \`./tool\`，不要假设 \`tool\` 会自动补到 \`tool.py\` 或 \`tool.sh\`。
+
+<edit> 规则
+10. <edit> 用于按行修改文本文件，支持 \`insert\`、\`delete\`、\`replace\`。
+11. <edit> 顶层字段：
+   - location: \`workspace\`、\`home\` 或 \`root\`
+   - path: 目标文件路径
+   - createIfMissing: 可选；为 true 时允许新建文件
+   - previewContextLines: 可选；控制返回预览的上下文行数
+   - edits: 必填；按数组顺序定义本次原子编辑
+12. \`insert\` 必须且只能提供 \`beforeLine\` 或 \`afterLine\` 其中一个；\`delete\` / \`replace\` 必须提供 \`startLine\` 和 \`endLine\`。
+13. \`insert\` / \`delete\` / \`replace\` 都可提供 \`expectedText\`；当你担心定位错行时，应主动提供。
+14. 同一个 <edit> 中的所有行号都基于同一个原始文件快照；宿主会原子应用，要么全部成功，要么全部失败。
+15. <edit> 示例：
+   - <edit>{"location":"workspace","path":"notes/todo.md","edits":[{"op":"insert","beforeLine":1,"text":"# TODO\\n"}]}</edit>
+   - <edit>{"location":"home","path":"scripts/demo.py","createIfMissing":true,"edits":[{"op":"replace","startLine":1,"endLine":3,"text":"print('ok')\\n"}]}</edit>
+   - <edit>{"location":"root","path":"/sdcard/Download/demo.txt","edits":[{"op":"delete","startLine":2,"endLine":4,"expectedText":"b\\nc\\nd"}]}</edit>
+
+<read>/<run>/<edit> 共通要求
+16. 运行 skill 内部文件前，先使用 <read> 阅读该 skill 的文档或相关脚本。
+17. 如果当前上下文里已经有 read_result、read_error、edit_result、edit_error、run_result 或 run_error，就基于这些信息继续决策，避免无意义重复。
+18. 调用动作时必须严格遵守标签格式，请求内部不要出现代码块。
+19. 你要主动动手解决问题。复杂问题应尽量借助可用 skill、已安装运行时和已有命令来降低出错率。
+`.trim()
+
+const RUN_PROMPT_BODY = `
+1. <run> 用于运行已有文件或查看同一会话的当前输出。
+2. <run> 常用字段：
+   - location: \`skill\`、\`workspace\`、\`home\` 或 \`root\`
+   - 当 location=\`skill\` 时，必须提供 skill
+   - cwd: 可选，表示命令的工作目录；非 \`root\` location 下使用相对路径
+   - command: 启动命令时必填；查看既有会话时可省略
+   - session: 启动命令时可省略；省略时宿主会自动生成一个 session 并在结果里返回。查看既有会话时必须显式提供 session
+   - waitMs: 可选，启动后或查看前等待的毫秒数
+   - stdin、env: 可选
+3. command 应尽量使用接近 shell 的命令写法，例如：
+   - <run>{"location":"workspace","cwd":".","command":"python main.py","waitMs":3000}</run>
+   - <run>{"location":"workspace","cwd":".","command":"./tool --flag value","session":"build"}</run>
+   - <run>{"location":"workspace","cwd":".","session":"build","waitMs":1000}</run>
+   - <run>{"location":"skill","skill":"union-search","cwd":"scripts","command":"./union_search --query \\"OpenAI agent\\""}</run>
+   - <run>{"location":"skill","skill":"union-search","cwd":"scripts","command":"./visit_url --url \\"https://example.com\\""}</run>
+4. 宿主不会按后缀猜路径。若要执行当前目录文件，请写精确文件名，例如 \`./tool\`，不要假设 \`tool\` 会自动补到 \`tool.py\` 或 \`tool.sh\`。
+5. \`location="root"\` 表示系统绝对路径空间；此时 \`cwd\` 必须是系统绝对路径，不能写相对路径。
+6. 运行 skill 内部文件前，先使用 <read> 阅读该 skill 的文档或相关脚本。
+7. 如果当前上下文里已经有 read_result、read_error、run_result 或 run_error，就基于这些信息继续决策，避免重复执行。
+8. 调用动作时必须严格遵守标签格式，请求内部不要出现代码块。
+9. 你要主动动手解决问题。复杂问题应尽量借助可用 skill、已安装运行时和已有命令来降低出错率。
+`.trim()
+
+const EDIT_PROMPT_BODY = `
+1. <edit> 用于按行修改文本文件，支持 \`insert\`、\`delete\`、\`replace\`。
+2. <edit> 顶层字段：
+   - location: \`workspace\`、\`home\` 或 \`root\`
+   - path: 目标文件路径
+   - createIfMissing: 可选；为 true 时允许新建文件
+   - previewContextLines: 可选；控制返回预览的上下文行数
+   - edits: 必填；按数组顺序定义本次原子编辑
+3. \`location="root"\` 表示系统绝对路径空间；此时 \`path\` 必须是系统绝对路径。
+4. 修改前优先先用 <read> 读取目标文件或相关上下文；不清楚内容时不要盲改。
+5. \`insert\` 必须且只能提供 \`beforeLine\` 或 \`afterLine\` 其中一个；\`delete\` / \`replace\` 必须提供 \`startLine\` 和 \`endLine\`。
+6. \`insert\` / \`delete\` / \`replace\` 都可提供 \`expectedText\`；当你担心定位错行时，应主动提供。
+7. 同一个 <edit> 中的所有行号都基于同一个原始文件快照；宿主会原子应用，要么全部成功，要么全部失败。
+8. <edit> 示例：
+   - <edit>{"location":"workspace","path":"notes/todo.md","edits":[{"op":"insert","beforeLine":1,"text":"# TODO\\n"}]}</edit>
+   - <edit>{"location":"home","path":"scripts/demo.py","createIfMissing":true,"edits":[{"op":"replace","startLine":1,"endLine":3,"text":"print('ok')\\n"}]}</edit>
+   - <edit>{"location":"root","path":"/sdcard/Download/demo.txt","edits":[{"op":"delete","startLine":2,"endLine":4,"expectedText":"b\\nc\\nd"}]}</edit>
+9. 如果当前上下文里已经有 read_result、read_error、edit_result 或 edit_error，就基于这些信息继续决策，避免无意义重复。
+10. 调用动作时必须严格遵守标签格式，请求内部不要出现代码块。
+11. 你要主动动手解决问题。需要改文件时，应优先输出最小必要编辑，而不是大段重写无关内容。
 `.trim()
 
 export const DEFAULT_GENERAL_TAG_SYSTEM_PROMPT = `
@@ -226,7 +313,7 @@ export const DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT = `
 \`<progress>先读取说明文件，确认参数格式后再继续。<read>...</read></progress>\`
 
 7. 继续执行下一步
-\`<progress>说明已确认，接下来执行必要调用并等待结果。<skill_call>...</skill_call></progress>\`
+\`<progress>说明已确认，接下来执行必要调用并等待结果。<run>...</run></progress>\`
 
 8. 多轮宿主处理中的中间轮次
 \`<progress>上一轮结果已返回，但还需再读取一个依赖文件后才能得出结论。<read>...</read></progress>\`
@@ -279,7 +366,7 @@ export const DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT = `
 
 8. 在 final 中混入可执行请求后的总结
 错误：
-\`<final>我先运行测试，然后把结果告诉你。<skill_call>...</skill_call></final>\`
+\`<final>我先运行测试，然后把结果告诉你。<run>...</run></final>\`
 原因：
 \`<final>\` 不得包含可执行请求
 
@@ -292,28 +379,63 @@ export const DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT = `
 `.trim()
 
 export const DEFAULT_READ_SYSTEM_PROMPT = `
-1. <read> 用于读取当前对话 workspace 中的文本文件，或读取某个 skill 目录中的文件与目录结构。
+1. <read> 用于读取文本文件内容，或列举/探测目录结构。
 2. <read> 结构必须显式填写：
-   - root: \`skill\` 或 \`workspace\`
+   - location: \`skill\`、\`workspace\`、\`home\` 或 \`root\`
    - op: \`list\`、\`read\` 或 \`stat\`
-   - 当 root=\`skill\` 时，必须提供 skill
+   - 当 location=\`skill\` 时，必须提供 skill
    - 当 op=\`read\` 或 op=\`stat\` 时，必须提供 path
-   - 当 op=\`list\` 时，path 可省略；省略等价于根目录
+   - 当 op=\`list\` 时，path 可省略；省略等价于该 location 的根目录
+   - 当 location=\`root\` 时，path 必须是系统绝对路径；省略时仅允许 \`list\`，等价于 \`/\`
 3. <read> 常见示例：
-   - <read>{"root":"skill","op":"read","skill":"union-search","path":"SKILL.md"}</read>
-   - <read>{"root":"skill","op":"list","skill":"union-search","path":"scripts","depth":2}</read>
-   - <read>{"root":"workspace","op":"list","path":"."}</read>
-   - <read>{"root":"workspace","op":"read","path":"notes/todo.md","startLine":1,"endLine":120}</read>
+   - <read>{"location":"skill","op":"read","skill":"union-search","path":"SKILL.md"}</read>
+   - <read>{"location":"skill","op":"list","skill":"union-search","path":"scripts","depth":2}</read>
+   - <read>{"location":"workspace","op":"list","path":"."}</read>
+   - <read>{"location":"workspace","op":"read","path":"notes/todo.md","startLine":1,"endLine":120}</read>
+   - <read>{"location":"home","op":"stat","path":"scripts/tool.py"}</read>
+   - <read>{"location":"root","op":"read","path":"/sdcard/Download/demo.txt","startLine":1,"endLine":80}</read>
 `.trim()
 
-export const DEFAULT_SKILL_CALL_SYSTEM_PROMPT = SKILL_CALL_PROMPT_BODY
+export const DEFAULT_RUN_SYSTEM_PROMPT = RUN_PROMPT_BODY
+export const DEFAULT_EDIT_SYSTEM_PROMPT = EDIT_PROMPT_BODY
+export const LEGACY_DEFAULT_TAG_SYSTEM_PROMPT = DEFAULT_RUN_SYSTEM_PROMPT
+// Kept for storage/schema compatibility. The effective default prompt is now the run version.
+export const DEFAULT_SKILL_CALL_SYSTEM_PROMPT = DEFAULT_RUN_SYSTEM_PROMPT
 
 export interface LegacyTagSystemPromptMigrationResult {
   topLevelTagSystemPrompt: string
   generalTagSystemPrompt: string
   readSystemPrompt: string
   skillCallSystemPrompt: string
+  editSystemPrompt: string
   legacyGlobalTagSystemPrompt?: string
+}
+
+const splitRunAndEditPrompts = ({
+  runPrompt,
+  editPrompt,
+}: {
+  runPrompt?: string
+  editPrompt?: string
+}): {
+  runPrompt: string
+  editPrompt: string
+} => {
+  const normalizedRunPrompt = runPrompt ?? DEFAULT_SKILL_CALL_SYSTEM_PROMPT
+  const normalizedEditPrompt =
+    editPrompt !== undefined
+      ? editPrompt
+      : normalizedRunPrompt.trim() === PREVIOUS_DEFAULT_RUN_EDIT_SYSTEM_PROMPT_SNAPSHOT
+        ? DEFAULT_EDIT_SYSTEM_PROMPT
+        : DEFAULT_EDIT_SYSTEM_PROMPT
+
+  return {
+    runPrompt:
+      normalizedRunPrompt.trim() === PREVIOUS_DEFAULT_RUN_EDIT_SYSTEM_PROMPT_SNAPSHOT
+        ? DEFAULT_SKILL_CALL_SYSTEM_PROMPT
+        : normalizedRunPrompt,
+    editPrompt: normalizedEditPrompt,
+  }
 }
 
 export const migrateLegacyTagSystemPrompts = (
@@ -329,18 +451,25 @@ export const migrateLegacyTagSystemPrompts = (
     typeof parsed.readSystemPrompt === 'string' ? parsed.readSystemPrompt : undefined
   const storedSkillCallSystemPrompt =
     typeof parsed.skillCallSystemPrompt === 'string' ? parsed.skillCallSystemPrompt : undefined
+  const storedEditSystemPrompt =
+    typeof parsed.editSystemPrompt === 'string' ? parsed.editSystemPrompt : undefined
 
   if (storedGeneralTagSystemPrompt !== undefined) {
+    const separatedPrompts = splitRunAndEditPrompts({
+      runPrompt: storedSkillCallSystemPrompt,
+      editPrompt: storedEditSystemPrompt,
+    })
     return {
       topLevelTagSystemPrompt: DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT,
       generalTagSystemPrompt: storedGeneralTagSystemPrompt,
       readSystemPrompt: storedReadSystemPrompt ?? DEFAULT_READ_SYSTEM_PROMPT,
-      skillCallSystemPrompt: storedSkillCallSystemPrompt ?? DEFAULT_SKILL_CALL_SYSTEM_PROMPT,
+      skillCallSystemPrompt: separatedPrompts.runPrompt,
+      editSystemPrompt: separatedPrompts.editPrompt,
     }
   }
 
   if (storedReadSystemPrompt !== undefined) {
-    const legacySharedPrefix = `${PREVIOUS_DEFAULT_GENERAL_TAG_SYSTEM_PROMPT}\n\n`
+    const legacySharedPrefix = `${PREVIOUS_DEFAULT_GENERAL_TAG_SYSTEM_PROMPT_SNAPSHOT}\n\n`
     const stripLegacySharedPrefix = (value: string, fallback: string): string => {
       const normalized = value.trim()
       if (!normalized) {
@@ -356,19 +485,25 @@ export const migrateLegacyTagSystemPrompts = (
       storedReadSystemPrompt.trim().startsWith(legacySharedPrefix) ||
       (storedSkillCallSystemPrompt?.trim().startsWith(legacySharedPrefix) ?? false)
 
+    const separatedPrompts = splitRunAndEditPrompts({
+      runPrompt:
+        storedSkillCallSystemPrompt === undefined
+          ? DEFAULT_SKILL_CALL_SYSTEM_PROMPT
+          : stripLegacySharedPrefix(storedSkillCallSystemPrompt, DEFAULT_SKILL_CALL_SYSTEM_PROMPT),
+      editPrompt: storedEditSystemPrompt,
+    })
+
     return {
       topLevelTagSystemPrompt: DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT,
       generalTagSystemPrompt: DEFAULT_GENERAL_TAG_SYSTEM_PROMPT,
       readSystemPrompt: stripLegacySharedPrefix(
         storedReadSystemPrompt,
-        PREVIOUS_DEFAULT_READ_SYSTEM_PROMPT,
+        PREVIOUS_DEFAULT_READ_SYSTEM_PROMPT_SNAPSHOT,
       ),
-      skillCallSystemPrompt:
-        storedSkillCallSystemPrompt === undefined
-          ? DEFAULT_SKILL_CALL_SYSTEM_PROMPT
-          : stripLegacySharedPrefix(storedSkillCallSystemPrompt, DEFAULT_SKILL_CALL_SYSTEM_PROMPT),
+      skillCallSystemPrompt: separatedPrompts.runPrompt,
+      editSystemPrompt: separatedPrompts.editPrompt,
       legacyGlobalTagSystemPrompt: hasLegacySharedPrefix
-        ? PREVIOUS_DEFAULT_GENERAL_TAG_SYSTEM_PROMPT
+        ? PREVIOUS_DEFAULT_GENERAL_TAG_SYSTEM_PROMPT_SNAPSHOT
         : undefined,
     }
   }
@@ -379,10 +514,11 @@ export const migrateLegacyTagSystemPrompts = (
       generalTagSystemPrompt: DEFAULT_GENERAL_TAG_SYSTEM_PROMPT,
       readSystemPrompt: DEFAULT_READ_SYSTEM_PROMPT,
       skillCallSystemPrompt: DEFAULT_SKILL_CALL_SYSTEM_PROMPT,
+      editSystemPrompt: DEFAULT_EDIT_SYSTEM_PROMPT,
     }
   }
 
-  if (storedSkillCallSystemPrompt.trim() === LEGACY_DEFAULT_TAG_SYSTEM_PROMPT) {
+  if (storedSkillCallSystemPrompt.trim() === LEGACY_DEFAULT_TAG_SYSTEM_PROMPT_SNAPSHOT) {
     return {
       topLevelTagSystemPrompt: DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT,
       generalTagSystemPrompt:
@@ -391,6 +527,7 @@ export const migrateLegacyTagSystemPrompts = (
           : storedSkillCallSystemPrompt,
       readSystemPrompt: DEFAULT_READ_SYSTEM_PROMPT,
       skillCallSystemPrompt: DEFAULT_SKILL_CALL_SYSTEM_PROMPT,
+      editSystemPrompt: DEFAULT_EDIT_SYSTEM_PROMPT,
       legacyGlobalTagSystemPrompt: storedSkillCallSystemPrompt,
     }
   }
@@ -401,8 +538,14 @@ export const migrateLegacyTagSystemPrompts = (
       generalTagSystemPrompt: '',
       readSystemPrompt: '',
       skillCallSystemPrompt: '',
+      editSystemPrompt: '',
     }
   }
+
+  const separatedPrompts = splitRunAndEditPrompts({
+    runPrompt: storedSkillCallSystemPrompt,
+    editPrompt: storedEditSystemPrompt,
+  })
 
   return {
     topLevelTagSystemPrompt: DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT,
@@ -411,7 +554,8 @@ export const migrateLegacyTagSystemPrompts = (
         ? DEFAULT_GENERAL_TAG_SYSTEM_PROMPT
         : storedSkillCallSystemPrompt,
     readSystemPrompt: DEFAULT_READ_SYSTEM_PROMPT,
-    skillCallSystemPrompt: DEFAULT_SKILL_CALL_SYSTEM_PROMPT,
+    skillCallSystemPrompt: separatedPrompts.runPrompt,
+    editSystemPrompt: separatedPrompts.editPrompt,
     legacyGlobalTagSystemPrompt: storedSkillCallSystemPrompt,
   }
 }

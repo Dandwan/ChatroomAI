@@ -21,13 +21,18 @@ interface RuntimeHostState {
   metadataById: Record<string, RuntimeMetadata>
 }
 
-type RuntimeMetadata = Pick<RuntimeRecord, 'id' | 'type' | 'version' | 'executablePath' | 'displayName'>
+type RuntimeMetadata = Pick<
+  RuntimeRecord,
+  'id' | 'type' | 'version' | 'executablePath' | 'binDirectoryPath' | 'commands' | 'displayName'
+>
 
 interface RuntimeManifestFile {
   type?: string
   version?: string
   displayName?: string
   entrypoint?: string
+  binDirectory?: string
+  commands?: string[]
 }
 
 const DEFAULT_STATE: RuntimeHostState = {
@@ -42,6 +47,10 @@ const BUNDLED_RUNTIME_ARCHIVES = [
   {
     id: 'nodejs-termux-aarch64',
     assetPath: 'public/runtime-packages/nodejs-termux-aarch64.zip',
+  },
+  {
+    id: 'python-termux-aarch64-scientific',
+    assetPath: 'public/runtime-packages/python-termux-aarch64-scientific.zip',
   },
 ] as const
 
@@ -62,6 +71,106 @@ const writeState = async (state: RuntimeHostState): Promise<void> => {
   await writeJsonFile(STATE_PATH, state)
 }
 
+const normalizeCommandName = (value: string): string => value.trim().replace(/\\/g, '/')
+
+const sanitizeRuntimeCommands = (values: string[] | undefined): string[] | undefined => {
+  if (!values || values.length === 0) {
+    return undefined
+  }
+
+  const normalized = values
+    .map((value) => normalizeCommandName(value))
+    .filter((value) => value.length > 0 && !value.includes('/'))
+
+  if (normalized.length === 0) {
+    return undefined
+  }
+
+  return Array.from(new Set(normalized)).sort((left, right) => left.localeCompare(right))
+}
+
+const resolveRuntimeBinDirectoryPath = async (
+  relativeRoot: string,
+  executablePath: string,
+  explicitBinDirectory?: string,
+): Promise<string | undefined> => {
+  const manifestBinDirectory = explicitBinDirectory?.trim()
+  if (manifestBinDirectory) {
+    const manifestPath = joinRelativePath(relativeRoot, manifestBinDirectory)
+    if (await pathExists(manifestPath)) {
+      return manifestPath
+    }
+  }
+
+  const conventionalPath = joinRelativePath(relativeRoot, 'bin')
+  if (await pathExists(conventionalPath)) {
+    return conventionalPath
+  }
+
+  const normalizedExecutablePath = executablePath.trim()
+  if (!normalizedExecutablePath) {
+    return undefined
+  }
+
+  const segments = normalizedExecutablePath.split('/').filter(Boolean)
+  if (segments.length <= 1) {
+    return undefined
+  }
+
+  return segments.slice(0, -1).join('/')
+}
+
+const inspectRuntimeCommands = async (
+  relativeBinDirectoryPath: string | undefined,
+  manifestCommands?: string[],
+): Promise<string[] | undefined> => {
+  const explicitCommands = sanitizeRuntimeCommands(manifestCommands)
+  if (explicitCommands) {
+    return explicitCommands
+  }
+
+  if (!relativeBinDirectoryPath || !(await pathExists(relativeBinDirectoryPath))) {
+    return undefined
+  }
+
+  const discovered = sanitizeRuntimeCommands(await listDirectory(relativeBinDirectoryPath))
+  return discovered && discovered.length > 0 ? discovered : undefined
+}
+
+const ensureDefaultRuntimeSelection = (
+  state: RuntimeHostState,
+  runtimes: Array<Pick<RuntimeRecord, 'id' | 'type' | 'enabled'>>,
+): void => {
+  for (const type of ['python', 'node'] as const) {
+    const current = state.defaultByType[type]
+    const currentExists = runtimes.some((runtime) => runtime.id === current && runtime.type === type)
+    if (currentExists) {
+      continue
+    }
+    const fallback = runtimes.find((runtime) => runtime.type === type && runtime.enabled)
+    if (fallback) {
+      state.defaultByType[type] = fallback.id
+      continue
+    }
+    delete state.defaultByType[type]
+  }
+}
+
+const persistInstalledRuntimeMetadata = (
+  state: RuntimeHostState,
+  runtimeId: string,
+  metadata: RuntimeMetadata,
+): void => {
+  state.enabledById[runtimeId] = state.enabledById[runtimeId] ?? true
+  state.metadataById[runtimeId] = {
+    ...metadata,
+    id: runtimeId,
+  }
+  if ((metadata.type === 'python' || metadata.type === 'node') && !state.defaultByType[metadata.type]) {
+    state.defaultByType[metadata.type] = runtimeId
+  }
+}
+
 const shouldRefreshRuntimeMetadata = (
   cached: RuntimeMetadata | undefined,
   folderName: string,
@@ -71,6 +180,14 @@ const shouldRefreshRuntimeMetadata = (
   }
 
   if (!cached.executablePath?.trim()) {
+    return true
+  }
+
+  if (!cached.binDirectoryPath?.trim()) {
+    return true
+  }
+
+  if (!cached.commands || cached.commands.length === 0) {
     return true
   }
 
@@ -105,12 +222,20 @@ const inspectRuntimeManifest = async (folderName: string): Promise<RuntimeMetada
     entrypoint && (await pathExists(joinRelativePath(relativeRoot, entrypoint)))
       ? joinRelativePath(relativeRoot, entrypoint)
       : ''
+  const binDirectoryPath = await resolveRuntimeBinDirectoryPath(
+    relativeRoot,
+    executablePath,
+    manifest.binDirectory,
+  )
+  const commands = await inspectRuntimeCommands(binDirectoryPath, manifest.commands)
 
   return {
     id: folderName,
     type: normalizeRuntimeType(manifest.type, folderName),
     version: manifest.version?.trim() || folderName,
     executablePath,
+    binDirectoryPath,
+    commands,
     displayName: manifest.displayName?.trim() || folderName,
   }
 }
@@ -127,11 +252,20 @@ const inspectRuntimeDirectory = async (folderName: string): Promise<RuntimeMetad
       ...(await nativeInspectRuntime(relativePath)),
       id: folderName,
     }
+    const executablePath = nativeMetadata.executablePath || manifestMetadata?.executablePath || ''
+    const binDirectoryPath = await resolveRuntimeBinDirectoryPath(
+      relativePath,
+      executablePath,
+      undefined,
+    )
+    const commands = await inspectRuntimeCommands(binDirectoryPath, manifestMetadata?.commands)
     return {
       id: folderName,
       type: normalizeRuntimeType(nativeMetadata.type, folderName),
       version: nativeMetadata.version?.trim() || manifestMetadata?.version || folderName,
-      executablePath: nativeMetadata.executablePath || manifestMetadata?.executablePath || '',
+      executablePath,
+      binDirectoryPath,
+      commands,
       displayName: nativeMetadata.displayName?.trim() || manifestMetadata?.displayName || folderName,
     }
   } catch {
@@ -144,6 +278,8 @@ const inspectRuntimeDirectory = async (folderName: string): Promise<RuntimeMetad
       type,
       version: folderName,
       executablePath: '',
+      binDirectoryPath: undefined,
+      commands: undefined,
       displayName: folderName,
     }
   }
@@ -164,25 +300,39 @@ export const ensureBundledRuntimesInstalled = async (): Promise<void> => {
     return
   }
   await initializeRuntimeHost()
+  const state = await readState()
   const installed = new Set(await listDirectory(RUNTIMES_ROOT))
   for (const bundled of BUNDLED_RUNTIME_ARCHIVES) {
-    if (installed.has(bundled.id)) {
-      const existing = await inspectRuntimeDirectory(bundled.id)
-      if (existing.executablePath) {
-        continue
+    try {
+      if (installed.has(bundled.id)) {
+        const existing = await inspectRuntimeDirectory(bundled.id)
+        if (existing.executablePath) {
+          persistInstalledRuntimeMetadata(state, bundled.id, existing)
+          continue
+        }
       }
+
+      await nativeInstallBundledRuntime(bundled.assetPath, bundled.id)
+      await nativePreparePath(joinRelativePath(RUNTIMES_ROOT, bundled.id))
+      const metadata = await inspectRuntimeDirectory(bundled.id)
+      persistInstalledRuntimeMetadata(state, bundled.id, metadata)
+      installed.add(bundled.id)
+    } catch (error) {
+      console.warn(
+        `Bundled runtime install skipped for ${bundled.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      )
     }
-    await nativeInstallBundledRuntime(bundled.assetPath, bundled.id)
-    await nativePreparePath(joinRelativePath(RUNTIMES_ROOT, bundled.id))
-    installed.add(bundled.id)
   }
+  await writeState(state)
 }
 
 export const listRuntimes = async (): Promise<RuntimeRecord[]> => {
   await initializeRuntimeHost()
   const state = await readState()
   const folders = await listDirectory(RUNTIMES_ROOT)
-  const results: RuntimeRecord[] = []
+  const results: Array<RuntimeRecord & { isDefault: boolean }> = []
 
   for (const folderName of folders) {
     const cached = state.metadataById[folderName]
@@ -198,16 +348,23 @@ export const listRuntimes = async (): Promise<RuntimeRecord[]> => {
       ...metadata,
       id: folderName,
       enabled: state.enabledById[folderName] ?? true,
-      isDefault:
-        (metadata.type === 'python' || metadata.type === 'node') &&
-        state.defaultByType[metadata.type] === folderName,
+      isDefault: false,
       installedAt: 0,
       folderName,
     })
   }
 
+  const sorted = results.sort((left, right) => left.id.localeCompare(right.id))
+  ensureDefaultRuntimeSelection(state, sorted)
+  const normalized = sorted.map((runtime) => ({
+    ...runtime,
+    isDefault:
+      (runtime.type === 'python' || runtime.type === 'node') &&
+      state.defaultByType[runtime.type] === runtime.id,
+  }))
+
   await writeState(state)
-  return results.sort((left, right) => left.id.localeCompare(right.id))
+  return normalized
 }
 
 export const installRuntimePackage = async (file: File): Promise<RuntimeInstallResult> => {
@@ -217,14 +374,7 @@ export const installRuntimePackage = async (file: File): Promise<RuntimeInstallR
   const relativePath = joinRelativePath(RUNTIMES_ROOT, rootFolder)
   await nativePreparePath(relativePath)
   const metadata = await inspectRuntimeDirectory(rootFolder)
-  state.enabledById[rootFolder] = true
-  state.metadataById[rootFolder] = {
-    ...metadata,
-    id: rootFolder,
-  }
-  if ((metadata.type === 'python' || metadata.type === 'node') && !state.defaultByType[metadata.type]) {
-    state.defaultByType[metadata.type] = rootFolder
-  }
+  persistInstalledRuntimeMetadata(state, rootFolder, metadata)
   await writeState(state)
 
   return {

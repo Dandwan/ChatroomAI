@@ -1,4 +1,5 @@
 export {
+  deleteConversationStorage,
   getChatStatePersistenceSignature,
   initializeChatStorage,
   loadChatState,

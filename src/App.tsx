@@ -49,7 +49,13 @@ import {
   type TranscriptTokenUsage,
   type UserMessageTranscriptEvent,
 } from './services/chat-transcript'
-import { executeReadAction, executeSkillCall } from './services/skills/executor'
+import {
+  executeEditAction,
+  executeReadAction,
+  executeRunAction,
+  executeSkillCall,
+  materializeRunAction,
+} from './services/skills/executor'
 import {
   deleteSkill,
   initializeSkillHost,
@@ -70,10 +76,12 @@ import {
   normalizeSkillAgentProtocolResponse,
   type SkillActionStreamEvent,
 } from './services/skills/protocol'
+import { toExternalActionLocation } from './services/skills/action-location'
 import {
+  DEFAULT_EDIT_SYSTEM_PROMPT,
   DEFAULT_GENERAL_TAG_SYSTEM_PROMPT,
   DEFAULT_READ_SYSTEM_PROMPT,
-  DEFAULT_SKILL_CALL_SYSTEM_PROMPT,
+  DEFAULT_RUN_SYSTEM_PROMPT,
   DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT,
   LEGACY_DEFAULT_TAG_SYSTEM_PROMPT,
   migrateLegacyTagSystemPrompts,
@@ -86,6 +94,7 @@ import {
   createDeviceInfoPromptSnapshot,
   createWorkspaceInfoPromptSnapshot,
   normalizeInfoPromptOverride,
+  resolveWorkspaceInfoPromptPath,
   type InfoPromptDefinition,
   type InfoPromptSettingKey,
 } from './services/skills/info-system-prompts'
@@ -99,7 +108,12 @@ import {
   testRuntime,
 } from './services/skills/runtime'
 import type {
+  EditAction,
+  EditExecutionResult,
+  ReadExecutionResult,
   PromptBlock,
+  ReadAction,
+  RunAction,
   RuntimeRecord,
   SkillCallAction,
   SkillRecord,
@@ -120,6 +134,7 @@ import {
   type AssistantFlowSkillNode,
 } from './utils/assistant-flow'
 import {
+  deleteConversationStorage,
   getChatStatePersistenceSignature,
   loadChatState as loadStoredChatState,
   loadStoredAttachmentDataUrl,
@@ -135,6 +150,7 @@ type TagPromptSettingKey =
   | 'generalTagSystemPrompt'
   | 'readSystemPrompt'
   | 'skillCallSystemPrompt'
+  | 'editSystemPrompt'
 type DeprecatedPromptSettingKey = 'deprecatedTagPrompts'
 type GlobalPromptSettingKey = 'systemPrompt' | TagPromptSettingKey
 type ProviderPromptSettingKey = GlobalPromptSettingKey
@@ -163,6 +179,7 @@ interface ProviderConfig {
   generalTagSystemPrompt?: string
   readSystemPrompt?: string
   skillCallSystemPrompt?: string
+  editSystemPrompt?: string
   deviceInfoPromptEnabled?: boolean
   workspaceInfoPromptEnabled?: boolean
   temperature?: number
@@ -319,6 +336,7 @@ interface AppSettings {
   generalTagSystemPrompt: string
   readSystemPrompt: string
   skillCallSystemPrompt: string
+  editSystemPrompt: string
   deviceInfoPromptEnabled: boolean
   workspaceInfoPromptEnabled: boolean
   deprecatedTagPrompts: string
@@ -395,6 +413,19 @@ interface CompletionResult {
   totalTimeMs: number
 }
 
+interface TurnExecutionJob {
+  conversationId: string
+  turnId: string
+  historyTranscript?: TranscriptEvent[]
+}
+
+type TurnExecutionOutcome = 'completed' | 'aborted' | 'blocked' | 'failed'
+
+interface MessageListScrollMetrics {
+  bottomOffset: number
+  viewportHeight: number
+}
+
 interface LoadedChatState {
   conversations: Conversation[]
   activeConversationId: string
@@ -409,6 +440,7 @@ interface ActiveProviderRequestSettings extends RequestSettings {
   generalTagSystemPrompt: string
   readSystemPrompt: string
   skillCallSystemPrompt: string
+  editSystemPrompt: string
   deviceInfoPromptEnabled: boolean
   workspaceInfoPromptEnabled: boolean
   maxModelRetryCount: number
@@ -454,12 +486,64 @@ const TITLE_EDIT_TRANSITION_TRAVEL_MIN_PX = 12
 const TITLE_EDIT_TRANSITION_TRAVEL_MAX_PX = 26
 const MESSAGE_LIST_BOTTOM_THRESHOLD_PX = 28
 const MESSAGE_LIST_INTERACTION_IDLE_MS = 140
+const MESSAGE_LIST_SCROLL_BUTTON_ANIMATION_MS = 180
+const MESSAGE_LIST_SCROLL_BUTTON_DISTANCE_FACTOR = 1
+const MESSAGE_LIST_AUTO_SCROLL_MAX_MS = 96
+const MESSAGE_LIST_SMOOTH_SCROLL_MAX_SPEED_PX_PER_MS = 13.2
+const MESSAGE_LIST_SMOOTH_SCROLL_EASE_DISTANCE_FACTOR = 2.1
+const MESSAGE_LIST_SMOOTH_SCROLL_ACCELERATION_BOOST_START = 0.44
+const MESSAGE_LIST_SMOOTH_SCROLL_ACCELERATION_BOOST_FACTOR = 0.4
+const MESSAGE_LIST_SMOOTH_SCROLL_MIN_STEP_PX = 10
 const DRAWER_TO_SETTINGS_OPEN_DELAY_MS = 220
 const SETTINGS_PERSIST_DEBOUNCE_MS = 320
 const CHAT_STATE_PERSIST_DEBOUNCE_MS = 1200
 
 const truncateDebugLogText = (value: string, limit = DEBUG_LOG_TEXT_LIMIT): string =>
   value.length <= limit ? value : `${value.slice(0, limit)}…(truncated ${value.length - limit})`
+
+const easeOutCubic = (value: number): number => 1 - (1 - value) ** 3
+
+const applyMessageListSmoothScrollAccelerationBoost = (normalizedDistance: number): number => {
+  if (normalizedDistance <= MESSAGE_LIST_SMOOTH_SCROLL_ACCELERATION_BOOST_START) {
+    return normalizedDistance
+  }
+
+  const boostProgress =
+    (normalizedDistance - MESSAGE_LIST_SMOOTH_SCROLL_ACCELERATION_BOOST_START) /
+    (1 - MESSAGE_LIST_SMOOTH_SCROLL_ACCELERATION_BOOST_START)
+
+  return Math.min(
+    1,
+    normalizedDistance +
+      (1 - normalizedDistance) *
+        boostProgress *
+        MESSAGE_LIST_SMOOTH_SCROLL_ACCELERATION_BOOST_FACTOR,
+  )
+}
+
+const resolveMessageListSmoothScrollStep = ({
+  remainingDistance,
+  deltaMs,
+  viewportHeight,
+}: {
+  remainingDistance: number
+  deltaMs: number
+  viewportHeight: number
+}): number => {
+  const maxStep = MESSAGE_LIST_SMOOTH_SCROLL_MAX_SPEED_PX_PER_MS * deltaMs
+  const easeDistance = Math.max(
+    viewportHeight * MESSAGE_LIST_SMOOTH_SCROLL_EASE_DISTANCE_FACTOR,
+    MESSAGE_LIST_SMOOTH_SCROLL_MIN_STEP_PX,
+  )
+  const normalizedDistance = Math.min(1, remainingDistance / easeDistance)
+  const acceleratedDistance = applyMessageListSmoothScrollAccelerationBoost(normalizedDistance)
+  const easedStep = maxStep * easeOutCubic(acceleratedDistance)
+
+  return Math.min(
+    remainingDistance,
+    Math.max(MESSAGE_LIST_SMOOTH_SCROLL_MIN_STEP_PX, easedStep),
+  )
+}
 
 const normalizePromptMessagesForDebug = (
   messages: ApiMessage[],
@@ -584,7 +668,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   topLevelTagSystemPrompt: DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT,
   generalTagSystemPrompt: DEFAULT_GENERAL_TAG_SYSTEM_PROMPT,
   readSystemPrompt: DEFAULT_READ_SYSTEM_PROMPT,
-  skillCallSystemPrompt: DEFAULT_SKILL_CALL_SYSTEM_PROMPT,
+  skillCallSystemPrompt: DEFAULT_RUN_SYSTEM_PROMPT,
+  editSystemPrompt: DEFAULT_EDIT_SYSTEM_PROMPT,
   ...DEFAULT_INFO_PROMPT_SETTINGS,
   deprecatedTagPrompts: '',
   themeMode: 'system',
@@ -614,6 +699,7 @@ const PROMPT_DEFAULTS: Record<GlobalPromptSettingKey, string> = {
   generalTagSystemPrompt: DEFAULT_SETTINGS.generalTagSystemPrompt,
   readSystemPrompt: DEFAULT_SETTINGS.readSystemPrompt,
   skillCallSystemPrompt: DEFAULT_SETTINGS.skillCallSystemPrompt,
+  editSystemPrompt: DEFAULT_SETTINGS.editSystemPrompt,
 }
 
 const createDefaultSettings = (): AppSettings => ({
@@ -881,7 +967,8 @@ const resolveProviderTagPromptOverrides = (
     typeof value.topLevelTagSystemPrompt === 'string' ||
     typeof value.generalTagSystemPrompt === 'string' ||
     typeof value.readSystemPrompt === 'string' ||
-    typeof value.skillCallSystemPrompt === 'string'
+    typeof value.skillCallSystemPrompt === 'string' ||
+    typeof value.editSystemPrompt === 'string'
 
   if (!hasAnyTagPromptOverride) {
     return {
@@ -889,6 +976,7 @@ const resolveProviderTagPromptOverrides = (
       generalTagSystemPrompt: undefined,
       readSystemPrompt: undefined,
       skillCallSystemPrompt: undefined,
+      editSystemPrompt: undefined,
     }
   }
 
@@ -898,6 +986,7 @@ const resolveProviderTagPromptOverrides = (
       generalTagSystemPrompt: normalizeProviderPromptOverride(value.generalTagSystemPrompt),
       readSystemPrompt: normalizeProviderPromptOverride(value.readSystemPrompt),
       skillCallSystemPrompt: normalizeProviderPromptOverride(value.skillCallSystemPrompt),
+      editSystemPrompt: normalizeProviderPromptOverride(value.editSystemPrompt),
     }
   }
 
@@ -907,6 +996,7 @@ const resolveProviderTagPromptOverrides = (
     generalTagSystemPrompt: normalizeProviderPromptOverride(migrated.generalTagSystemPrompt),
     readSystemPrompt: normalizeProviderPromptOverride(migrated.readSystemPrompt),
     skillCallSystemPrompt: normalizeProviderPromptOverride(migrated.skillCallSystemPrompt),
+    editSystemPrompt: normalizeProviderPromptOverride(migrated.editSystemPrompt),
   }
 }
 
@@ -941,6 +1031,7 @@ const normalizeProviderConfig = (
     generalTagSystemPrompt: tagPromptOverrides.generalTagSystemPrompt,
     readSystemPrompt: tagPromptOverrides.readSystemPrompt,
     skillCallSystemPrompt: tagPromptOverrides.skillCallSystemPrompt,
+    editSystemPrompt: tagPromptOverrides.editSystemPrompt,
     deviceInfoPromptEnabled: infoPromptOverrides.deviceInfoPromptEnabled,
     workspaceInfoPromptEnabled: infoPromptOverrides.workspaceInfoPromptEnabled,
     temperature: normalizeProviderNumericOverride('temperature', value.temperature),
@@ -1006,6 +1097,7 @@ const resolveProviderRequestSettings = (settings: AppSettings): ActiveProviderRe
     generalTagSystemPrompt: provider.generalTagSystemPrompt ?? settings.generalTagSystemPrompt,
     readSystemPrompt: provider.readSystemPrompt ?? settings.readSystemPrompt,
     skillCallSystemPrompt: provider.skillCallSystemPrompt ?? settings.skillCallSystemPrompt,
+    editSystemPrompt: provider.editSystemPrompt ?? settings.editSystemPrompt,
     deviceInfoPromptEnabled: provider.deviceInfoPromptEnabled ?? settings.deviceInfoPromptEnabled,
     workspaceInfoPromptEnabled:
       provider.workspaceInfoPromptEnabled ?? settings.workspaceInfoPromptEnabled,
@@ -1210,7 +1302,7 @@ const formatReadLocation = ({
   skill,
   path,
 }: {
-  root?: 'skill' | 'workspace'
+  root?: 'skill' | 'workspace' | 'home' | 'absolute'
   skill?: string
   path?: string
 }): string => {
@@ -1228,6 +1320,16 @@ const formatReadLocation = ({
       return skill
     }
   }
+  if (root === 'home') {
+    return normalizedPath && normalizedPath !== '.'
+      ? `home / ${normalizedPath}`
+      : 'home'
+  }
+  if (root === 'absolute') {
+    return normalizedPath && normalizedPath !== '.'
+      ? `root / ${normalizedPath}`
+      : 'root'
+  }
   if (skill && normalizedPath) {
     return `${skill} / ${normalizedPath}`
   }
@@ -1237,6 +1339,97 @@ const formatReadLocation = ({
   return normalizedPath && normalizedPath !== '.' ? normalizedPath : '读取'
 }
 
+const buildActionLocationField = (
+  root?: 'skill' | 'workspace' | 'home' | 'absolute',
+): {
+  location?: ReturnType<typeof toExternalActionLocation>
+} => ({
+  ...(root ? { location: toExternalActionLocation(root) } : {}),
+})
+
+const serializeReadActionForHost = (
+  action: Pick<ReadAction, 'root' | 'op' | 'skill' | 'path' | 'depth' | 'startLine' | 'endLine'>,
+): Record<string, unknown> => ({
+  ...buildActionLocationField(action.root),
+  op: action.op,
+  ...(action.skill ? { skill: action.skill } : {}),
+  ...(action.path ? { path: action.path } : {}),
+  ...(action.depth !== undefined ? { depth: action.depth } : {}),
+  ...(action.startLine !== undefined ? { startLine: action.startLine } : {}),
+  ...(action.endLine !== undefined ? { endLine: action.endLine } : {}),
+})
+
+const resolveReadActionDisplayPath = (
+  action: Pick<ReadAction, 'root' | 'op' | 'path'>,
+): string | undefined => {
+  const normalizedPath = action.path?.trim()
+  if (normalizedPath) {
+    return normalizedPath
+  }
+  if (action.op === 'list') {
+    return action.root === 'absolute' ? '/' : '.'
+  }
+  return undefined
+}
+
+const serializeReadResultForHost = (payload: ReadExecutionResult): Record<string, unknown> => ({
+  kind: payload.kind,
+  ...buildActionLocationField(payload.root),
+  ...(payload.skill ? { skill: payload.skill } : {}),
+  path: payload.path,
+  ...(payload.kind === 'list'
+    ? {
+        depth: payload.depth,
+        entries: payload.entries,
+        truncated: payload.truncated,
+      }
+    : payload.kind === 'stat'
+      ? {
+          entryType: payload.entryType,
+          ...(payload.size !== undefined ? { size: payload.size } : {}),
+          ...(payload.textLikely !== undefined ? { textLikely: payload.textLikely } : {}),
+        }
+      : {
+          content: payload.content,
+          lineStart: payload.lineStart,
+          lineEnd: payload.lineEnd,
+          truncated: payload.truncated,
+        }),
+})
+
+const serializeRunActionForHost = (
+  action: Pick<RunAction, 'id' | 'root' | 'skill' | 'cwd' | 'command' | 'session' | 'waitMs'>,
+): Record<string, unknown> => ({
+  id: action.id,
+  ...buildActionLocationField(action.root),
+  ...(action.skill ? { skill: action.skill } : {}),
+  ...(action.cwd ? { cwd: action.cwd } : {}),
+  ...(action.command ? { command: action.command } : {}),
+  ...(action.session ? { session: action.session } : {}),
+  ...(action.waitMs !== undefined ? { waitMs: action.waitMs } : {}),
+})
+
+const serializeEditActionForHost = (
+  action: Pick<EditAction, 'root' | 'path' | 'createIfMissing' | 'previewContextLines' | 'edits'>,
+): Record<string, unknown> => ({
+  ...buildActionLocationField(action.root),
+  path: action.path,
+  ...(action.createIfMissing ? { createIfMissing: true } : {}),
+  ...(action.previewContextLines !== undefined ? { previewContextLines: action.previewContextLines } : {}),
+  edits: action.edits,
+})
+
+const serializeEditResultForHost = (payload: EditExecutionResult): Record<string, unknown> => ({
+  kind: payload.kind,
+  ...buildActionLocationField(payload.root),
+  path: payload.path,
+  created: payload.created,
+  lineCountBefore: payload.lineCountBefore,
+  lineCountAfter: payload.lineCountAfter,
+  appliedEdits: payload.appliedEdits,
+  preview: payload.preview,
+})
+
 const formatSkillStepTarget = (step: AssistantFlowSkillNode): string => {
   if (step.actionKind === 'read') {
     const location = formatReadLocation({
@@ -1245,6 +1438,41 @@ const formatSkillStepTarget = (step: AssistantFlowSkillNode): string => {
       path: step.path,
     })
     return step.op ? `${location} / ${step.op}` : location
+  }
+  if (step.actionKind === 'run') {
+    const rootLabel =
+      step.root === 'skill'
+        ? step.skill
+          ? `skill / ${step.skill}`
+          : 'skill'
+        : step.root === 'workspace'
+          ? 'workspace'
+        : step.root === 'home'
+          ? 'home'
+          : step.root === 'absolute'
+              ? 'root'
+              : 'run'
+    if (step.command) {
+      return `${rootLabel} / ${step.command}`
+    }
+    if (step.cwd) {
+      return `${rootLabel} / ${step.cwd}`
+    }
+    return rootLabel
+  }
+  if (step.actionKind === 'edit') {
+    const rootLabel =
+      step.root === 'workspace'
+        ? 'workspace'
+        : step.root === 'home'
+          ? 'home'
+          : step.root === 'absolute'
+            ? 'root'
+            : 'edit'
+    if (step.path) {
+      return `${rootLabel} / ${step.path}`
+    }
+    return rootLabel
   }
   if (step.actionKind === 'skill_call') {
     if (step.skill && step.script) {
@@ -1279,23 +1507,27 @@ const vibrateInteraction = (): void => {
 const TRANSCRIPT_REPLAY_SYSTEM_PROMPT = `
 历史上下文会以原始多轮转录的形式回放：
 
-1. 历史 assistant 输出中可能出现 <progress>、<read>、<skill_call>、<final> 等标签，它们只是历史记录，不会再次执行。
-2. 宿主会以 user 角色注入 <host_message>...</host_message> 作为工具结果或运行时反馈；这些内容不是用户新的自然语言输入。
-3. 只有你当前正在生成的这一次回复中的动作标签会被宿主解析和执行。
+1. 历史 assistant 输出中可能出现 <progress>、<read>、<run>、<skill_call>、<final> 等标签，它们只是历史记录，不会再次执行。
+2. 历史 assistant 输出中若出现 <edit> 也只是历史记录，不会再次执行。
+3. 宿主会以 user 角色注入 <host_message>...</host_message> 作为工具结果或运行时反馈；这些内容不是用户新的自然语言输入。
+4. 只有你当前正在生成的这一次回复中的动作标签会被宿主解析和执行。
 `.trim()
 
-const buildSkillAgentSystemPrompt = (
+const buildSkillAgentSystemPrompt = async (
   settings: Pick<ActiveProviderRequestSettings, PromptEditorKey | InfoPromptSettingKey>,
   skills: SkillRecord[],
   runtimes: RuntimeRecord[],
   conversationId: string,
   transcript: TranscriptEvent[],
-): string => {
+): Promise<string> => {
   const conversationSnapshot = createConversationFromTranscript(conversationId, transcript)
+  const workspacePath = settings.workspaceInfoPromptEnabled
+    ? await resolveWorkspaceInfoPromptPath(conversationSnapshot.id)
+    : ''
   const workspaceInfoPrompt = settings.workspaceInfoPromptEnabled
     ? buildWorkspaceInfoPromptMarkdown(
         createWorkspaceInfoPromptSnapshot(
-          conversationSnapshot.id,
+          workspacePath,
           conversationSnapshot.createdAt,
           conversationSnapshot.updatedAt,
         ),
@@ -1321,6 +1553,7 @@ const buildSkillAgentSystemPrompt = (
     settings.readSystemPrompt.trim(),
     workspaceInfoPrompt,
     settings.skillCallSystemPrompt.trim(),
+    settings.editSystemPrompt.trim(),
     deviceInfoPrompt,
     buildPromptBlocksText(environmentBlocks),
   ]
@@ -1328,17 +1561,30 @@ const buildSkillAgentSystemPrompt = (
     .join('\n\n')
 }
 
-const parseSkillExecutionPayload = (
-  action: SkillCallAction,
+const parseActionExecutionPayload = (
+  action: SkillCallAction | RunAction,
   stdout: string,
   stderr: string,
 ): Record<string, unknown> => {
+  const metadata =
+    action.kind === 'run'
+      ? {
+          id: action.id,
+          ...buildActionLocationField(action.root),
+          skill: action.skill,
+          cwd: action.cwd,
+          command: action.command,
+          session: action.session,
+        }
+      : {
+          id: action.id,
+          skill: action.skill,
+          script: action.script,
+        }
   const trimmedStdout = stdout.trim()
   if (!trimmedStdout) {
     return {
-      id: action.id,
-      skill: action.skill,
-      script: action.script,
+      ...metadata,
       stdout: '',
       stderr: stderr.trim(),
     }
@@ -1348,9 +1594,7 @@ const parseSkillExecutionPayload = (
     const parsed = JSON.parse(trimmedStdout) as unknown
     if (isRecord(parsed)) {
       return {
-        id: action.id,
-        skill: action.skill,
-        script: action.script,
+        ...metadata,
         ...parsed,
         stderr: stderr.trim() || undefined,
       }
@@ -1360,9 +1604,7 @@ const parseSkillExecutionPayload = (
   }
 
   return {
-    id: action.id,
-    skill: action.skill,
-    script: action.script,
+    ...metadata,
     stdout: trimmedStdout,
     stderr: stderr.trim() || undefined,
   }
@@ -1381,6 +1623,17 @@ const buildUserTranscriptContent = (
     image,
   })),
 ]
+
+const buildOutgoingImageAttachments = (
+  pendingImages: PendingImageAttachment[],
+): ImageAttachment[] =>
+  pendingImages.map((image) => ({
+    id: image.id,
+    name: image.name,
+    mimeType: image.mimeType,
+    size: image.size,
+    dataUrl: image.dataUrl,
+  }))
 
 const getUserTranscriptText = (event: UserMessageTranscriptEvent): string =>
   event.content
@@ -1580,6 +1833,26 @@ const applyPermissionGatesToSkillCall = (
   }
 }
 
+const applyPermissionGatesToRun = (
+  action: RunAction,
+  permissionToggles: PermissionToggles,
+): RunAction => {
+  if (action.root !== 'skill' || action.skill !== 'device-info') {
+    return action
+  }
+  if (permissionToggles.location) {
+    return action
+  }
+  const command = action.command?.trim()
+  if (!command || /\s--no-location(?:\s|$)/.test(` ${command} `)) {
+    return action
+  }
+  return {
+    ...action,
+    command: `${command} --no-location`,
+  }
+}
+
 const buildLegacyProvider = (parsed: Record<string, unknown>): ProviderConfig | undefined => {
   const legacyModels = Array.isArray(parsed.models)
     ? parsed.models
@@ -1685,6 +1958,7 @@ const loadSettings = (): AppSettings => {
       generalTagSystemPrompt: storedTagSystemPrompts.generalTagSystemPrompt,
       readSystemPrompt: storedTagSystemPrompts.readSystemPrompt,
       skillCallSystemPrompt: storedTagSystemPrompts.skillCallSystemPrompt,
+      editSystemPrompt: storedTagSystemPrompts.editSystemPrompt,
       deviceInfoPromptEnabled:
         typeof parsed.deviceInfoPromptEnabled === 'boolean'
           ? parsed.deviceInfoPromptEnabled
@@ -1796,6 +2070,7 @@ function App() {
   )
   const [settingsView, setSettingsView] = useState<SettingsView>('main')
   const settingsRef = useRef<AppSettings>(initialSettingsRef.current as AppSettings)
+  const conversationsRef = useRef<Conversation[]>(initialStateRef.current.conversations)
   const [conversations, setConversations] = useState<Conversation[]>(
     initialStateRef.current.conversations,
   )
@@ -1833,6 +2108,12 @@ function App() {
     open: showImageViewerOverlay,
     close: hideImageViewerOverlay,
   } = useAnimatedVisibility(220)
+  const {
+    mounted: scrollToBottomButtonMounted,
+    visible: scrollToBottomButtonVisible,
+    open: showScrollToBottomButton,
+    close: hideScrollToBottomButton,
+  } = useAnimatedVisibility(MESSAGE_LIST_SCROLL_BUTTON_ANIMATION_MS)
   const [providerDetailTargetId, setProviderDetailTargetId] = useState<string | null>(null)
   const [manualModelDraft, setManualModelDraft] = useState('')
   const [providerModelSearch, setProviderModelSearch] = useState('')
@@ -1841,6 +2122,7 @@ function App() {
   const [modelHealth, setModelHealth] = useState<Record<string, ModelHealth>>({})
   const [notice, setNotice] = useState<Notice | null>(null)
   const [isSending, setIsSending] = useState(false)
+  const [activeRequestConversationId, setActiveRequestConversationId] = useState<string | null>(null)
   const [isFetchingModelsByProviderId, setIsFetchingModelsByProviderId] = useState<Record<string, boolean>>({})
   const [deleteModeEnabled, setDeleteModeEnabled] = useState(false)
   const [deleteDialogConversationId, setDeleteDialogConversationId] = useState<string | null>(null)
@@ -1858,6 +2140,10 @@ function App() {
   const [swipingConversationId, setSwipingConversationId] = useState<string | null>(null)
   const [swipeOffsetX, setSwipeOffsetX] = useState(0)
   const [isAutoFollowEnabled, setIsAutoFollowEnabled] = useState(true)
+  const [messageListScrollMetrics, setMessageListScrollMetrics] = useState<MessageListScrollMetrics>({
+    bottomOffset: 0,
+    viewportHeight: 0,
+  })
   const [skillRecords, setSkillRecords] = useState<SkillRecord[]>([])
   const [runtimeRecords, setRuntimeRecords] = useState<RuntimeRecord[]>([])
   const [isLoadingExtensions, setIsLoadingExtensions] = useState(true)
@@ -1872,17 +2158,19 @@ function App() {
   const [openPromptEditors, setOpenPromptEditors] = useState<Record<TagPromptEditorKey, boolean>>({
     systemPrompt: false,
     topLevelTagSystemPrompt: false,
-    generalTagSystemPrompt: false,
-    readSystemPrompt: false,
-    skillCallSystemPrompt: false,
-    deprecatedTagPrompts: false,
-  })
+      generalTagSystemPrompt: false,
+      readSystemPrompt: false,
+      skillCallSystemPrompt: false,
+      editSystemPrompt: false,
+      deprecatedTagPrompts: false,
+    })
   const [openProviderPromptEditors, setOpenProviderPromptEditors] = useState<Record<PromptEditorKey, boolean>>({
     systemPrompt: false,
     topLevelTagSystemPrompt: false,
     generalTagSystemPrompt: false,
     readSystemPrompt: false,
     skillCallSystemPrompt: false,
+    editSystemPrompt: false,
   })
   const [requestingPermissionByKey, setRequestingPermissionByKey] = useState<
     Record<AppPermissionKey, boolean>
@@ -1929,6 +2217,9 @@ function App() {
   const messageListInteractionTimerRef = useRef<number | null>(null)
   const messageListUserInteractingRef = useRef(false)
   const messageListProgrammaticScrollRef = useRef(false)
+  const messageListProgrammaticScrollAnimationFrameRef = useRef<number | null>(null)
+  const messageListSmoothScrollAnimationFrameRef = useRef<number | null>(null)
+  const messageListSmoothScrollInProgressRef = useRef(false)
   const pendingMessageListBottomResetRef = useRef(true)
   const hasAutoCollapsedConversationGroupsRef = useRef(false)
   const conversationGroupElementRefs = useRef<Record<string, HTMLElement | null>>({})
@@ -1954,6 +2245,8 @@ function App() {
   const queuedAssistantStreamDeltaAnimationFrameRef = useRef<number | null>(null)
   const lastSkillRoundLogKeyRef = useRef<string>('')
   const lastObjectFlowLogKeyRef = useRef<string>('')
+  const queuedTurnExecutionsRef = useRef<TurnExecutionJob[]>([])
+  const processingTurnQueueRef = useRef(false)
 
   const closeImageViewer = useCallback((): void => {
     hideImageViewerOverlay()
@@ -2001,6 +2294,21 @@ function App() {
       conversations[0] ??
       null,
     [conversations, activeConversationId],
+  )
+  const setConversationsState = useCallback(
+    (
+      nextState:
+        | Conversation[]
+        | ((previous: Conversation[]) => Conversation[]),
+    ): void => {
+      const next =
+        typeof nextState === 'function'
+          ? (nextState as (previous: Conversation[]) => Conversation[])(conversationsRef.current)
+          : nextState
+      conversationsRef.current = next
+      setConversations(next)
+    },
+    [],
   )
   const skillConfigTarget = useMemo(
     () =>
@@ -2121,6 +2429,10 @@ function App() {
     () => resolveProviderRequestSettings(settings),
     [settings],
   )
+  const isRunningInActiveConversation =
+    activeConversation !== null &&
+    activeRequestConversationId !== null &&
+    activeConversation.id === activeRequestConversationId
   const providerDetailTarget = useMemo(
     () => settings.providers.find((provider) => provider.id === providerDetailTargetId) ?? null,
     [providerDetailTargetId, settings.providers],
@@ -2293,7 +2605,18 @@ function App() {
   }, [projectedMessagesByConversationId, settings.emptyStateStatsMinConversations, visibleConversations])
 
   const hasDraftText = draft.trim().length > 0
-  const canSend = activeConversation !== null && (hasDraftText || pendingImages.length > 0) && !isSending
+  const hasComposerPayload = hasDraftText || pendingImages.length > 0
+  const canSend = activeConversation !== null && hasComposerPayload && !isSending
+  const canAppendWhileSending =
+    settings.skillModeEnabled &&
+    isSending &&
+    isRunningInActiveConversation &&
+    hasComposerPayload
+  const shouldShowScrollToBottomButton =
+    activeMessages.length > 0 &&
+    messageListScrollMetrics.viewportHeight > 0 &&
+    messageListScrollMetrics.bottomOffset >
+      messageListScrollMetrics.viewportHeight * MESSAGE_LIST_SCROLL_BUTTON_DISTANCE_FACTOR
 
   const pushNotice = useCallback((text: string, type: Notice['type'] = 'info'): void => {
     setNotice({ text, type })
@@ -2359,6 +2682,7 @@ function App() {
       generalTagSystemPrompt: false,
       readSystemPrompt: false,
       skillCallSystemPrompt: false,
+      editSystemPrompt: false,
     })
   }, [])
 
@@ -2425,6 +2749,7 @@ function App() {
         generalTagSystemPrompt: false,
         readSystemPrompt: false,
         skillCallSystemPrompt: false,
+        editSystemPrompt: false,
       })
       setProviderDetailTargetId(providerId)
       setSettingsView('provider-detail')
@@ -2877,6 +3202,7 @@ function App() {
       generalTagSystemPrompt: false,
       readSystemPrompt: false,
       skillCallSystemPrompt: false,
+      editSystemPrompt: false,
     })
     setProviderDetailTargetId(provider.id)
     setSettingsView('provider-detail')
@@ -3076,7 +3402,7 @@ function App() {
     setManualModelDraft('')
   }, [manualModelDraft, providerDetailTargetId, updateProviderById])
 
-  const updateConversationDraft = (conversationId: string, nextDraft: string): void => {
+  const updateConversationDraft = useCallback((conversationId: string, nextDraft: string): void => {
     setDraftsByConversation((previous) => {
       if (nextDraft.length === 0) {
         if (!Object.prototype.hasOwnProperty.call(previous, conversationId)) {
@@ -3096,10 +3422,10 @@ function App() {
         [conversationId]: nextDraft,
       }
     })
-  }
+  }, [])
 
   const updateConversationTranscript = (conversationId: string, transcript: TranscriptEvent[]): void => {
-    setConversations((previous) =>
+    setConversationsState((previous) =>
       previous.map((conversation) =>
         conversation.id === conversationId
           ? withConversationTranscript(conversation, transcript)
@@ -3108,12 +3434,47 @@ function App() {
     )
   }
 
+  const resetComposerState = useCallback(
+    (conversationId: string): void => {
+      updateConversationDraft(conversationId, '')
+      pendingImageCompressionTaskIdRef.current = {}
+      setPendingImages([])
+      setEditingMessageId(null)
+      closeModelMenu()
+    },
+    [closeModelMenu, updateConversationDraft],
+  )
+
+  const buildTurnHistoryTranscript = useCallback(
+    (conversationId: string, turnId: string): TranscriptEvent[] | null => {
+      const conversation =
+        conversationsRef.current.find((item) => item.id === conversationId) ?? null
+      if (!conversation) {
+        return null
+      }
+
+      const userEventIndex = conversation.transcript.findIndex(
+        (event) => event.kind === 'user_message' && event.turnId === turnId,
+      )
+      if (userEventIndex < 0) {
+        return null
+      }
+
+      return conversation.transcript.slice(0, userEventIndex + 1)
+    },
+    [],
+  )
+
+  const clearQueuedTurnExecutions = useCallback((): void => {
+    queuedTurnExecutionsRef.current = []
+  }, [])
+
   const appendConversationTranscriptEvents = useCallback(
     (conversationId: string, events: TranscriptEvent[]): void => {
       if (events.length === 0) {
         return
       }
-      setConversations((previous) =>
+      setConversationsState((previous) =>
         previous.map((conversation) =>
           conversation.id === conversationId
             ? withConversationTranscript(conversation, [...conversation.transcript, ...events])
@@ -3121,7 +3482,7 @@ function App() {
         ),
       )
     },
-    [],
+    [setConversationsState],
   )
 
   const updateAssistantEvent = useCallback(
@@ -3130,7 +3491,7 @@ function App() {
       assistantId: string,
       updater: (event: AssistantMessageTranscriptEvent) => AssistantMessageTranscriptEvent,
     ): void => {
-      setConversations((previous) =>
+      setConversationsState((previous) =>
         previous.map((conversation) => {
           if (conversation.id !== conversationId) {
             return conversation
@@ -3155,7 +3516,7 @@ function App() {
         }),
       )
     },
-    [],
+    [setConversationsState],
   )
 
   const applyAssistantFlowState = useCallback(
@@ -3441,7 +3802,7 @@ function App() {
     title: string,
     manual: boolean,
   ): void => {
-    setConversations((previous) =>
+    setConversationsState((previous) =>
       previous.map((conversation) => {
         if (conversation.id !== conversationId) {
           return conversation
@@ -3507,7 +3868,7 @@ function App() {
     const usage = result.usage ?? estimateUsage(promptMessages, finalText)
     const usageEstimated = result.usage === undefined
 
-    setConversations((previous) =>
+    setConversationsState((previous) =>
       previous.map((conversation) => {
         if (conversation.id !== conversationId) {
           return conversation
@@ -3537,23 +3898,20 @@ function App() {
     )
   }
 
-  const runAssistant = async (
+  const executeAssistantTurn = async (
     conversationId: string,
     historyTranscript: TranscriptEvent[],
     turnId: string,
-  ): Promise<void> => {
+    controller: AbortController,
+  ): Promise<TurnExecutionOutcome> => {
     if (!ensureReadyToRequest()) {
-      return
+      return 'blocked'
     }
 
     const settingsSnapshot = activeProviderRequestSettings
     if (!settingsSnapshot) {
-      return
+      return 'blocked'
     }
-    setIsSending(true)
-
-    const controller = new AbortController()
-    setAbortController(controller)
     const firstTokenHapticsEnabled = settings.firstTokenHapticsEnabled
     let hasTriggeredFirstTokenHaptic = false
     const currentUserEvent = historyTranscript[historyTranscript.length - 1]
@@ -3608,18 +3966,33 @@ function App() {
       const payload = compactActionPreviewPayload({
         tag,
         id: preview.id,
-        root: preview.root,
+        location: toExternalActionLocation(
+          preview.root === 'skill' ||
+            preview.root === 'workspace' ||
+            preview.root === 'home' ||
+            preview.root === 'absolute'
+            ? preview.root
+            : undefined,
+        ),
         op: preview.op,
         skill: preview.skill,
         path: preview.path,
         depth: preview.depth,
         startLine: preview.startLine,
         endLine: preview.endLine,
+        cwd: preview.cwd,
+        command: preview.command,
+        session: preview.session,
+        waitMs: preview.waitMs,
         script: preview.script,
         argv: preview.argv,
         stdin: preview.stdin,
         env: preview.env,
         timeoutMs: preview.timeoutMs,
+        createIfMissing: preview.createIfMissing,
+        previewContextLines: preview.previewContextLines,
+        edits: preview.edits,
+        editCount: preview.editCount,
         error,
       })
       return formatStructuredMarkdown(payload)
@@ -3641,13 +4014,16 @@ function App() {
       patch: {
         actionKind?: SkillStepKind
         status?: 'running' | 'success' | 'error'
-        root?: 'skill' | 'workspace'
+        root?: 'skill' | 'workspace' | 'home' | 'absolute'
         op?: 'list' | 'read' | 'stat'
         skill?: string
         path?: string
         depth?: number
         startLine?: number
         endLine?: number
+        cwd?: string
+        command?: string
+        session?: string
         script?: string
         error?: string
         result?: string
@@ -3746,7 +4122,16 @@ function App() {
             actionKind: eventKind,
             status: event.type === 'close' && event.error ? 'error' : 'running',
             root:
-              eventKind === 'read' && (preview.root === 'skill' || preview.root === 'workspace')
+              ((eventKind === 'read' || eventKind === 'edit') &&
+                (preview.root === 'skill' ||
+                  preview.root === 'workspace' ||
+                  preview.root === 'home' ||
+                  preview.root === 'absolute')) ||
+              (eventKind === 'run' &&
+                (preview.root === 'skill' ||
+                  preview.root === 'workspace' ||
+                  preview.root === 'home' ||
+                  preview.root === 'absolute'))
                 ? preview.root
                 : undefined,
             op:
@@ -3757,13 +4142,24 @@ function App() {
             skill:
               typeof preview.skill === 'string' && preview.skill.trim()
                 ? preview.skill
-                : event.type === 'open' && (eventKind === 'skill_call' || preview.root === 'skill')
+                : event.type === 'open' &&
+                    (eventKind === 'skill_call' ||
+                      (eventKind === 'run' && preview.root === 'skill') ||
+                      preview.root === 'skill')
                   ? '未命名技能'
                   : undefined,
-            path: eventKind === 'read' && typeof preview.path === 'string' ? preview.path : undefined,
+            path:
+              (eventKind === 'read' || eventKind === 'edit') && typeof preview.path === 'string'
+                ? preview.path
+                : undefined,
             depth: eventKind === 'read' ? preview.depth : undefined,
             startLine: eventKind === 'read' ? preview.startLine : undefined,
             endLine: eventKind === 'read' ? preview.endLine : undefined,
+            cwd: eventKind === 'run' && typeof preview.cwd === 'string' ? preview.cwd : undefined,
+            command:
+              eventKind === 'run' && typeof preview.command === 'string' ? preview.command : undefined,
+            session:
+              eventKind === 'run' && typeof preview.session === 'string' ? preview.session : undefined,
             script: eventKind === 'skill_call' && typeof preview.script === 'string' ? preview.script : undefined,
             error: event.type === 'close' ? event.error : undefined,
             result: formatLiveActionPreview(eventKind, preview, event.error),
@@ -3959,10 +4355,10 @@ function App() {
           resolvedText: completion.text,
           preserveRawText: true,
         })
-        return
+        return 'completed'
       }
 
-      const systemPrompt = buildSkillAgentSystemPrompt(
+      const systemPrompt = await buildSkillAgentSystemPrompt(
         settingsSnapshot,
         skillRecords,
         runtimeRecords,
@@ -4092,7 +4488,7 @@ function App() {
             action.kind === 'read'
               ? {
                   kind: action.kind,
-                  root: action.root,
+                  location: toExternalActionLocation(action.root),
                   op: action.op,
                   skill: action.skill,
                   path: action.path,
@@ -4100,13 +4496,33 @@ function App() {
                   startLine: action.startLine,
                   endLine: action.endLine,
                 }
-              : {
-                  kind: action.kind,
-                  id: action.id,
-                  skill: action.skill,
-                  script: action.script,
-                  argv: action.argv ?? [],
-                },
+              : action.kind === 'edit'
+                ? {
+                    kind: action.kind,
+                    location: toExternalActionLocation(action.root),
+                    path: action.path,
+                    createIfMissing: action.createIfMissing,
+                    previewContextLines: action.previewContextLines,
+                    edits: action.edits,
+                  }
+              : action.kind === 'run'
+                ? {
+                    kind: action.kind,
+                    id: action.id,
+                    location: toExternalActionLocation(action.root),
+                    skill: action.skill,
+                    cwd: action.cwd,
+                    command: action.command,
+                    session: action.session,
+                    waitMs: action.waitMs,
+                  }
+                : {
+                    kind: action.kind,
+                    id: action.id,
+                    skill: action.skill,
+                    script: action.script,
+                    argv: action.argv ?? [],
+                  },
                 )
               : [],
         })
@@ -4193,12 +4609,13 @@ function App() {
           if (action.kind === 'read') {
             const actionToken =
               roundContext.skillTokenOrder[actionIndex] || `round-${roundId}-read-${actionIndex + 1}`
+            const displayPath = resolveReadActionDisplayPath(action)
             patchRoundSkillNode(roundContext, assistantId, actionToken, {
               actionKind: 'read',
               root: action.root,
               op: action.op,
               skill: action.skill,
-              path: action.path?.trim() || (action.op === 'list' ? '.' : undefined),
+              path: displayPath,
               depth: action.depth,
               startLine: action.startLine,
               endLine: action.endLine,
@@ -4212,7 +4629,7 @@ function App() {
                 actionKind: 'read',
                 status: 'success',
                 error: undefined,
-                result: formatSkillStepResult(payload),
+                result: formatSkillStepResult(serializeReadResultForHost(payload)),
               })
               appendHostMessage({
                 kind: 'host_message',
@@ -4222,25 +4639,25 @@ function App() {
                 createdAt: Date.now(),
                 category: 'read_result',
                 payload: {
-                  request: {
+                  request: serializeReadActionForHost({
                     root: action.root,
                     op: action.op,
                     skill: action.skill,
-                    path: action.path?.trim() || (action.op === 'list' ? '.' : undefined),
+                    path: displayPath,
                     depth: action.depth,
                     startLine: action.startLine,
                     endLine: action.endLine,
-                  },
-                  result: payload,
+                  }),
+                  result: serializeReadResultForHost(payload),
                 },
               })
             } catch (error) {
               const message = error instanceof Error ? error.message : '读取失败'
               const payload = {
-                root: action.root,
+                ...buildActionLocationField(action.root),
                 op: action.op,
                 skill: action.skill,
-                path: action.path?.trim() || (action.op === 'list' ? '.' : undefined),
+                path: displayPath,
                 depth: action.depth,
                 startLine: action.startLine,
                 endLine: action.endLine,
@@ -4260,15 +4677,209 @@ function App() {
                 createdAt: Date.now(),
                 category: 'read_error',
                 payload: {
-                  request: {
+                  request: serializeReadActionForHost({
                     root: action.root,
                     op: action.op,
                     skill: action.skill,
-                    path: action.path?.trim() || (action.op === 'list' ? '.' : undefined),
+                    path: displayPath,
                     depth: action.depth,
                     startLine: action.startLine,
                     endLine: action.endLine,
-                  },
+                  }),
+                  result: payload,
+                },
+              })
+            }
+            continue
+          }
+
+          if (action.kind === 'edit') {
+            const actionToken =
+              roundContext.skillTokenOrder[actionIndex] || `round-${roundId}-edit-${actionIndex + 1}`
+            patchRoundSkillNode(roundContext, assistantId, actionToken, {
+              actionKind: 'edit',
+              root: action.root,
+              path: action.path,
+              status: 'running',
+              error: undefined,
+            })
+
+            try {
+              const payload = await executeEditAction(action, conversationId)
+              patchRoundSkillNode(roundContext, assistantId, actionToken, {
+                actionKind: 'edit',
+                status: 'success',
+                error: undefined,
+                result: formatSkillStepResult(serializeEditResultForHost(payload)),
+              })
+              appendHostMessage({
+                kind: 'host_message',
+                id: createId(),
+                turnId,
+                roundId,
+                createdAt: Date.now(),
+                category: 'edit_result',
+                payload: {
+                  request: serializeEditActionForHost(action),
+                  result: serializeEditResultForHost(payload),
+                },
+              })
+            } catch (error) {
+              const message = error instanceof Error ? error.message : '编辑失败'
+              const payload = {
+                ...serializeEditActionForHost(action),
+                error: message,
+              }
+              patchRoundSkillNode(roundContext, assistantId, actionToken, {
+                actionKind: 'edit',
+                status: 'error',
+                error: message,
+                result: formatSkillStepResult(payload),
+              })
+              appendHostMessage({
+                kind: 'host_message',
+                id: createId(),
+                turnId,
+                roundId,
+                createdAt: Date.now(),
+                category: 'edit_error',
+                payload: {
+                  request: serializeEditActionForHost(action),
+                  result: payload,
+                },
+              })
+            }
+            continue
+          }
+
+          if (action.kind === 'run') {
+            const actionToken =
+              roundContext.skillTokenOrder[actionIndex] || `round-${roundId}-run-${actionIndex + 1}`
+            const gatedAction = applyPermissionGatesToRun(action, settings.permissionToggles)
+            let executableAction: RunAction
+
+            try {
+              executableAction = materializeRunAction(gatedAction)
+            } catch (error) {
+              const message = error instanceof Error ? error.message : 'run 执行失败'
+              const payload = {
+                id: gatedAction.id,
+                ...buildActionLocationField(gatedAction.root),
+                skill: gatedAction.skill,
+                cwd: gatedAction.cwd,
+                command: gatedAction.command,
+                session: gatedAction.session,
+                error: message,
+              }
+              patchRoundSkillNode(roundContext, assistantId, actionToken, {
+                actionKind: 'run',
+                root: gatedAction.root,
+                skill: gatedAction.skill,
+                cwd: gatedAction.cwd,
+                command: gatedAction.command,
+                session: gatedAction.session,
+                status: 'error',
+                error: message,
+                result: formatSkillStepResult(payload),
+              })
+              appendHostMessage({
+                kind: 'host_message',
+                id: createId(),
+                turnId,
+                roundId,
+                createdAt: Date.now(),
+                category: 'run_error',
+                payload: {
+                  request: serializeRunActionForHost(gatedAction),
+                  result: payload,
+                },
+              })
+              continue
+            }
+
+            patchRoundSkillNode(roundContext, assistantId, actionToken, {
+              actionKind: 'run',
+              root: executableAction.root,
+              skill: executableAction.skill,
+              cwd: executableAction.cwd,
+              command: executableAction.command,
+              session: executableAction.session,
+              status: 'running',
+              error: undefined,
+            })
+
+            try {
+              const execution = await executeRunAction(executableAction, conversationId)
+              const payload = {
+                id: executableAction.id,
+                ...buildActionLocationField(executableAction.root),
+                skill: executableAction.skill,
+                cwd: executableAction.cwd,
+                command: executableAction.command,
+                session: execution.session,
+                running: execution.running,
+                stdout: execution.stdout,
+                stderr: execution.stderr,
+                exitCode: execution.exitCode,
+                elapsedMs: Math.round(execution.elapsedMs),
+                waitedMs: execution.waitedMs,
+                resolvedCommand: execution.resolvedCommand,
+                resolvedCwd: execution.resolvedCwd,
+                inferredRuntime: execution.inferredRuntime,
+                pid: execution.pid,
+                startedAt: execution.startedAt,
+                updatedAt: execution.updatedAt,
+                completedAt: execution.completedAt,
+              }
+              patchRoundSkillNode(roundContext, assistantId, actionToken, {
+                actionKind: 'run',
+                status: execution.running ? 'running' : execution.ok ? 'success' : 'error',
+                error:
+                  execution.running
+                    ? undefined
+                    : execution.ok
+                      ? undefined
+                      : execution.stderr.trim() || `退出码 ${execution.exitCode}`,
+                result: formatSkillStepResult(payload),
+              })
+              appendHostMessage({
+                kind: 'host_message',
+                id: createId(),
+                turnId,
+                roundId,
+                createdAt: Date.now(),
+                category: execution.ok ? 'run_result' : 'run_error',
+                payload: {
+                  request: serializeRunActionForHost(executableAction),
+                  result: payload,
+                },
+              })
+            } catch (error) {
+              const message = error instanceof Error ? error.message : 'run 执行失败'
+              const payload = {
+                id: executableAction.id,
+                ...buildActionLocationField(executableAction.root),
+                skill: executableAction.skill,
+                cwd: executableAction.cwd,
+                command: executableAction.command,
+                session: executableAction.session,
+                error: message,
+              }
+              patchRoundSkillNode(roundContext, assistantId, actionToken, {
+                actionKind: 'run',
+                status: 'error',
+                error: message,
+                result: formatSkillStepResult(payload),
+              })
+              appendHostMessage({
+                kind: 'host_message',
+                id: createId(),
+                turnId,
+                roundId,
+                createdAt: Date.now(),
+                category: 'run_error',
+                payload: {
+                  request: serializeRunActionForHost(executableAction),
                   result: payload,
                 },
               })
@@ -4288,9 +4899,9 @@ function App() {
           })
 
           try {
-            const execution = await executeSkillCall(executableAction)
+            const execution = await executeSkillCall(executableAction, conversationId)
             const payload = {
-              ...parseSkillExecutionPayload(executableAction, execution.stdout, execution.stderr),
+              ...parseActionExecutionPayload(executableAction, execution.stdout, execution.stderr),
               exitCode: execution.exitCode,
               elapsedMs: Math.round(execution.elapsedMs),
               resolvedCommand: execution.resolvedCommand,
@@ -4359,6 +4970,7 @@ function App() {
             : undefined,
         finalReasoning: truncateDebugLogText(finalCompletion.reasoning ?? ''),
       })
+      return 'completed'
     } catch (error) {
       flushQueuedAssistantStreamDelta()
       appendSkillRoundLog({
@@ -4384,11 +4996,71 @@ function App() {
           pushNotice(`请求失败：${message}`, 'error')
         }
       }
+      return error instanceof DOMException && error.name === 'AbortError' ? 'aborted' : 'failed'
     } finally {
       flushQueuedAssistantStreamDelta()
-      setAbortController(null)
-      setIsSending(false)
     }
+  }
+
+  const processQueuedTurnExecutions = async (): Promise<void> => {
+    if (processingTurnQueueRef.current) {
+      return
+    }
+
+    processingTurnQueueRef.current = true
+    setIsSending(true)
+
+    try {
+      for (;;) {
+        const job = queuedTurnExecutionsRef.current.shift()
+        if (!job) {
+          break
+        }
+
+        const historyTranscript = job.historyTranscript ?? buildTurnHistoryTranscript(job.conversationId, job.turnId)
+        if (!historyTranscript) {
+          clearQueuedTurnExecutions()
+          break
+        }
+
+        setActiveRequestConversationId(job.conversationId)
+        const controller = new AbortController()
+        setAbortController(controller)
+
+        const outcome = await executeAssistantTurn(
+          job.conversationId,
+          historyTranscript,
+          job.turnId,
+          controller,
+        )
+
+        setAbortController(null)
+
+        if (outcome !== 'completed') {
+          clearQueuedTurnExecutions()
+          break
+        }
+      }
+    } finally {
+      processingTurnQueueRef.current = false
+      setAbortController(null)
+      setActiveRequestConversationId(null)
+      const shouldRestart = queuedTurnExecutionsRef.current.length > 0
+      if (!shouldRestart) {
+        setIsSending(false)
+      }
+      if (shouldRestart) {
+        void processQueuedTurnExecutions()
+      }
+    }
+  }
+
+  const enqueueTurnExecution = (job: TurnExecutionJob): void => {
+    queuedTurnExecutionsRef.current.push(job)
+    if (processingTurnQueueRef.current) {
+      return
+    }
+    void processQueuedTurnExecutions()
   }
 
   const runObjectFlowDebugScenario = async (
@@ -4520,21 +5192,6 @@ function App() {
       compactDraftCommand.includes('/debug-object-flow') ||
       compactDraftCommand.includes('/debug_object_flow')
 
-    const resetComposerState = (): void => {
-      setDraftsByConversation((previous) => {
-        if (!Object.prototype.hasOwnProperty.call(previous, activeConversation.id)) {
-          return previous
-        }
-        const next = { ...previous }
-        delete next[activeConversation.id]
-        return next
-      })
-      pendingImageCompressionTaskIdRef.current = {}
-      setPendingImages([])
-      setEditingMessageId(null)
-      closeModelMenu()
-    }
-
     if (isDebugLogClearCommand) {
       clearDebugLogEntries(DEBUG_SKILL_ROUND_LOG_STORAGE_KEY)
       clearDebugLogEntries(DEBUG_OBJECT_FLOW_LOG_STORAGE_KEY)
@@ -4549,7 +5206,7 @@ function App() {
           activeProviderRequestSettings?.currentModel ?? 'debug-log',
         ),
       ])
-      resetComposerState()
+      resetComposerState(activeConversation.id)
       return
     }
 
@@ -4565,7 +5222,7 @@ function App() {
           activeProviderRequestSettings?.currentModel ?? 'debug-log',
         ),
       ])
-      resetComposerState()
+      resetComposerState(activeConversation.id)
       return
     }
 
@@ -4578,7 +5235,7 @@ function App() {
       )
       const historyTranscript = [...activeConversation.transcript, userEvent]
       appendConversationTranscriptEvents(activeConversation.id, [userEvent])
-      resetComposerState()
+      resetComposerState(activeConversation.id)
       await runObjectFlowDebugScenario(activeConversation.id, historyTranscript, turnId)
       return
     }
@@ -4587,17 +5244,7 @@ function App() {
       return
     }
 
-    const outgoingImages: ImageAttachment[] =
-      pendingImages.length > 0
-        ? pendingImages.map((image) => ({
-            id: image.id,
-            name: image.name,
-            mimeType: image.mimeType,
-            size: image.size,
-            dataUrl: image.dataUrl,
-          }))
-        : []
-
+    const outgoingImages = buildOutgoingImageAttachments(pendingImages)
     const turnId = createId()
     const userEvent = createUserMessageTranscriptEvent(
       turnId,
@@ -4606,11 +5253,46 @@ function App() {
     )
     const historyTranscript = [...activeConversation.transcript, userEvent]
     appendConversationTranscriptEvents(activeConversation.id, [userEvent])
-    resetComposerState()
-    await runAssistant(activeConversation.id, historyTranscript, turnId)
+    resetComposerState(activeConversation.id)
+    enqueueTurnExecution({
+      conversationId: activeConversation.id,
+      turnId,
+      historyTranscript,
+    })
+  }
+
+  const handleAppend = (): void => {
+    if (
+      !activeConversation ||
+      !settings.skillModeEnabled ||
+      !isSending ||
+      !isRunningInActiveConversation
+    ) {
+      return
+    }
+
+    const trimmedDraft = draft.trim()
+    const outgoingImages = buildOutgoingImageAttachments(pendingImages)
+    if (!trimmedDraft && outgoingImages.length === 0) {
+      return
+    }
+
+    const turnId = createId()
+    const userEvent = createUserMessageTranscriptEvent(
+      turnId,
+      Date.now(),
+      buildUserTranscriptContent(trimmedDraft, outgoingImages),
+    )
+    appendConversationTranscriptEvents(activeConversation.id, [userEvent])
+    resetComposerState(activeConversation.id)
+    enqueueTurnExecution({
+      conversationId: activeConversation.id,
+      turnId,
+    })
   }
 
   const stopGeneration = (): void => {
+    clearQueuedTurnExecutions()
     abortController?.abort()
   }
 
@@ -4913,7 +5595,11 @@ function App() {
 
     cancelEdit()
     updateConversationTranscript(activeConversation.id, nextTranscript)
-    await runAssistant(activeConversation.id, nextTranscript, updatedUserEvent.turnId)
+    enqueueTurnExecution({
+      conversationId: activeConversation.id,
+      turnId: updatedUserEvent.turnId,
+      historyTranscript: nextTranscript,
+    })
   }
 
   const regenerate = async (assistantId: string): Promise<void> => {
@@ -4939,7 +5625,11 @@ function App() {
 
     const historyTranscript = activeConversation.transcript.slice(0, userEventIndex + 1)
     updateConversationTranscript(activeConversation.id, historyTranscript)
-    await runAssistant(activeConversation.id, historyTranscript, target.turnId)
+    enqueueTurnExecution({
+      conversationId: activeConversation.id,
+      turnId: target.turnId,
+      historyTranscript,
+    })
   }
 
   const copyMessageText = async (text: string): Promise<void> => {
@@ -4990,35 +5680,206 @@ function App() {
     }
   }, [])
 
-  const isMessageListAtBottom = useCallback((): boolean => {
-    const messageList = messageListRef.current
-    if (!messageList) {
-      return true
+  const clearProgrammaticMessageListScrollTracking = useCallback((): void => {
+    if (messageListProgrammaticScrollAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(messageListProgrammaticScrollAnimationFrameRef.current)
+      messageListProgrammaticScrollAnimationFrameRef.current = null
     }
-
-    return (
-      messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight <=
-      MESSAGE_LIST_BOTTOM_THRESHOLD_PX
-    )
+    messageListProgrammaticScrollRef.current = false
   }, [])
 
+  const cancelMessageListSmoothScroll = useCallback((): void => {
+    if (messageListSmoothScrollAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(messageListSmoothScrollAnimationFrameRef.current)
+      messageListSmoothScrollAnimationFrameRef.current = null
+    }
+    messageListSmoothScrollInProgressRef.current = false
+  }, [])
+
+  const getMessageListScrollMetrics = useCallback(
+    (
+      messageList?: HTMLElement | null,
+    ): MessageListScrollMetrics & {
+      atBottom: boolean
+    } => {
+      const target = messageList ?? messageListRef.current
+      if (!target) {
+        return {
+          bottomOffset: 0,
+          viewportHeight: 0,
+          atBottom: true,
+        }
+      }
+
+      const viewportHeight = Math.max(0, target.clientHeight)
+      const bottomOffset = Math.max(0, target.scrollHeight - target.scrollTop - viewportHeight)
+      return {
+        bottomOffset,
+        viewportHeight,
+        atBottom: bottomOffset <= MESSAGE_LIST_BOTTOM_THRESHOLD_PX,
+      }
+    },
+    [],
+  )
+
+  const syncMessageListScrollMetrics = useCallback(
+    (
+      messageList?: HTMLElement | null,
+    ): MessageListScrollMetrics & {
+      atBottom: boolean
+    } => {
+      const next = getMessageListScrollMetrics(messageList)
+      setMessageListScrollMetrics((previous) =>
+        previous.bottomOffset === next.bottomOffset && previous.viewportHeight === next.viewportHeight
+          ? previous
+          : {
+              bottomOffset: next.bottomOffset,
+              viewportHeight: next.viewportHeight,
+            },
+      )
+      return next
+    },
+    [getMessageListScrollMetrics],
+  )
+
+  const isMessageListAtBottom = useCallback((): boolean => {
+    return getMessageListScrollMetrics().atBottom
+  }, [getMessageListScrollMetrics])
+
+  const trackProgrammaticMessageListScroll = useCallback(
+    (maxDurationMs: number): void => {
+      clearProgrammaticMessageListScrollTracking()
+      messageListProgrammaticScrollRef.current = true
+      const startedAt = window.performance.now()
+
+      const tick = (): void => {
+        const elapsedMs = window.performance.now() - startedAt
+        const metrics = getMessageListScrollMetrics()
+        if (metrics.atBottom || elapsedMs >= maxDurationMs) {
+          clearProgrammaticMessageListScrollTracking()
+          syncMessageListScrollMetrics()
+          return
+        }
+
+        messageListProgrammaticScrollAnimationFrameRef.current = window.requestAnimationFrame(tick)
+      }
+
+      messageListProgrammaticScrollAnimationFrameRef.current = window.requestAnimationFrame(tick)
+    },
+    [
+      clearProgrammaticMessageListScrollTracking,
+      getMessageListScrollMetrics,
+      syncMessageListScrollMetrics,
+    ],
+  )
+
   const scrollMessageListToBottom = useCallback((): void => {
+    if (messageListSmoothScrollInProgressRef.current) {
+      return
+    }
+
     const messageList = messageListRef.current
     if (!messageList) {
       return
     }
 
-    messageListProgrammaticScrollRef.current = true
-    messageList.scrollTop = messageList.scrollHeight
-    window.requestAnimationFrame(() => {
-      messageListProgrammaticScrollRef.current = false
+    cancelMessageListSmoothScroll()
+    trackProgrammaticMessageListScroll(MESSAGE_LIST_AUTO_SCROLL_MAX_MS)
+    setMessageListScrollMetrics({
+      bottomOffset: 0,
+      viewportHeight: Math.max(0, messageList.clientHeight),
     })
-  }, [])
+
+    if (typeof messageList.scrollTo === 'function') {
+      messageList.scrollTo({
+        top: messageList.scrollHeight,
+        behavior: 'auto',
+      })
+      return
+    }
+
+    messageList.scrollTop = messageList.scrollHeight
+  }, [cancelMessageListSmoothScroll, trackProgrammaticMessageListScroll])
+
+  const smoothScrollMessageListToBottom = useCallback(
+    (
+      options?: {
+        enableAutoFollowOnComplete?: boolean
+      },
+    ): void => {
+    const messageList = messageListRef.current
+    if (!messageList) {
+      return
+    }
+
+    cancelMessageListSmoothScroll()
+    clearProgrammaticMessageListScrollTracking()
+    messageListProgrammaticScrollRef.current = true
+    messageListSmoothScrollInProgressRef.current = true
+    setMessageListScrollMetrics({
+      bottomOffset: 0,
+      viewportHeight: Math.max(0, messageList.clientHeight),
+    })
+
+    let previousTimestamp = window.performance.now()
+
+    const animate = (timestamp: number): void => {
+      const currentMessageList = messageListRef.current
+      if (!currentMessageList) {
+        cancelMessageListSmoothScroll()
+        clearProgrammaticMessageListScrollTracking()
+        return
+      }
+
+      const deltaMs = Math.max(1, timestamp - previousTimestamp)
+      previousTimestamp = timestamp
+
+      const targetScrollTop = Math.max(
+        0,
+        currentMessageList.scrollHeight - currentMessageList.clientHeight,
+      )
+      const remainingDistance = Math.max(0, targetScrollTop - currentMessageList.scrollTop)
+
+      if (remainingDistance <= 1) {
+        currentMessageList.scrollTop = targetScrollTop
+        cancelMessageListSmoothScroll()
+        clearProgrammaticMessageListScrollTracking()
+        syncMessageListScrollMetrics(currentMessageList)
+        if (options?.enableAutoFollowOnComplete) {
+          setIsAutoFollowEnabled(true)
+        }
+        return
+      }
+
+      const nextStep = resolveMessageListSmoothScrollStep({
+        remainingDistance,
+        deltaMs,
+        viewportHeight: currentMessageList.clientHeight,
+      })
+
+      currentMessageList.scrollTop = Math.min(targetScrollTop, currentMessageList.scrollTop + nextStep)
+      messageListSmoothScrollAnimationFrameRef.current = window.requestAnimationFrame(animate)
+    }
+
+    messageListSmoothScrollAnimationFrameRef.current = window.requestAnimationFrame(animate)
+    },
+    [
+      cancelMessageListSmoothScroll,
+      clearProgrammaticMessageListScrollTracking,
+      syncMessageListScrollMetrics,
+    ],
+  )
 
   const beginMessageListInteraction = useCallback((): void => {
+    cancelMessageListSmoothScroll()
+    clearProgrammaticMessageListScrollTracking()
     clearMessageListInteractionTimer()
     messageListUserInteractingRef.current = true
-  }, [clearMessageListInteractionTimer])
+  }, [
+    cancelMessageListSmoothScroll,
+    clearMessageListInteractionTimer,
+    clearProgrammaticMessageListScrollTracking,
+  ])
 
   const scheduleMessageListInteractionEnd = useCallback((): void => {
     clearMessageListInteractionTimer()
@@ -5039,16 +5900,13 @@ function App() {
         return
       }
 
-      const messageList = event.currentTarget
-      const atBottom =
-        messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight <=
-        MESSAGE_LIST_BOTTOM_THRESHOLD_PX
+      const metrics = syncMessageListScrollMetrics(event.currentTarget)
 
       beginMessageListInteraction()
-      setIsAutoFollowEnabled((previous) => (previous === atBottom ? previous : atBottom))
+      setIsAutoFollowEnabled((previous) => (previous === metrics.atBottom ? previous : metrics.atBottom))
       scheduleMessageListInteractionEnd()
     },
-    [beginMessageListInteraction, scheduleMessageListInteractionEnd],
+    [beginMessageListInteraction, scheduleMessageListInteractionEnd, syncMessageListScrollMetrics],
   )
 
   const handleMessageListPointerDownCapture = useCallback((): void => {
@@ -5070,6 +5928,14 @@ function App() {
     },
     [beginMessageListInteraction, scheduleMessageListInteractionEnd],
   )
+
+  const handleScrollToBottomButtonClick = useCallback((): void => {
+    clearMessageListInteractionTimer()
+    messageListUserInteractingRef.current = false
+    smoothScrollMessageListToBottom({
+      enableAutoFollowOnComplete: true,
+    })
+  }, [clearMessageListInteractionTimer, smoothScrollMessageListToBottom])
 
   const switchConversation = (conversationId: string): void => {
     setActiveConversationId(conversationId)
@@ -5113,6 +5979,11 @@ function App() {
     let deletedActiveConversation = false
     let nextActiveConversationId: string | null = null
 
+    void deleteConversationStorage(conversationId).catch((error) => {
+      const message = error instanceof Error ? error.message : '删除对话工作区失败'
+      pushNotice(`删除对话工作区失败：${message}`, 'error')
+    })
+
     setDeleteDialogConversationId((previous) => (previous === conversationId ? null : previous))
     setDraftsByConversation((previous) => {
       if (!Object.prototype.hasOwnProperty.call(previous, conversationId)) {
@@ -5123,7 +5994,7 @@ function App() {
       return next
     })
 
-    setConversations((previous) => {
+    setConversationsState((previous) => {
       const exists = previous.some((conversation) => conversation.id === conversationId)
       if (!exists) {
         return previous
@@ -5337,7 +6208,7 @@ function App() {
     const nextConversation = existingPlaceholder ?? createConversation()
 
     if (!existingPlaceholder) {
-      setConversations((previous) => [nextConversation, ...previous])
+      setConversationsState((previous) => [nextConversation, ...previous])
     }
 
     setActiveConversationId(nextConversation.id)
@@ -5526,7 +6397,7 @@ function App() {
 
         chatStateSignatureRef.current = getChatStatePersistenceSignature(nextState)
         startTransition(() => {
-          setConversations(nextConversations)
+          setConversationsState(nextConversations)
           setActiveConversationId(nextActiveConversationId)
           setDraftsByConversation(nextDrafts)
           setChatStateLoadError(null)
@@ -5545,7 +6416,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [setConversationsState])
 
   useEffect(() => {
     if (!chatStateLoaded) {
@@ -5614,7 +6485,7 @@ function App() {
           return
         }
         startTransition(() => {
-          setConversations((previous) =>
+          setConversationsState((previous) =>
             previous.map((conversation) => {
               const nextTranscript = conversation.transcript.map((event) => {
                 if (event.kind !== 'user_message') {
@@ -5662,7 +6533,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [chatStateLoaded, conversations])
+  }, [chatStateLoaded, conversations, setConversationsState])
 
   useEffect(() => {
     if (!chatStateLoaded) {
@@ -5702,7 +6573,7 @@ function App() {
 
           if (nextConversationsWithStorageKeys !== nextState.conversations) {
             startTransition(() => {
-              setConversations(nextConversationsWithStorageKeys)
+              setConversationsState(nextConversationsWithStorageKeys)
             })
           }
         } catch (error) {
@@ -5716,7 +6587,7 @@ function App() {
     }, CHAT_STATE_PERSIST_DEBOUNCE_MS)
 
     return () => window.clearTimeout(timer)
-  }, [chatStateLoaded, conversations, draftsByConversation, activeConversationId])
+  }, [chatStateLoaded, conversations, draftsByConversation, activeConversationId, setConversationsState])
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) {
@@ -5893,15 +6764,44 @@ function App() {
     [clearMessageListInteractionTimer],
   )
 
+  useEffect(
+    () => () => {
+      clearProgrammaticMessageListScrollTracking()
+    },
+    [clearProgrammaticMessageListScrollTracking],
+  )
+
+  useEffect(
+    () => () => {
+      cancelMessageListSmoothScroll()
+    },
+    [cancelMessageListSmoothScroll],
+  )
+
   useEffect(() => {
     pendingMessageListBottomResetRef.current = true
     clearMessageListInteractionTimer()
+    clearProgrammaticMessageListScrollTracking()
+    cancelMessageListSmoothScroll()
     messageListUserInteractingRef.current = false
+    setMessageListScrollMetrics({
+      bottomOffset: 0,
+      viewportHeight: 0,
+    })
     setIsAutoFollowEnabled(true)
-  }, [activeConversationId, clearMessageListInteractionTimer])
+  }, [
+    activeConversationId,
+    cancelMessageListSmoothScroll,
+    clearMessageListInteractionTimer,
+    clearProgrammaticMessageListScrollTracking,
+  ])
 
   useLayoutEffect(() => {
     if (messageListUserInteractingRef.current) {
+      return
+    }
+
+    if (messageListSmoothScrollInProgressRef.current) {
       return
     }
 
@@ -5918,10 +6818,38 @@ function App() {
     scrollMessageListToBottom()
   }, [activeConversationId, activeMessages, isAutoFollowEnabled, isSending, scrollMessageListToBottom])
 
+  useLayoutEffect(() => {
+    if (messageListProgrammaticScrollRef.current) {
+      return
+    }
+
+    syncMessageListScrollMetrics()
+  }, [activeConversationId, activeMessages, isSending, syncMessageListScrollMetrics])
+
+  useEffect(() => {
+    if (shouldShowScrollToBottomButton) {
+      showScrollToBottomButton()
+      return
+    }
+
+    hideScrollToBottomButton()
+  }, [hideScrollToBottomButton, shouldShowScrollToBottomButton, showScrollToBottomButton])
+
+  useEffect(() => {
+    const handleResize = (): void => {
+      syncMessageListScrollMetrics()
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+    }
+  }, [syncMessageListScrollMetrics])
+
   useEffect(() => {
     if (conversations.length === 0) {
       const fallback = createConversation()
-      setConversations([fallback])
+      setConversationsState([fallback])
       setActiveConversationId(fallback.id)
       return
     }
@@ -5929,7 +6857,7 @@ function App() {
     if (!conversations.some((conversation) => conversation.id === activeConversationId)) {
       setActiveConversationId(conversations[0].id)
     }
-  }, [conversations, activeConversationId])
+  }, [conversations, activeConversationId, setConversationsState])
 
   useEffect(() => {
     if (!deleteDialogConversationId) {
@@ -6410,8 +7338,8 @@ function App() {
             <span className="settings-entry-title">标签提示词</span>
             <span className="settings-entry-meta">
               {settings.skillModeEnabled
-                ? '分别配置一般标签、顶层标签、<read> 与 <skill_call>，并支持一键恢复默认。'
-                : '技能模式关闭时暂不生效；开启后会用于控制一般标签、顶层标签、<read> 与 <skill_call>。'}
+                ? '分别配置一般标签、顶层标签、<read>、<run> 与 <edit>，并支持一键恢复默认。'
+                : '技能模式关闭时暂不生效；开启后会用于控制一般标签、顶层标签、<read>、<run> 与 <edit>。'}
             </span>
           </button>
         </div>
@@ -6712,7 +7640,7 @@ function App() {
             <div className="settings-entry-title">标签提示词</div>
             <div className="settings-entry-meta">
               {
-                '分别控制一般标签、顶层标签、<read> 与 <skill_call> 在技能模式下的行为。信息提示词开关会把当前设备信息与当前对话 workspace 信息以 Markdown 形式拼进系统提示词。页面底部的已废弃提示词会以板块形式保存旧版与后续废弃提示词。'
+                '分别控制一般标签、顶层标签、<read>、<run> 与 <edit> 在技能模式下的行为。信息提示词开关会把当前设备信息与当前对话 workspace 信息以 Markdown 形式拼进系统提示词。页面底部的已废弃提示词会以板块形式保存旧版与后续废弃提示词。'
               }
             </div>
           </div>
@@ -6770,15 +7698,28 @@ function App() {
           {renderPromptEditorPanel({
             isOpen: openPromptEditors.skillCallSystemPrompt,
             onToggle: () => togglePromptEditor('skillCallSystemPrompt'),
-            title: '<skill_call> 标签提示词',
+            title: '<run> 标签提示词',
             value: settings.skillCallSystemPrompt,
             onChange: (value) => updateSetting('skillCallSystemPrompt', value),
-            placeholder: '你可以在此配置 <skill_call> 标签提示词',
-            helperText: '控制模型何时输出 <skill_call> 标签，以及如何组织技能调用。',
+            placeholder: '你可以在此配置 <run> 标签提示词',
+            helperText: '控制模型何时输出 <run> 标签，以及如何组织命令执行。',
             actionLabel: '重置为默认提示词',
             onAction: () => resetPromptToDefault('skillCallSystemPrompt'),
             actionDisabled:
               settings.skillCallSystemPrompt === PROMPT_DEFAULTS.skillCallSystemPrompt,
+          })}
+
+          {renderPromptEditorPanel({
+            isOpen: openPromptEditors.editSystemPrompt,
+            onToggle: () => togglePromptEditor('editSystemPrompt'),
+            title: '<edit> 标签提示词',
+            value: settings.editSystemPrompt,
+            onChange: (value) => updateSetting('editSystemPrompt', value),
+            placeholder: '你可以在此配置 <edit> 标签提示词',
+            helperText: '控制模型何时输出 <edit> 标签，以及如何组织文件修改。',
+            actionLabel: '重置为默认提示词',
+            onAction: () => resetPromptToDefault('editSystemPrompt'),
+            actionDisabled: settings.editSystemPrompt === PROMPT_DEFAULTS.editSystemPrompt,
           })}
 
         </div>
@@ -6903,16 +7844,30 @@ function App() {
             {renderPromptEditorPanel({
               isOpen: openProviderPromptEditors.skillCallSystemPrompt,
               onToggle: () => toggleProviderPromptEditor('skillCallSystemPrompt'),
-              title: '<skill_call> 标签提示词覆盖',
+              title: '<run> 标签提示词覆盖',
               value: providerDetailTarget.skillCallSystemPrompt ?? '',
               onChange: (value) =>
                 updateProviderPromptOverride(providerDetailTarget.id, 'skillCallSystemPrompt', value),
-              placeholder: '留空时使用全局 <skill_call> 标签提示词',
-              helperText: '控制服务商专属的 <skill_call> 输出规则；留空时完全跟随全局配置。',
+              placeholder: '留空时使用全局 <run> 标签提示词',
+              helperText: '控制服务商专属的 <run> 输出规则；留空时完全跟随全局配置。',
               actionLabel: '恢复跟随全局',
               onAction: () =>
                 clearProviderPromptOverride(providerDetailTarget.id, 'skillCallSystemPrompt'),
               actionDisabled: providerDetailTarget.skillCallSystemPrompt === undefined,
+            })}
+
+            {renderPromptEditorPanel({
+              isOpen: openProviderPromptEditors.editSystemPrompt,
+              onToggle: () => toggleProviderPromptEditor('editSystemPrompt'),
+              title: '<edit> 标签提示词覆盖',
+              value: providerDetailTarget.editSystemPrompt ?? '',
+              onChange: (value) =>
+                updateProviderPromptOverride(providerDetailTarget.id, 'editSystemPrompt', value),
+              placeholder: '留空时使用全局 <edit> 标签提示词',
+              helperText: '控制服务商专属的 <edit> 输出规则；留空时完全跟随全局配置。',
+              actionLabel: '恢复跟随全局',
+              onAction: () => clearProviderPromptOverride(providerDetailTarget.id, 'editSystemPrompt'),
+              actionDisabled: providerDetailTarget.editSystemPrompt === undefined,
             })}
 
           </div>
@@ -7257,7 +8212,7 @@ function App() {
               >
                 <span className="settings-entry-title">标签提示词</span>
                 <span className="settings-entry-meta">
-                  {'分别覆盖一般标签、顶层标签、<read> 与 <skill_call>；留空时跟随全局。'}
+                  {'分别覆盖一般标签、顶层标签、<read>、<run> 与 <edit>；留空时跟随全局。'}
                 </span>
               </button>
             </div>
@@ -7710,7 +8665,7 @@ function App() {
   const renderSettingsPage = () => {
     const showBack = settingsView !== 'main'
     const shouldAnimateSettingsView = settingsView !== 'main'
-    let title = 'Chatroom 设置'
+    let title = '动话 设置'
     let settingsContent = renderMainSettings()
 
     switch (settingsView) {
@@ -7930,7 +8885,7 @@ function App() {
             ) : (
               <div className={`title-display ${titleTransition ? 'is-hidden' : ''}`}>
                 <span ref={titleTextRef} className="title-text">
-                  {activeConversation?.title ?? 'Chatroom'}
+                  {activeConversation?.title ?? '动话'}
                 </span>
                 <button
                   ref={titleRenameButtonRef}
@@ -7970,7 +8925,7 @@ function App() {
       ) : !chatStateLoaded ? (
         <main className="message-list page-transition">
           <section className="empty-state">
-            <h2>Chatroom</h2>
+            <h2>动话</h2>
             <p className="empty-state-line">正在加载聊天记录…</p>
           </section>
         </main>
@@ -7999,9 +8954,9 @@ function App() {
             {activeMessages.length === 0 ? (
               <>
                 <section className="empty-state">
-              <h2>Chatroom</h2>
+              <h2>动话</h2>
               <p className="empty-state-line empty-state-intro">
-                我是<span className="empty-state-nowrap">ChatroomAI</span>！
+                我是<span className="empty-state-nowrap">动话</span>！
                 <wbr />
                 欢迎找我聊天呀<span className="empty-state-emoticon">ʕ˶'༥'˶ʔ♡</span>
               </p>
@@ -8351,6 +9306,35 @@ function App() {
           </main>
 
           <footer className="composer">
+            {scrollToBottomButtonMounted ? (
+              <button
+                type="button"
+                className={`icon-button composer-scroll-bottom-button ${
+                  scrollToBottomButtonVisible ? 'is-open' : 'is-closing'
+                }`}
+                onClick={handleScrollToBottomButtonClick}
+                aria-label="回到底部"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M12 5.5v11.2"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="m7.5 13.3 4.5 4.9 4.5-4.9"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            ) : null}
+
             {pendingImages.length > 0 ? (
               <div className="pending-image-strip">
                 {pendingImages.map((image) => (
@@ -8407,11 +9391,26 @@ function App() {
                 />
 
                 {isSending ? (
-                  <button type="button" className="danger-button" onClick={stopGeneration}>
-                    停止
-                  </button>
+                  canAppendWhileSending ? (
+                    <button type="button" className="composer-send-button" onClick={handleAppend}>
+                      追加
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="composer-send-button danger-button"
+                      onClick={stopGeneration}
+                    >
+                      停止
+                    </button>
+                  )
                 ) : (
-                  <button type="button" disabled={!canSend} onClick={() => void handleSend()}>
+                  <button
+                    type="button"
+                    className="composer-send-button"
+                    disabled={!canSend}
+                    onClick={() => void handleSend()}
+                  >
                     发送
                   </button>
                 )}
@@ -8461,7 +9460,7 @@ function App() {
         >
           <aside className="drawer-panel frosted-surface" onClick={(event) => event.stopPropagation()}>
             <div className="drawer-header">
-              <h2>Chatroom</h2>
+              <h2>动话</h2>
             </div>
 
             <div
