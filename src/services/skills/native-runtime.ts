@@ -1,5 +1,12 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
-import type { RuntimeType, SkillExecutionRequest, SkillExecutionResult } from './types'
+import type {
+  BrowserVisitResult,
+  ReadListEntry,
+  RunExecutionResult,
+  RuntimeType,
+  SkillExecutionRequest,
+  SkillExecutionResult,
+} from './types'
 
 interface PreparePathOptions {
   relativePath: string
@@ -18,13 +25,84 @@ interface InspectRuntimeResult {
   type: RuntimeType
   version: string
   executablePath: string
+  binDirectoryPath?: string
+  commands?: string[]
   displayName: string
 }
 
 interface ExecuteProcessOptions extends SkillExecutionRequest {
   relativeSkillRoot: string
+  relativeWorkingDirectory?: string
   pythonExecutablePath?: string
   nodeExecutablePath?: string
+}
+
+interface ExecuteRunOptions {
+  sessionId: string
+  session?: string
+  workingDirectoryPath: string
+  waitMs?: number
+  stdin?: string
+  env?: Record<string, string>
+  launchKind?: 'file' | 'executable'
+  targetPath?: string
+  args?: string[]
+  pythonExecutablePath?: string
+  nodeExecutablePath?: string
+  inferredRuntime?: string
+}
+
+interface ExtractWebPageOptions {
+  url: string
+  timeoutMs?: number
+  maxContentChars?: number
+  maxLinks?: number
+  maxImages?: number
+  maxHeadings?: number
+  includeMetadata?: boolean
+  includeHeadings?: boolean
+  includeLinkIndex?: boolean
+  includeImageIndex?: boolean
+}
+
+interface AbsoluteDirectoryEntry {
+  path: string
+  name: string
+  type?: string
+  size?: number
+}
+
+interface ListAbsoluteDirectoryOptions {
+  absolutePath: string
+}
+
+interface ListAbsoluteDirectoryResult {
+  path: string
+  entries: AbsoluteDirectoryEntry[]
+}
+
+interface StatAbsolutePathOptions {
+  absolutePath: string
+}
+
+interface StatAbsolutePathResult {
+  path: string
+  type?: string
+  size?: number
+}
+
+interface ReadAbsoluteTextFileOptions {
+  absolutePath: string
+}
+
+interface ReadAbsoluteTextFileResult {
+  path: string
+  content: string
+}
+
+interface WriteAbsoluteTextFileOptions {
+  absolutePath: string
+  content: string
 }
 
 interface TestRuntimeOptions {
@@ -57,6 +135,12 @@ interface NativeRuntimePlugin {
   installBundledRuntime(options: InstallBundledRuntimeOptions): Promise<void>
   inspectRuntime(options: InspectRuntimeOptions): Promise<InspectRuntimeResult>
   executeProcess(options: ExecuteProcessOptions): Promise<SkillExecutionResult>
+  executeRun(options: ExecuteRunOptions): Promise<RunExecutionResult>
+  extractWebPage(options: ExtractWebPageOptions): Promise<BrowserVisitResult>
+  listAbsoluteDirectory(options: ListAbsoluteDirectoryOptions): Promise<ListAbsoluteDirectoryResult>
+  statAbsolutePath(options: StatAbsolutePathOptions): Promise<StatAbsolutePathResult>
+  readAbsoluteTextFile(options: ReadAbsoluteTextFileOptions): Promise<ReadAbsoluteTextFileResult>
+  writeAbsoluteTextFile(options: WriteAbsoluteTextFileOptions): Promise<void>
   testRuntime(options: TestRuntimeOptions): Promise<TestRuntimeResult>
   getLastKnownLocation(): Promise<LastKnownLocationResult>
   addListener(eventName: string, listenerFunc: (data: unknown) => void): Promise<PluginListenerHandle>
@@ -76,6 +160,24 @@ const NativeRuntime = registerPlugin<NativeRuntimePlugin>('SkillRuntime', {
     },
     async executeProcess() {
       throw new Error('当前平台不支持外部脚本执行。')
+    },
+    async executeRun() {
+      throw new Error('当前平台不支持 run 执行。')
+    },
+    async extractWebPage() {
+      throw new Error('当前平台不支持浏览器模式网页访问。')
+    },
+    async listAbsoluteDirectory() {
+      throw new Error('当前平台不支持系统根目录访问。')
+    },
+    async statAbsolutePath() {
+      throw new Error('当前平台不支持系统根目录访问。')
+    },
+    async readAbsoluteTextFile() {
+      throw new Error('当前平台不支持系统根目录访问。')
+    },
+    async writeAbsoluteTextFile() {
+      throw new Error('当前平台不支持系统根目录访问。')
     },
     async testRuntime() {
       throw new Error('当前平台不支持运行时测试。')
@@ -125,6 +227,66 @@ export const nativeInspectRuntime = async (relativePath: string): Promise<Inspec
 export const nativeExecuteProcess = async (
   options: ExecuteProcessOptions,
 ): Promise<SkillExecutionResult> => NativeRuntime.executeProcess(options)
+
+export const nativeExecuteRun = async (
+  options: ExecuteRunOptions,
+): Promise<RunExecutionResult> => NativeRuntime.executeRun(options)
+
+export const nativeExtractWebPage = async (
+  options: ExtractWebPageOptions,
+): Promise<BrowserVisitResult> => NativeRuntime.extractWebPage(options)
+
+export const nativeListAbsoluteDirectory = async (
+  absolutePath: string,
+): Promise<{
+  path: string
+  entries: Array<{
+    path: string
+    name: string
+    kind: ReadListEntry['kind']
+    size?: number
+  }>
+}> => {
+  const result = await NativeRuntime.listAbsoluteDirectory({ absolutePath })
+  return {
+    path: result.path,
+    entries: result.entries.map((entry) => ({
+      path: entry.path,
+      name: entry.name,
+      kind: entry.type === 'directory' ? 'directory' : 'file',
+      size: entry.type === 'directory' ? undefined : entry.size,
+    })),
+  }
+}
+
+export const nativeStatAbsolutePath = async (
+  absolutePath: string,
+): Promise<{
+  path: string
+  entryType: 'file' | 'directory'
+  size?: number
+}> => {
+  const result = await NativeRuntime.statAbsolutePath({ absolutePath })
+  return {
+    path: result.path,
+    entryType: result.type === 'directory' ? 'directory' : 'file',
+    size: result.type === 'directory' ? undefined : result.size,
+  }
+}
+
+export const nativeReadAbsoluteTextFile = async (
+  absolutePath: string,
+): Promise<ReadAbsoluteTextFileResult> =>
+  NativeRuntime.readAbsoluteTextFile({ absolutePath })
+
+export const nativeWriteAbsoluteTextFile = async (
+  absolutePath: string,
+  content: string,
+): Promise<void> =>
+  NativeRuntime.writeAbsoluteTextFile({
+    absolutePath,
+    content,
+  })
 
 export const nativeTestRuntime = async (
   executablePath: string,

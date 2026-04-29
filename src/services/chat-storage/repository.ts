@@ -19,6 +19,7 @@ import {
   writeBase64File,
   writeJsonFile,
 } from './filesystem'
+import { deletePath as deleteSkillHostPath, joinRelativePath as joinSkillRelativePath } from '../skills/storage'
 import {
   LEGACY_ACTIVE_CONVERSATION_STORAGE_KEY,
   LEGACY_CONVERSATIONS_STORAGE_KEY,
@@ -132,6 +133,10 @@ interface PersistedHostMessageEvent {
   category:
     | 'read_result'
     | 'read_error'
+    | 'edit_result'
+    | 'edit_error'
+    | 'run_result'
+    | 'run_error'
     | 'skill_result'
     | 'skill_error'
     | 'tag_error'
@@ -1199,3 +1204,11 @@ export const persistChatState = async (state: ChatStorageState): Promise<Persist
 }
 
 export const getChatStatePersistenceSignature = createStateSignature
+
+export const deleteConversationStorage = async (conversationId: string): Promise<void> => {
+  await initializeChatStorage()
+  await deletePath(buildConversationDirectory(conversationId))
+  await deleteSkillHostPath(joinSkillRelativePath('skill-host/state/run-sessions', conversationId)).catch(() => {
+    // Ignore best-effort cleanup failures for run session state.
+  })
+}
