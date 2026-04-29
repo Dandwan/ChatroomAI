@@ -53,6 +53,9 @@ As of 2026-04-29:
 - phone install via `adb -s c3fec216 install --no-streaming -r android\\app\\build\\outputs\\apk\\debug\\app-debug.apk` succeeded
 - app start on phone `c3fec216` succeeded; if already running, Android simply brought the existing task to front
 - the latest debug APK was uploaded to the user's File Browser cloud root as `/ActiChat-v1.3.0-debug-20260429-105201.apk`
+- a signed `v1.5.0` Android release APK was built locally as `ActiChat-v1.5.0-android-release.apk`
+- GitHub branch `release-v1.5.0` was pushed
+- GitHub release `ActiChat v1.5.0` was published at `https://github.com/Dandwan/ChatroomAI/releases/tag/v1.5.0`
 - WebView DevTools smoke checks on `emulator-5554` proved native absolute-path support by:
   - reading `/system/etc/hosts`
   - writing and reading back `/data/data/com.dandwan.chatroomai/files/skill-host/home/edit-smoke/location-root-test.txt`
