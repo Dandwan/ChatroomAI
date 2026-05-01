@@ -28,6 +28,7 @@ As of 2026-05-01:
   - the homepage composer and model row are now rendered through a dedicated homepage footer slot inside the scene, rather than by globally overlaying the shared footer with large negative margins
   - the homepage bottom composer geometry now uses the prototype-aligned square/rectangular control language instead of the old shared pill geometry
   - the homepage footer vertical placement was lowered again so the second-row controls now sit much closer to the prototype’s bottom spacing and their bottom gap is visually closer to the left/right insets
+  - the homepage footer spacing now uses a shared homepage gap token so the first-row gap, second-row gap, second-row side inset, and second-row bottom inset all resolve from the same base spacing value
   - the homepage daily-cover image is now elevated to a real scene-level background layer for the empty homepage state instead of remaining a large rounded card background
 - local self-hosted free commercial fonts are now wired into the real app homepage styling:
   - `Noto Serif SC`
@@ -60,6 +61,7 @@ As of 2026-05-01:
   - the previous structural mismatch where the image looked like a rounded content card instead of a real background layer has been removed
   - the previous bottom-bar mismatch where the real app still used pill geometry instead of the prototype’s square control language has been removed
   - the previous lower-footer mismatch where the second row sat too high above the safe-area bottom has now been reduced substantially
+  - the footer spacing is now also structurally normalized instead of merely hand-tuned: first-row gap, second-row gap, side inset, and bottom inset now move together
   - the remaining residual difference is now mostly minor pixel-level typography/spacing polish, the unavoidable real-app provider grouping inside the model popover, and the current white system-bar background still visible on emulator screenshots
 
 As of 2026-04-30:
