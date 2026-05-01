@@ -1,5 +1,54 @@
 # Handoff Log
 
+## 2026-05-01 22:45 +08:00
+
+### Scope
+
+- finish the homepage bottom-composer geometry pass so the real app no longer uses pill-shaped controls where the approved prototype uses square/rectangular controls
+- validate both the closed homepage first-look and the opened homepage model-popover state again after that geometry change
+- explicitly check whether the visible white system-bar background on emulator screenshots was solved or still remains
+
+### Current High-Signal State
+
+- homepage geometry/styling refinements in this handoff were limited to:
+  - `src/styles/app-editorial-redesign.css`
+  - `src/App.tsx`
+  - `src/index.css`
+- the homepage empty state now:
+  - renders the input field, send button, model bar, icon buttons, and homepage response-mode buttons in a square/rectangular control language instead of the shared pill geometry
+  - keeps that homepage-only geometry scoped to the homepage empty state instead of mutating the shared composer styles for every screen
+  - keeps the homepage model popover aligned with the sharper rectangular control language
+- screenshot-based validation from `emulator-5554` confirms:
+  - the homepage first-look now clearly uses square bottom controls
+  - the homepage model-popover open state also reflects the same geometry shift
+- one attempted follow-up to drive the cover background through `body.homepage-empty-active` did not remove the white system-bar background on emulator screenshots
+  - that behavior therefore remains an explicit unresolved Android-host / WebView presentation issue, not a hidden regression
+- commit note:
+  - the resulting self-only git commit is created after these status-doc edits
+  - the commit hash is intentionally not written into this same entry to avoid a follow-up amend just to self-reference the commit
+
+### Validation Snapshot
+
+- `npm run lint`
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- assembleDebug`
+- `.codex/skills/chatroomai-android-emulator-test/scripts/prepare-chatroomai.ps1 -ProjectRoot C:\\Users\\Dandwan\\projects\\ChatroomAI`
+- homepage first-look screenshots after the square-geometry pass:
+  - `.tmp-homepage-rect-check-v1.png`
+  - `.tmp-homepage-rect-check-v2.png`
+- homepage model-popover open-state screenshots after the square-geometry pass:
+  - `.tmp-homepage-rect-model-open-v1.png`
+  - `.tmp-homepage-rect-model-open-v2.png`
+
+### Open Follow-Up
+
+- if you want the homepage pushed even closer to the prototype after this geometry pass, the next homepage-only refinements should focus on:
+  - hero typography and line breaks
+  - top header title size and optical spacing
+  - Android/system-bar background behavior on emulator and device
+- once homepage parity is accepted, move on to `active-chat`, `drawer`, `settings-home`, and `settings-daily-cover` under the same component/styling system
+
 ## 2026-05-01 21:21 +08:00
 
 ### Scope

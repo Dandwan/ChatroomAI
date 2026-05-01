@@ -6844,6 +6844,33 @@ function App() {
   }, [])
 
   useEffect(() => {
+    if (typeof document === 'undefined') {
+      return undefined
+    }
+
+    const root = document.documentElement
+    const body = document.body
+    const coverImageUrl = resolvedDailyCover?.imageUrl?.trim() ?? ''
+
+    if (isHomepageEmptyState) {
+      body.classList.add('homepage-empty-active')
+      if (coverImageUrl) {
+        root.style.setProperty('--homepage-body-cover-image', `url("${coverImageUrl}")`)
+      } else {
+        root.style.removeProperty('--homepage-body-cover-image')
+      }
+    } else {
+      body.classList.remove('homepage-empty-active')
+      root.style.removeProperty('--homepage-body-cover-image')
+    }
+
+    return () => {
+      body.classList.remove('homepage-empty-active')
+      root.style.removeProperty('--homepage-body-cover-image')
+    }
+  }, [isHomepageEmptyState, resolvedDailyCover?.imageUrl])
+
+  useEffect(() => {
     void refreshExtensions()
   }, [pushNotice, refreshExtensions])
 

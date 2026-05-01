@@ -9,6 +9,9 @@
   --homepage-composer-tool-height: 46px;
   --homepage-composer-send-width: 74px;
   --homepage-composer-icon-size: 46px;
+  --homepage-field-radius: 4px;
+  --homepage-field-border: rgba(244, 247, 251, 0.12);
+  --homepage-field-bg: rgba(10, 12, 18, 0.88);
   gap: 10px;
   position: relative;
   isolation: isolate;
@@ -426,8 +429,10 @@
 
 .composer-model-trigger.is-homepage-empty {
   padding-inline: 16px;
-  background: rgba(10, 12, 18, 0.9);
-  border-color: rgba(226, 232, 240, 0.14);
+  border-radius: var(--homepage-field-radius);
+  background: var(--homepage-field-bg);
+  border-color: var(--homepage-field-border);
+  box-shadow: none;
 }
 
 .composer-model-trigger.is-homepage-empty .model-trigger-label {
@@ -437,29 +442,42 @@
 
 .homepage-model-popover {
   gap: 6px;
-  padding: 8px;
+  padding: 10px 12px 12px;
+  border-radius: var(--homepage-field-radius);
   background: rgba(8, 10, 16, 0.96);
-  border-color: rgba(226, 232, 240, 0.12);
-  box-shadow: 0 24px 44px rgba(3, 7, 18, 0.28);
+  border-color: var(--homepage-field-border);
+  box-shadow: 0 16px 32px rgba(3, 7, 18, 0.22);
 }
 
 .homepage-model-popover .model-provider-divider {
-  margin-top: 2px;
+  margin-top: 0;
+  padding-bottom: 8px;
+  gap: 8px;
 }
 
 .homepage-model-popover .model-provider-group + .model-provider-group {
-  margin-top: 4px;
+  margin-top: 6px;
+}
+
+.homepage-model-popover .conversation-group-label {
+  font-size: 8px;
+  letter-spacing: 0.24em;
+  color: rgba(244, 247, 251, 0.38);
+}
+
+.homepage-model-popover .conversation-group-dash {
+  opacity: 0.12;
 }
 
 .homepage-model-popover .model-option {
-  min-height: 34px;
+  min-height: 36px;
   border-radius: 0;
   border-top: 1px solid rgba(244, 247, 251, 0.08);
   border-left: none;
   border-right: none;
   border-bottom: none;
   background: transparent;
-  padding: 10px 0 8px;
+  padding: 11px 0 9px;
   font-size: 10px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -500,8 +518,9 @@
 
 .homepage-model-mode-button {
   min-height: 30px;
+  border-radius: var(--homepage-field-radius);
   border: 1px solid rgba(244, 247, 251, 0.12);
-  background: rgba(255, 255, 255, 0.03);
+  background: transparent;
   color: rgba(244, 247, 251, 0.68);
   font-family: var(--editorial-ui-font);
   font-size: 10px;
@@ -512,7 +531,7 @@
 
 .homepage-model-mode-button.active {
   border-color: rgba(244, 247, 251, 0.22);
-  background: rgba(244, 247, 251, 0.12);
+  background: rgba(244, 247, 251, 0.08);
   color: rgba(244, 247, 251, 0.96);
 }
 
@@ -521,10 +540,10 @@
 .composer.is-homepage-empty .icon-button,
 .composer.is-homepage-empty .composer-model,
 .composer.is-homepage-empty .composer-model-trigger {
-  background: rgba(10, 12, 18, 0.9);
-  border-color: rgba(244, 247, 251, 0.14);
+  background: var(--homepage-field-bg);
+  border-color: var(--homepage-field-border);
   color: rgba(244, 247, 251, 0.88);
-  box-shadow: 0 18px 34px rgba(3, 7, 18, 0.18);
+  box-shadow: none;
 }
 
 .composer.is-homepage-empty textarea.chat-input-box::placeholder {
@@ -558,10 +577,13 @@
 .composer.is-homepage-empty .composer-send-button {
   min-height: var(--homepage-composer-row-height);
   height: var(--homepage-composer-row-height);
+  border-radius: var(--homepage-field-radius);
 }
 
 .composer.is-homepage-empty .composer-send-button {
   width: var(--homepage-composer-send-width);
+  padding-inline: 14px;
+  font-size: 13px;
   letter-spacing: 0.12em;
 }
 
@@ -569,10 +591,36 @@
 .composer.is-homepage-empty .icon-button {
   min-height: var(--homepage-composer-tool-height);
   height: var(--homepage-composer-tool-height);
+  border-radius: var(--homepage-field-radius);
 }
 
 .composer.is-homepage-empty .icon-button {
   width: var(--homepage-composer-icon-size);
+  box-shadow: none;
+}
+
+.composer.is-homepage-empty textarea.chat-input-box {
+  padding: 14px 18px;
+  line-height: 1.25;
+  box-shadow: none;
+}
+
+.composer.is-homepage-empty .composer-model {
+  border-radius: var(--homepage-field-radius);
+}
+
+.composer.is-homepage-empty .icon-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.composer.is-homepage-empty .icon-button:hover,
+.composer.is-homepage-empty .composer-send-button:hover,
+.composer.is-homepage-empty .composer-model-trigger:hover {
+  transform: none;
+  background: rgba(14, 16, 24, 0.92);
+  color: rgba(244, 247, 251, 0.96);
+  border-color: rgba(244, 247, 251, 0.2);
 }
 
 .drawer-header h2,
