@@ -9541,9 +9541,15 @@ function App() {
               </div>
             ) : (
               <div className={`title-display ${titleTransition ? 'is-hidden' : ''}`}>
-                <span ref={titleTextRef} className="title-text">
-                  {displayConversationTitle}
-                </span>
+                {isHomepageEmptyState ? (
+                  <span ref={titleTextRef} className="title-text homepage-title-text">
+                    动话 · <em>新对话</em>
+                  </span>
+                ) : (
+                  <span ref={titleTextRef} className="title-text">
+                    {displayConversationTitle}
+                  </span>
+                )}
                 <button
                   ref={titleRenameButtonRef}
                   type="button"
@@ -9590,9 +9596,9 @@ function App() {
         <>
           <section className="summary-bar">
             <span>轮次 {rounds}</span>
-            <span>输入Token {numberFormatter.format(tokenSummary.promptTokens)}</span>
-            <span>输出Token {numberFormatter.format(tokenSummary.completionTokens)}</span>
-            <span>总Token {numberFormatter.format(tokenSummary.totalTokens)}</span>
+            <span>输入 {numberFormatter.format(tokenSummary.promptTokens)}</span>
+            <span>输出 {numberFormatter.format(tokenSummary.completionTokens)}</span>
+            <span>总计 {numberFormatter.format(tokenSummary.totalTokens)}</span>
             {tokenSummary.estimatedCount > 0 ? (
               <span className="summary-muted">含 {tokenSummary.estimatedCount} 条估算</span>
             ) : null}

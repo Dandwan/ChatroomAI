@@ -46,39 +46,39 @@ const NewConversationShowcase = ({
         ]
 
   return (
-    <>
-      <section className={`cover-empty-state ${cover ? 'has-cover' : 'is-fallback'}`}>
-        <div className="cover-empty-state-content">
-          <div className="cover-empty-state-kicker">
-            <span>01</span>
-            <span className="cover-empty-state-rule" />
-            <span>
-              cold start
-              {cover ? ` · ${cover.dateKey}` : ''}
-            </span>
-          </div>
+    <section className={`cover-empty-state ${cover ? 'has-cover' : 'is-fallback'}`}>
+      <div className="cover-empty-state-content">
+        <div className="cover-empty-state-kicker">
+          <span>01</span>
+          <span className="cover-empty-state-rule" />
+          <span>
+            cold start
+            {cover ? ` · ${cover.dateKey}` : ''}
+          </span>
+        </div>
 
-          <h2 className="cover-empty-state-title">
-            <span>让今天的风景，</span>
-            <span>成为这段</span>
-            <span className="is-italic">new conversation</span>
-            <span>的开场。</span>
-          </h2>
+        <h2 className="cover-empty-state-title">
+          <span>让今天的风景，</span>
+          <span>成为这段</span>
+          <span className="is-italic">new conversation</span>
+          <span>的开场。</span>
+        </h2>
 
-          <div className="cover-empty-state-byline">
-            {cover ? (
-              <>
-                <span>{cover.title}</span>
-                <span className="cover-empty-state-dot" />
-                <span>{cover.photographer}</span>
-                <span className="cover-empty-state-dot" />
-                <span>{cover.description}</span>
-              </>
-            ) : (
-              <span>Daily cover unavailable. Falling back to the quiet shell.</span>
-            )}
-          </div>
+        <div className="cover-empty-state-byline">
+          {cover ? (
+            <>
+              <span>{cover.title}</span>
+              <span className="cover-empty-state-dot" />
+              <span>{cover.photographer}</span>
+              <span className="cover-empty-state-dot" />
+              <span>{cover.description}</span>
+            </>
+          ) : (
+            <span>Daily cover unavailable. Falling back to the quiet shell.</span>
+          )}
+        </div>
 
+        <div className="cover-empty-state-bottom-grid">
           <div className="cover-empty-state-meta">
             <div className="cover-empty-state-meta-cell">
               <span className="label">default pool</span>
@@ -93,7 +93,7 @@ const NewConversationShowcase = ({
               <span className="value">{cover?.sourceKind === 'api' ? 'daily api' : 'daily hash'}</span>
             </div>
             <div className="cover-empty-state-meta-cell">
-              <span className="label">response mode</span>
+              <span className="label">mode</span>
               <span className="value">{responseModeLabel}</span>
             </div>
           </div>
@@ -108,10 +108,10 @@ const NewConversationShowcase = ({
             ))}
           </div>
         </div>
+      </div>
 
-        {footerContent ? <div className="cover-empty-state-footer-slot">{footerContent}</div> : null}
-      </section>
-    </>
+      {footerContent ? <div className="cover-empty-state-footer-slot">{footerContent}</div> : null}
+    </section>
   )
 }
 
