@@ -1,5 +1,49 @@
 # Handoff Log
 
+## 2026-05-02 00:46 +08:00
+
+### Scope
+
+- normalize homepage footer spacing so the first-row gap, second-row gap, second-row side inset, and second-row bottom inset all use the same current control-gap value
+- keep the homepage footer geometry/homepage-only scoping intact while changing that spacing system
+- revalidate both the closed and opened homepage footer states with fresh emulator screenshots
+
+### Current High-Signal State
+
+- homepage footer-spacing normalization in this handoff was limited to:
+  - `src/styles/app-editorial-redesign.css`
+- the homepage empty state now:
+  - introduces a dedicated `--homepage-footer-gap` token as the single source of truth for homepage footer spacing
+  - uses that token for the first-row control gap, second-row control gap, second-row side inset, and second-row bottom inset
+  - lifts the homepage empty-state shell off the generic centered-width constraint so the footer insets can truly match the intended edge spacing instead of only approximating it
+- screenshot-based validation from `emulator-5554` confirms:
+  - the homepage closed state now shows side inset, bottom inset, and row-to-row control gaps in the same visual family
+  - the homepage opened model-popover state still remains coherent after the footer spacing normalization
+- the white Android system-bar background remains visible in emulator screenshots and is still not solved by this pass
+- commit note:
+  - the resulting self-only git commit is created after these status-doc edits
+  - the commit hash is intentionally not written into this same entry to avoid a follow-up amend just to self-reference the commit
+
+### Validation Snapshot
+
+- `npm run lint`
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- assembleDebug`
+- `.codex/skills/chatroomai-android-emulator-test/scripts/prepare-chatroomai.ps1 -ProjectRoot C:\\Users\\Dandwan\\projects\\ChatroomAI`
+- homepage first-look screenshot after the equal-gap normalization pass:
+  - `.tmp-homepage-footer-equal-gap-v1.png`
+- homepage opened model-popover screenshot after the equal-gap normalization pass:
+  - `.tmp-homepage-footer-equal-gap-open-v1.png`
+
+### Open Follow-Up
+
+- if you want the homepage pushed further after this normalized footer pass, the next homepage-only areas are:
+  - hero typography and line breaks
+  - Android/system-bar background behavior
+  - any remaining optical rhythm issues in the top half of the page
+- once homepage parity is accepted, move on to `active-chat`, `drawer`, `settings-home`, and `settings-daily-cover` under the same component/styling system
+
 ## 2026-05-02 00:00 +08:00
 
 ### Scope

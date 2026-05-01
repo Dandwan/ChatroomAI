@@ -9,14 +9,24 @@
   --homepage-composer-tool-height: 46px;
   --homepage-composer-send-width: 74px;
   --homepage-composer-icon-size: 46px;
+  --homepage-footer-gap: 8px;
+  --homepage-header-inline-inset: 20px;
   --homepage-field-radius: 4px;
   --homepage-field-border: rgba(244, 247, 251, 0.12);
   --homepage-field-bg: rgba(10, 12, 18, 0.88);
-  --homepage-footer-bottom-offset: max(28px, calc(14px + env(safe-area-inset-bottom)));
-  --homepage-footer-reserved-space: clamp(166px, 21vh, 230px);
+  --homepage-footer-bottom-offset: calc(var(--homepage-footer-gap) + env(safe-area-inset-bottom));
+  --homepage-footer-reserved-space: 156px;
+  width: 100%;
+  max-width: none;
+  padding-left: 0;
+  padding-right: 0;
   gap: 10px;
   position: relative;
   isolation: isolate;
+}
+
+.app-header.is-homepage-empty {
+  padding-inline: var(--homepage-header-inline-inset);
 }
 
 .homepage-empty-background {
@@ -285,8 +295,8 @@
 
 .cover-empty-state-footer-slot {
   position: absolute;
-  left: 18px;
-  right: 18px;
+  left: var(--homepage-footer-gap);
+  right: var(--homepage-footer-gap);
   bottom: var(--homepage-footer-bottom-offset);
   z-index: 2;
 }
@@ -562,17 +572,17 @@
 }
 
 .composer.is-homepage-empty .composer-panel {
-  gap: 8px;
+  gap: var(--homepage-footer-gap);
 }
 
 .composer.is-homepage-empty .composer-row {
   grid-template-columns: minmax(0, 1fr) var(--homepage-composer-send-width);
-  gap: 10px;
+  gap: var(--homepage-footer-gap);
 }
 
 .composer.is-homepage-empty .composer-tools {
   grid-template-columns: minmax(0, 1fr) var(--homepage-composer-icon-size) var(--homepage-composer-icon-size);
-  gap: 8px;
+  gap: var(--homepage-footer-gap);
 }
 
 .composer.is-homepage-empty textarea.chat-input-box,
@@ -928,8 +938,10 @@
 
 @media (max-width: 760px) {
   .app-shell.is-homepage-empty {
-    --homepage-footer-bottom-offset: max(18px, calc(8px + env(safe-area-inset-bottom)));
-    --homepage-footer-reserved-space: 186px;
+    --homepage-header-inline-inset: 20px;
+    --homepage-footer-gap: 8px;
+    --homepage-footer-bottom-offset: calc(var(--homepage-footer-gap) + env(safe-area-inset-bottom));
+    --homepage-footer-reserved-space: 164px;
   }
 
   .cover-empty-state {
