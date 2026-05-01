@@ -9634,7 +9634,7 @@ function App() {
           <main
             key={activeConversationId}
             ref={messageListRef}
-            className="message-list page-transition"
+            className={`message-list page-transition ${isHomepageEmptyState ? 'is-homepage-empty' : ''}`}
             onScroll={handleMessageListScroll}
             onPointerDownCapture={handleMessageListPointerDownCapture}
             onPointerUpCapture={handleMessageListPointerUpCapture}
@@ -9646,7 +9646,6 @@ function App() {
                 cover={resolvedDailyCover}
                 highlightStats={homepageHighlightStats}
                 responseModeLabel={getResponseModeLabel(activeConversationResponseMode)}
-                footerContent={isHomepageEmptyState ? renderComposerFooter({ homepageEmpty: true }) : null}
               />
             ) : null}
 
@@ -9887,7 +9886,11 @@ function App() {
             <div ref={messageEndRef} />
           </main>
 
-          {!isHomepageEmptyState ? renderComposerFooter() : null}
+          {isHomepageEmptyState ? (
+            <div className="homepage-footer-dock">{renderComposerFooter({ homepageEmpty: true })}</div>
+          ) : (
+            renderComposerFooter()
+          )}
 
           <input
             ref={fileInputRef}

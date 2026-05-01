@@ -30,6 +30,7 @@ As of 2026-05-01:
   - the homepage footer vertical placement was lowered again so the second-row controls now sit much closer to the prototype’s bottom spacing and their bottom gap is visually closer to the left/right insets
   - the homepage footer spacing now uses a shared homepage gap token so the first-row gap, second-row gap, second-row side inset, and second-row bottom inset all resolve from the same base spacing value
   - after the follow-up bottom-offset correction, the previous visually oversized bottom gap is no longer the dominant mismatch in the homepage footer
+  - the homepage footer is now rendered through an app-shell-level dock instead of a hero-internal absolute slot, so footer side/bottom spacing and safe-area handling are owned by one layout layer
   - the homepage daily-cover image is now elevated to a real scene-level background layer for the empty homepage state instead of remaining a large rounded card background
 - local self-hosted free commercial fonts are now wired into the real app homepage styling:
   - `Noto Serif SC`
@@ -64,6 +65,7 @@ As of 2026-05-01:
   - the previous lower-footer mismatch where the second row sat too high above the safe-area bottom has now been reduced substantially
   - the footer spacing is now also structurally normalized instead of merely hand-tuned: first-row gap, second-row gap, side inset, and bottom inset now move together
   - the specific earlier issue where the bottom inset still looked obviously larger than the other footer gaps has now been corrected in the latest emulator screenshot pass
+  - the footer spacing logic is now structurally simpler: the homepage footer dock owns visible side/bottom spacing, instead of splitting that responsibility between the hero scene and the outer shell
   - the remaining residual difference is now mostly minor pixel-level typography/spacing polish, the unavoidable real-app provider grouping inside the model popover, and the current white system-bar background still visible on emulator screenshots
 
 As of 2026-04-30:
