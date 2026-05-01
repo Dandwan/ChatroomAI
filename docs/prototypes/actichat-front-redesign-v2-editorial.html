@@ -1,0 +1,1427 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>动话 · Editorial Daily Cover v2</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Noto+Serif+SC:wght@300;400;500&family=Space+Grotesk:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --paper: #f2efe8;
+        --paper-soft: #e8e4d9;
+        --ink: #161513;
+        --ink-soft: #3a3631;
+        --ink-mute: #8a857d;
+        --rule: rgba(22, 21, 19, 0.18);
+        --rule-light: rgba(242, 239, 232, 0.28);
+        --hero-shadow: rgba(0, 0, 0, 0.28);
+        --display: 'Instrument Serif', 'Noto Serif SC', 'Songti SC', 'STSong', 'SimSun', serif;
+        --ui: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+        --ease-cinema: cubic-bezier(0.65, 0, 0.35, 1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: var(--ui);
+        font-weight: 300;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        overflow-x: hidden;
+      }
+
+      body {
+        min-height: 100vh;
+        min-height: 100dvh;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      img {
+        display: block;
+        max-width: 100%;
+      }
+
+      button,
+      input,
+      textarea,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+
+      ::selection {
+        background: var(--ink);
+        color: var(--paper);
+      }
+
+      .masthead {
+        position: fixed;
+        inset: 0 0 auto 0;
+        z-index: 40;
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        padding: 22px 34px;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--paper);
+        mix-blend-mode: difference;
+        opacity: 0;
+        animation: fadeIn 1.2s var(--ease-soft) 0.2s forwards;
+      }
+
+      .masthead__brand,
+      .masthead__nav {
+        display: flex;
+        align-items: center;
+      }
+
+      .masthead__brand {
+        gap: 12px;
+      }
+
+      .masthead__mark {
+        width: 26px;
+        height: 26px;
+        border: 1px solid currentColor;
+        display: grid;
+        place-items: center;
+        font-family: var(--display);
+        font-size: 14px;
+        font-style: italic;
+        text-transform: none;
+        letter-spacing: 0;
+      }
+
+      .masthead__center {
+        justify-self: center;
+        font-size: 10px;
+        letter-spacing: 0.32em;
+        opacity: 0.8;
+      }
+
+      .masthead__nav {
+        justify-self: end;
+        gap: 28px;
+      }
+
+      .masthead__nav a {
+        position: relative;
+        padding-bottom: 4px;
+      }
+
+      .masthead__nav a::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 100%;
+        bottom: 0;
+        height: 1px;
+        background: currentColor;
+        transition: right 0.45s var(--ease-soft);
+      }
+
+      .masthead__nav a:hover::after {
+        right: 0;
+      }
+
+      .rail {
+        position: fixed;
+        z-index: 20;
+        font-size: 10px;
+        font-weight: 500;
+        letter-spacing: 0.3em;
+        text-transform: uppercase;
+        color: var(--paper);
+        mix-blend-mode: difference;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        opacity: 0;
+        animation: fadeIn 1.1s var(--ease-soft) 0.8s forwards;
+      }
+
+      .rail--left {
+        left: 20px;
+        top: 50%;
+        transform: rotate(-90deg) translateX(50%);
+        transform-origin: left center;
+      }
+
+      .rail--right {
+        right: 20px;
+        top: 50%;
+        transform: rotate(90deg) translateX(-50%);
+        transform-origin: right center;
+      }
+
+      .rail .tick {
+        width: 18px;
+        height: 1px;
+        background: currentColor;
+        opacity: 0.6;
+      }
+
+      .hero {
+        position: relative;
+        width: 100%;
+        height: 100vh;
+        height: 100dvh;
+        min-height: 760px;
+        overflow: hidden;
+        background: #1a1815;
+      }
+
+      .hero__media,
+      .hero__img,
+      .hero__veil,
+      .hero__grain {
+        position: absolute;
+        inset: 0;
+      }
+
+      .hero__img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transform: scale(1.05);
+        opacity: 0;
+        transition: opacity 1.4s var(--ease-cinema), transform 5s var(--ease-cinema);
+      }
+
+      .hero__img.loaded {
+        opacity: 1;
+      }
+
+      .hero__img.is-kenburns {
+        transform: scale(1.11) translate(-1%, -0.6%);
+      }
+
+      .hero__veil {
+        background:
+          linear-gradient(180deg, rgba(0, 0, 0, 0.32) 0%, rgba(0, 0, 0, 0) 26%, rgba(0, 0, 0, 0) 56%, rgba(0, 0, 0, 0.6) 100%),
+          linear-gradient(90deg, rgba(0, 0, 0, 0.28) 0%, rgba(0, 0, 0, 0) 44%);
+        pointer-events: none;
+      }
+
+      .hero__grain {
+        pointer-events: none;
+        opacity: 0.08;
+        mix-blend-mode: overlay;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      }
+
+      .hero__content {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        padding: 108px 34px 54px;
+        display: grid;
+        grid-template-rows: 1fr auto;
+        color: var(--paper);
+      }
+
+      .hero__lede {
+        align-self: end;
+        max-width: 960px;
+      }
+
+      .hero__eyebrow,
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 14px;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+      }
+
+        .hero__eyebrow {
+          opacity: 1;
+          transform: none;
+        }
+
+      .hero__eyebrow .num,
+      .eyebrow .num {
+        font-family: var(--display);
+        font-size: 14px;
+        font-style: italic;
+        letter-spacing: 0;
+        text-transform: none;
+        opacity: 0.86;
+      }
+
+      .hero__eyebrow .bar,
+      .eyebrow .bar {
+        width: 36px;
+        height: 1px;
+        background: currentColor;
+        opacity: 0.55;
+      }
+
+      .hero__title {
+        margin-top: 22px;
+        font-family: var(--display);
+        font-size: clamp(52px, 8.8vw, 150px);
+        line-height: 0.94;
+        letter-spacing: -0.018em;
+        max-width: 9.6ch;
+        text-shadow: 0 8px 30px rgba(0, 0, 0, 0.16);
+      }
+
+      .hero__title .word {
+        display: inline-block;
+        opacity: 1;
+        transform: none;
+      }
+
+      .hero__title .italic {
+        font-style: italic;
+      }
+
+      .hero__byline {
+        margin-top: 26px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 14px;
+        max-width: 720px;
+        font-size: 13px;
+        line-height: 1.65;
+        opacity: 1;
+        transform: none;
+      }
+
+      .hero__byline em {
+        font-family: var(--display);
+        font-style: italic;
+        font-size: 16px;
+      }
+
+      .hero__byline .dot {
+        width: 3px;
+        height: 3px;
+        border-radius: 50%;
+        background: currentColor;
+        opacity: 0.5;
+        transform: translateY(-3px);
+      }
+
+      .hero__meta {
+        margin-top: 54px;
+        border-top: 1px solid var(--rule-light);
+        padding-top: 18px;
+        display: grid;
+        grid-template-columns: 1.2fr 1fr 1fr 1.2fr auto;
+        gap: 28px;
+        align-items: end;
+        font-size: 10.5px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        opacity: 1;
+      }
+
+      .hero__meta .cell {
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        min-width: 0;
+      }
+
+      .hero__meta .label {
+        opacity: 0.58;
+        font-size: 9.5px;
+        letter-spacing: 0.3em;
+      }
+
+      .hero__meta .value {
+        font-family: var(--display);
+        font-size: 17px;
+        letter-spacing: 0;
+        text-transform: none;
+      }
+
+      .hero__meta .value em {
+        font-style: italic;
+      }
+
+      .hero__scroll {
+        justify-self: end;
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 10px;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        background: none;
+        border: none;
+        color: var(--paper);
+        cursor: pointer;
+        padding: 6px 0;
+        opacity: 0.86;
+      }
+
+      .hero__scroll-line {
+        position: relative;
+        width: 1px;
+        height: 38px;
+        background: rgba(242, 239, 232, 0.24);
+        overflow: hidden;
+      }
+
+      .hero__scroll-line::after {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: 0;
+        right: 0;
+        height: 50%;
+        background: var(--paper);
+        animation: scrollLine 2.4s var(--ease-cinema) infinite;
+      }
+
+      .section {
+        position: relative;
+        padding: clamp(82px, 12vw, 160px) 34px;
+        background: var(--paper);
+        color: var(--ink);
+      }
+
+      .section--ink {
+        background: var(--ink);
+        color: var(--paper);
+      }
+
+      .section__inner {
+        max-width: 1320px;
+        margin: 0 auto;
+      }
+
+      .section__head {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: end;
+        gap: 32px;
+        padding-bottom: 28px;
+        border-bottom: 1px solid var(--rule);
+        margin-bottom: clamp(48px, 7vw, 92px);
+      }
+
+      .section--ink .section__head {
+        border-bottom-color: var(--rule-light);
+      }
+
+      .section__title {
+        margin-top: 18px;
+        max-width: 16ch;
+        font-family: var(--display);
+        font-size: clamp(38px, 5.6vw, 82px);
+        line-height: 0.98;
+        letter-spacing: -0.015em;
+      }
+
+      .section__title em,
+      .section__aside em,
+      .quiet-quote em,
+      .plate-note em,
+      .contract-card em,
+      .settings-intro em {
+        font-style: italic;
+      }
+
+      .section__aside {
+        text-align: right;
+        font-size: 11px;
+        line-height: 1.65;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        color: var(--ink-mute);
+      }
+
+      .section--ink .section__aside {
+        color: rgba(242, 239, 232, 0.58);
+      }
+
+      .cover-system {
+        display: grid;
+        grid-template-columns: 5fr 7fr;
+        gap: clamp(40px, 6vw, 92px);
+        align-items: start;
+      }
+
+      .cover-system__copy {
+        position: sticky;
+        top: 112px;
+      }
+
+      .quiet-quote {
+        font-family: var(--display);
+        font-size: clamp(28px, 3.2vw, 44px);
+        line-height: 1.18;
+        margin-bottom: 34px;
+      }
+
+      .settings-intro {
+        max-width: 36ch;
+        color: var(--ink-soft);
+        font-size: 15px;
+        line-height: 1.76;
+      }
+
+      .settings-intro p + p {
+        margin-top: 14px;
+      }
+
+      .meta-grid {
+        margin-top: 40px;
+        padding-top: 22px;
+        border-top: 1px solid var(--rule);
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px 24px;
+        font-size: 10.5px;
+        letter-spacing: 0.26em;
+        text-transform: uppercase;
+        color: var(--ink-mute);
+      }
+
+      .meta-grid .v {
+        display: block;
+        margin-top: 6px;
+        font-family: var(--display);
+        font-size: 16px;
+        letter-spacing: 0;
+        text-transform: none;
+        color: var(--ink);
+      }
+
+      .cover-system__content {
+        display: flex;
+        flex-direction: column;
+        gap: 26px;
+      }
+
+      .plates {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 16px;
+      }
+
+      .plate {
+        position: relative;
+        overflow: hidden;
+        background: var(--paper-soft);
+        cursor: pointer;
+        border: 1px solid transparent;
+        transition: transform 0.7s var(--ease-soft), border-color 0.35s var(--ease-soft);
+      }
+
+      .plate:hover {
+        transform: translateY(-4px);
+      }
+
+      .plate.active {
+        border-color: rgba(22, 21, 19, 0.28);
+      }
+
+      .plate img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: transform 1.1s var(--ease-cinema);
+      }
+
+      .plate:hover img {
+        transform: scale(1.04);
+      }
+
+      .plate__cap {
+        position: absolute;
+        left: 12px;
+        bottom: 10px;
+        z-index: 1;
+        font-size: 10px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--paper);
+        mix-blend-mode: difference;
+        opacity: 0.88;
+      }
+
+      .plate--a { grid-column: 1 / span 4; aspect-ratio: 4 / 3; }
+      .plate--b { grid-column: 5 / span 2; aspect-ratio: 3 / 4; }
+      .plate--c { grid-column: 1 / span 2; aspect-ratio: 3 / 4; }
+      .plate--d { grid-column: 3 / span 4; aspect-ratio: 4 / 3; }
+
+      .plate-note {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 28px;
+        padding-top: 18px;
+        border-top: 1px solid var(--rule);
+        color: var(--ink-soft);
+        font-size: 14px;
+        line-height: 1.7;
+      }
+
+      .plate-note strong {
+        font-weight: 500;
+        color: var(--ink);
+      }
+
+      .plate-note .small {
+        font-size: 11px;
+        letter-spacing: 0.26em;
+        text-transform: uppercase;
+        color: var(--ink-mute);
+        text-align: right;
+      }
+
+      .console {
+        display: grid;
+        gap: 24px;
+      }
+
+      .console-card {
+        padding: 24px 0;
+        border-top: 1px solid var(--rule);
+      }
+
+      .console-card:first-child {
+        border-top: none;
+        padding-top: 0;
+      }
+
+      .console-head {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 18px;
+        align-items: start;
+        margin-bottom: 18px;
+      }
+
+      .console-label {
+        font-size: 11px;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        color: var(--ink-mute);
+      }
+
+      .console-title {
+        margin-top: 8px;
+        font-family: var(--display);
+        font-size: clamp(28px, 3vw, 40px);
+        line-height: 1.02;
+      }
+
+      .console-copy {
+        color: var(--ink-soft);
+        font-size: 14px;
+        line-height: 1.72;
+      }
+
+      .console-kicker {
+        font-size: 10px;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        color: var(--ink-mute);
+      }
+
+      .segmented {
+        display: inline-grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+        padding: 6px;
+        border: 1px solid var(--rule);
+        background: var(--paper-soft);
+      }
+
+      .segmented button {
+        border: none;
+        background: transparent;
+        padding: 12px 16px;
+        font-size: 11px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--ink-soft);
+        cursor: pointer;
+        transition: background 0.3s var(--ease-soft), color 0.3s var(--ease-soft);
+      }
+
+      .segmented button.active {
+        background: var(--ink);
+        color: var(--paper);
+      }
+
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px 20px;
+        margin-top: 20px;
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .field.full {
+        grid-column: 1 / -1;
+      }
+
+      .field label {
+        font-size: 10px;
+        letter-spacing: 0.26em;
+        text-transform: uppercase;
+        color: var(--ink-mute);
+      }
+
+      .field input,
+      .field select,
+      .field textarea {
+        width: 100%;
+        border: none;
+        border-bottom: 1px solid var(--rule);
+        border-radius: 0;
+        background: transparent;
+        padding: 0 0 10px;
+        outline: none;
+      }
+
+      .field textarea {
+        min-height: 96px;
+        resize: vertical;
+      }
+
+      .field input:focus,
+      .field select:focus,
+      .field textarea:focus {
+        border-bottom-color: var(--ink);
+      }
+
+      .api-panel {
+        display: none;
+      }
+
+      .api-panel.is-visible {
+        display: block;
+      }
+
+      .toc {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .toc__row {
+        display: grid;
+        grid-template-columns: 82px 1fr 180px 120px 84px;
+        align-items: center;
+        gap: 24px;
+        padding: 22px 0;
+        border-bottom: 1px solid var(--rule);
+        position: relative;
+        transition: background 0.45s var(--ease-soft);
+      }
+
+      .toc__row:first-child {
+        border-top: 1px solid var(--rule);
+      }
+
+      .toc__num {
+        font-family: var(--display);
+        font-style: italic;
+        font-size: 22px;
+        color: var(--ink-mute);
+      }
+
+      .toc__title {
+        font-family: var(--display);
+        font-size: clamp(26px, 3.4vw, 44px);
+        line-height: 1;
+        letter-spacing: -0.01em;
+      }
+
+      .toc__title em {
+        font-style: italic;
+      }
+
+      .toc__loc,
+      .toc__count,
+      .toc__arrow {
+        font-size: 11px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--ink-mute);
+      }
+
+      .toc__loc .y {
+        display: block;
+        margin-top: 4px;
+        color: var(--ink);
+        font-size: 12px;
+        letter-spacing: 0.04em;
+        font-family: var(--display);
+        font-style: italic;
+      }
+
+      .toc__row:hover .toc__title {
+        transform: translateX(8px);
+      }
+
+      .contract-card {
+        margin-top: 24px;
+        padding: 26px;
+        background: var(--ink);
+        color: var(--paper);
+      }
+
+      .contract-card .console-label,
+      .contract-card .console-copy {
+        color: rgba(242, 239, 232, 0.74);
+      }
+
+      .contract-card pre {
+        margin: 18px 0 0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+        line-height: 1.7;
+        white-space: pre-wrap;
+        color: rgba(242, 239, 232, 0.88);
+      }
+
+      .reveal {
+        opacity: 0;
+        transform: translateY(26px);
+        transition: opacity 1s var(--ease-soft), transform 1s var(--ease-soft);
+      }
+
+      .reveal.in {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(18px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes scrollLine {
+        0% { transform: translateY(0); }
+        100% { transform: translateY(300%); }
+      }
+
+      @media (max-width: 1100px) {
+        .cover-system {
+          grid-template-columns: 1fr;
+        }
+
+        .cover-system__copy {
+          position: static;
+        }
+
+        .hero__meta {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 820px) {
+        .masthead {
+          grid-template-columns: 1fr;
+          gap: 12px;
+          padding: 18px 18px;
+        }
+
+        .masthead__center,
+        .masthead__nav {
+          display: none;
+        }
+
+        .rail {
+          display: none;
+        }
+
+        .hero {
+          min-height: 700px;
+        }
+
+        .hero__content,
+        .section {
+          padding-left: 18px;
+          padding-right: 18px;
+        }
+
+        .hero__meta,
+        .section__head,
+        .plate-note,
+        .console-head,
+        .toc__row,
+        .form-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .plates {
+          grid-template-columns: 1fr;
+        }
+
+        .plate--a,
+        .plate--b,
+        .plate--c,
+        .plate--d {
+          grid-column: auto;
+          aspect-ratio: 4 / 3;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="masthead">
+      <div class="masthead__brand">
+        <span class="masthead__mark">动</span>
+        <span>ActiChat Studio</span>
+      </div>
+      <div class="masthead__center">Daily Cover Editorial</div>
+      <nav class="masthead__nav" aria-label="Main Navigation">
+        <a href="#cover-system">Cover</a>
+        <a href="#settings">Settings</a>
+        <a href="#contract">Contract</a>
+      </nav>
+    </header>
+
+    <div class="rail rail--left">
+      <span class="tick"></span>
+      <span>Issue 08 · Daily Cover</span>
+    </div>
+    <div class="rail rail--right">
+      <span>© ActiChat Editorial System</span>
+      <span class="tick"></span>
+    </div>
+
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero__media">
+        <img id="heroImage" class="hero__img" alt="今日风景封面" />
+        <div class="hero__veil"></div>
+        <div class="hero__grain"></div>
+      </div>
+
+      <div class="hero__content">
+        <div class="hero__lede">
+          <div class="hero__eyebrow">
+            <span class="num" id="heroIssue">08</span>
+            <span class="bar"></span>
+            <span>Selected cover · <span id="heroDateText">2026-04-29</span></span>
+          </div>
+
+          <h1 class="hero__title" id="hero-title">
+            <span class="word">先看</span>
+            <span class="word italic">今日</span>
+            <span class="word">风景，</span>
+            <span class="word">再开始</span>
+            <span class="word italic">新的对话。</span>
+          </h1>
+
+          <div class="hero__byline">
+            <em id="heroTitleText">Crater Lake</em>
+            <span class="dot"></span>
+            <span id="heroPhotographer">Sanaan Mazhar</span>
+            <span class="dot"></span>
+            <span id="heroLocation">A calm opening image for a fresh conversation.</span>
+          </div>
+        </div>
+
+        <div class="hero__meta">
+          <div class="cell">
+            <span class="label">Default pool</span>
+            <span class="value">Four <em>quiet</em> landscapes</span>
+          </div>
+          <div class="cell">
+            <span class="label">Source</span>
+            <span class="value" id="heroSource">Pexels curated</span>
+          </div>
+          <div class="cell">
+            <span class="label">Rotation</span>
+            <span class="value">Daily hash</span>
+          </div>
+          <div class="cell">
+            <span class="label">Mode</span>
+            <span class="value" id="heroMode">Bundled pool</span>
+          </div>
+          <button class="hero__scroll" id="scrollToCover" type="button" aria-label="滚动到封面系统设置">
+            <span class="hero__scroll-line"></span>
+            <span>Scroll</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="cover-system" aria-labelledby="cover-system-title">
+      <div class="section__inner">
+        <div class="section__head reveal">
+          <div>
+            <span class="eyebrow">
+              <span class="num">01</span>
+              <span class="bar"></span>
+              <span>The Cover System</span>
+            </span>
+            <h2 class="section__title" id="cover-system-title">让首页像一张 <em>摄影册页</em>，而不是一块普通背景。</h2>
+          </div>
+          <div class="section__aside">
+            New conversation<br />
+            First impression<br />
+            Daily rhythm
+          </div>
+        </div>
+
+        <div class="cover-system">
+          <div class="cover-system__copy reveal">
+            <div class="quiet-quote">“封面负责情绪，设置负责控制。两者都应该足够安静。”</div>
+            <div class="settings-intro">
+              <p>这版不再走“可爱玻璃卡片”的方向，而是借用摄影书的语言：全屏封面、固定刊头、窄字距 UI、低干扰的说明文字、稀疏的线性结构。</p>
+              <p>产品上，封面仅服务于<em>冷启动的新对话</em>。它给用户一个进入感，但不应该在进入消息流后继续压住聊天本体。</p>
+            </div>
+
+            <div class="meta-grid">
+              <div>
+                Fallback
+                <span class="v">Bundled pool</span>
+              </div>
+              <div>
+                Cache
+                <span class="v">24 <em>hours</em></span>
+              </div>
+              <div>
+                Credit
+                <span class="v">Visible in settings</span>
+              </div>
+              <div>
+                Trigger
+                <span class="v">Cold start only</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cover-system__content reveal">
+            <div class="plates" id="plateGrid"></div>
+            <div class="plate-note">
+              <div>
+                <strong id="plateNoteTitle">Crater Lake</strong> 作为当前演示封面。默认图池建议只收录纯风景、无人物、无品牌元素、无强商业符号的图像，避免与聊天产品主体冲突。
+              </div>
+              <div class="small" id="plateNoteMeta">
+                Pexels · Sanaan Mazhar
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="settings" aria-labelledby="settings-title">
+      <div class="section__inner">
+        <div class="section__head reveal">
+          <div>
+            <span class="eyebrow">
+              <span class="num">02</span>
+              <span class="bar"></span>
+              <span>The Settings Surface</span>
+            </span>
+            <h2 class="section__title" id="settings-title">设置每日一图，但不要把设置面板做成 <em>后台控制台。</em></h2>
+          </div>
+          <div class="section__aside">
+            Human-readable<br />
+            Provider-agnostic<br />
+            Stable fallback
+          </div>
+        </div>
+
+        <div class="console reveal">
+          <div class="console-card">
+            <div class="console-head">
+              <div>
+                <div class="console-label">Source mode</div>
+                <div class="console-title">图片来源策略</div>
+              </div>
+              <div class="console-kicker">Recommended default: bundled pool</div>
+            </div>
+            <div class="console-copy">
+              默认图池负责可控和稳定。每日一图 API 作为可选增强项存在，并且应该始终有本地兜底，而不是直接替代默认池。
+            </div>
+            <div style="margin-top: 18px;">
+              <div class="segmented" role="tablist" aria-label="图片来源模式">
+                <button id="modePoolButton" class="active" type="button">Bundled pool</button>
+                <button id="modeApiButton" type="button">Daily API</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="console-card">
+            <div class="console-head">
+              <div>
+                <div class="console-label">Preview controls</div>
+                <div class="console-title">演示日期与当前封面</div>
+              </div>
+              <div class="console-kicker">Used only for prototype preview</div>
+            </div>
+            <div class="form-grid">
+              <div class="field">
+                <label for="demoDate">Demo date</label>
+                <input id="demoDate" type="date" />
+              </div>
+              <div class="field">
+                <label for="heroModeValue">Current mode</label>
+                <input id="heroModeValue" type="text" value="Bundled pool" readonly />
+              </div>
+              <div class="field full">
+                <label for="currentCoverInfo">Current cover</label>
+                <input id="currentCoverInfo" type="text" readonly />
+              </div>
+            </div>
+          </div>
+
+          <div class="console-card">
+            <div class="console-head">
+              <div>
+                <div class="console-label">Bundled collection</div>
+                <div class="console-title">默认风景图池清单</div>
+              </div>
+              <div class="console-kicker">Small, curated, controlled</div>
+            </div>
+            <div class="toc" id="poolTable"></div>
+          </div>
+
+          <div class="console-card api-panel" id="apiPanel">
+            <div class="console-head">
+              <div>
+                <div class="console-label">Daily image API</div>
+                <div class="console-title">自定义每日一图接口</div>
+              </div>
+              <div class="console-kicker">Endpoint + auth + field mapping</div>
+            </div>
+            <div class="console-copy">
+              这里不写死任何平台。正式产品建议支持字段映射，而不是只支持某个固定返回结构，这样后续切换来源时不会重做 UI。
+            </div>
+            <div class="form-grid">
+              <div class="field full">
+                <label for="apiEndpoint">API endpoint</label>
+                <input id="apiEndpoint" type="text" value="https://example.com/api/daily-cover?date={YYYY-MM-DD}" />
+              </div>
+              <div class="field">
+                <label for="apiMethod">Request method</label>
+                <select id="apiMethod">
+                  <option>GET</option>
+                  <option>POST</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="apiAuth">Authorization</label>
+                <input id="apiAuth" type="text" value="Bearer YOUR_TOKEN" />
+              </div>
+              <div class="field">
+                <label for="imagePath">Image URL path</label>
+                <input id="imagePath" type="text" value="data.image.url" />
+              </div>
+              <div class="field">
+                <label for="titlePath">Title path</label>
+                <input id="titlePath" type="text" value="data.image.title" />
+              </div>
+              <div class="field">
+                <label for="creditPath">Credit path</label>
+                <input id="creditPath" type="text" value="data.image.credit.name" />
+              </div>
+              <div class="field">
+                <label for="linkPath">Credit link path</label>
+                <input id="linkPath" type="text" value="data.image.credit.link" />
+              </div>
+              <div class="field full">
+                <label for="fallbackPolicy">Fallback policy</label>
+                <textarea id="fallbackPolicy">若接口请求失败、字段缺失、响应过慢或返回非图片链接，则回退到本地默认图池，并缓存最近一次成功结果 24 小时。</textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section--ink" id="contract" aria-labelledby="contract-title">
+      <div class="section__inner">
+        <div class="section__head reveal">
+          <div>
+            <span class="eyebrow">
+              <span class="num">03</span>
+              <span class="bar"></span>
+              <span>The Contract</span>
+            </span>
+            <h2 class="section__title" id="contract-title">为了保持产品寿命，数据契约最好足够 <em>朴素。</em></h2>
+          </div>
+          <div class="section__aside">
+            Small schema<br />
+            Long usability<br />
+            Safe fallback
+          </div>
+        </div>
+
+        <div class="contract-card reveal">
+          <div class="console-label">Suggested response shape</div>
+          <div class="console-copy">
+            这只是建议形状。真正落地时，前端可以通过字段路径映射去适配返回值，而不是要求所有 API 完全一致。
+          </div>
+          <pre>{
+  "data": {
+    "date": "2026-04-29",
+    "image": {
+      "url": "https://cdn.example.com/daily/2026-04-29.jpg",
+      "title": "Morning Above The Ridge",
+      "credit": {
+        "name": "Studio Name",
+        "link": "https://example.com/credit"
+      }
+    }
+  }
+}</pre>
+        </div>
+      </div>
+    </section>
+
+    <script>
+      const landscapePool = [
+        {
+          id: 'alpine-lake',
+          title: 'Alpine Lake',
+          photographer: 'Jplenio',
+          source: 'Pexels curated',
+          location: 'Mountain light held back for a quiet opening.',
+          dateHint: 'A still opening image with long air and clean water.',
+          image: './assets/landscapes/alpine-lake.jpg',
+        },
+        {
+          id: 'mirror-mountain',
+          title: 'Mirror Mountain',
+          photographer: 'Eberhard Grossgasteiger',
+          source: 'Pexels curated',
+          location: 'A colder, more editorial cover with restrained contrast.',
+          dateHint: 'Good for austere mornings and spare typography.',
+          image: './assets/landscapes/mirror-mountain.jpg',
+        },
+        {
+          id: 'crater-lake',
+          title: 'Crater Lake',
+          photographer: 'Sanaan Mazhar',
+          source: 'Pexels curated',
+          location: 'A calm opening image for a fresh conversation.',
+          dateHint: 'Soft blue distance and stable negative space.',
+          image: './assets/landscapes/crater-lake.jpg',
+        },
+        {
+          id: 'autumn-ridge',
+          title: 'Autumn Ridge',
+          photographer: 'Nenad Rakicevic',
+          source: 'Pexels curated',
+          location: 'Warmer atmosphere without becoming decorative.',
+          dateHint: 'For days that need more warmth without losing control.',
+          image: './assets/landscapes/autumn-ridge.jpg',
+        },
+      ]
+
+      const heroImage = document.getElementById('heroImage')
+      const heroDateText = document.getElementById('heroDateText')
+      const heroTitleText = document.getElementById('heroTitleText')
+      const heroPhotographer = document.getElementById('heroPhotographer')
+      const heroLocation = document.getElementById('heroLocation')
+      const heroSource = document.getElementById('heroSource')
+      const heroMode = document.getElementById('heroMode')
+      const heroModeValue = document.getElementById('heroModeValue')
+      const currentCoverInfo = document.getElementById('currentCoverInfo')
+      const demoDate = document.getElementById('demoDate')
+      const plateGrid = document.getElementById('plateGrid')
+      const plateNoteTitle = document.getElementById('plateNoteTitle')
+      const plateNoteMeta = document.getElementById('plateNoteMeta')
+      const poolTable = document.getElementById('poolTable')
+      const modePoolButton = document.getElementById('modePoolButton')
+      const modeApiButton = document.getElementById('modeApiButton')
+      const apiPanel = document.getElementById('apiPanel')
+      const scrollToCover = document.getElementById('scrollToCover')
+
+      let currentMode = 'pool'
+
+      const dateHash = (dateString) => {
+        const compact = dateString.replaceAll('-', '')
+        let total = 0
+        for (let index = 0; index < compact.length; index += 1) {
+          total += Number(compact[index]) * (index + 5)
+        }
+        return total
+      }
+
+      const getItemByDate = (dateString) => {
+        const index = dateHash(dateString) % landscapePool.length
+        return landscapePool[index]
+      }
+
+      const setHeroImage = (item) => {
+        heroImage.classList.remove('loaded', 'is-kenburns')
+        heroImage.src = item.image
+        heroImage.alt = item.title
+        heroImage.onload = () => {
+          heroImage.classList.add('loaded')
+          requestAnimationFrame(() => {
+            heroImage.classList.add('is-kenburns')
+          })
+        }
+      }
+
+      const renderPlates = (activeId) => {
+        const layoutClasses = ['plate--a', 'plate--b', 'plate--c', 'plate--d']
+        plateGrid.innerHTML = ''
+
+        landscapePool.forEach((item, index) => {
+          const button = document.createElement('button')
+          button.type = 'button'
+          button.className = `plate ${layoutClasses[index % layoutClasses.length]} ${item.id === activeId ? 'active' : ''}`
+          button.innerHTML = `
+            <img src="${item.image}" alt="${item.title}" />
+            <span class="plate__cap">${item.title}</span>
+          `
+          button.addEventListener('click', () => {
+            const baseDate = new Date(demoDate.value)
+            if (Number.isNaN(baseDate.getTime())) return
+            const targetIndex = landscapePool.findIndex((entry) => entry.id === item.id)
+            baseDate.setDate(baseDate.getDate() + targetIndex)
+            demoDate.value = baseDate.toISOString().slice(0, 10)
+            updateDailyCover()
+          })
+          plateGrid.appendChild(button)
+        })
+      }
+
+      const renderPoolTable = (activeId) => {
+        poolTable.innerHTML = ''
+        landscapePool.forEach((item, index) => {
+          const row = document.createElement('button')
+          row.type = 'button'
+          row.className = 'toc__row'
+          row.style.background = item.id === activeId ? 'rgba(22, 21, 19, 0.03)' : 'transparent'
+          row.innerHTML = `
+            <span class="toc__num">${String(index + 1).padStart(2, '0')}</span>
+            <span class="toc__title">${item.title}</span>
+            <span class="toc__loc">${item.photographer}<span class="y">${item.source}</span></span>
+            <span class="toc__count">Bundled cover</span>
+            <span class="toc__arrow">→</span>
+          `
+          row.addEventListener('click', () => {
+            const baseDate = new Date(demoDate.value)
+            if (Number.isNaN(baseDate.getTime())) return
+            baseDate.setDate(baseDate.getDate() + index)
+            demoDate.value = baseDate.toISOString().slice(0, 10)
+            updateDailyCover()
+          })
+          poolTable.appendChild(row)
+        })
+      }
+
+      const updateDailyCover = () => {
+        const dateValue = demoDate.value
+        const item = getItemByDate(dateValue)
+        setHeroImage(item)
+        heroDateText.textContent = dateValue
+        heroTitleText.textContent = item.title
+        heroPhotographer.textContent = item.photographer
+        heroLocation.textContent = item.location
+        heroSource.textContent = item.source
+        currentCoverInfo.value = `${item.title} · ${item.photographer} · ${item.source}`
+        plateNoteTitle.textContent = item.title
+        plateNoteMeta.textContent = `${item.source} · ${item.photographer}`
+        renderPlates(item.id)
+        renderPoolTable(item.id)
+      }
+
+      const setMode = (mode) => {
+        currentMode = mode
+        const isApi = mode === 'api'
+        modePoolButton.classList.toggle('active', !isApi)
+        modeApiButton.classList.toggle('active', isApi)
+        apiPanel.classList.toggle('is-visible', isApi)
+        heroMode.textContent = isApi ? 'Daily API' : 'Bundled pool'
+        heroModeValue.value = isApi ? 'Daily API' : 'Bundled pool'
+      }
+
+      const scrollToElement = (element) => {
+        if (!element) return
+        const top = element.getBoundingClientRect().top + window.scrollY
+        window.scrollTo({ top, behavior: 'smooth' })
+      }
+
+      scrollToCover.addEventListener('click', () => {
+        scrollToElement(document.getElementById('cover-system'))
+      })
+
+      modePoolButton.addEventListener('click', () => setMode('pool'))
+      modeApiButton.addEventListener('click', () => setMode('api'))
+      document.querySelectorAll('a[href^="#"]').forEach((anchor) => {
+        anchor.addEventListener('click', (event) => {
+          const targetId = anchor.getAttribute('href')
+          if (!targetId || targetId.length <= 1) return
+          const target = document.querySelector(targetId)
+          if (!target) return
+          event.preventDefault()
+          scrollToElement(target)
+        })
+      })
+
+      const revealTargets = document.querySelectorAll('.reveal')
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      if (reduceMotion) {
+        revealTargets.forEach((element) => element.classList.add('in'))
+      } else {
+        const observer = new IntersectionObserver(
+          (entries) => {
+            entries.forEach((entry) => {
+              if (entry.isIntersecting) {
+                entry.target.classList.add('in')
+                observer.unobserve(entry.target)
+              }
+            })
+          },
+          { threshold: 0.12, rootMargin: '0px 0px -8% 0px' },
+        )
+        revealTargets.forEach((element) => observer.observe(element))
+      }
+
+      const today = new Date()
+      const localToday = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+      demoDate.value = localToday.toISOString().slice(0, 10)
+
+      setMode('pool')
+      updateDailyCover()
+    </script>
+  </body>
+</html>

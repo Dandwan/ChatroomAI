@@ -1,0 +1,1552 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>ActiChat Product Demo v1</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Noto+Serif+SC:wght@300;400;500&family=Space+Grotesk:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --paper: #f2efe8;
+        --paper-soft: #e8e4d9;
+        --ink: #161513;
+        --ink-soft: #3a3631;
+        --ink-mute: #8a857d;
+        --rule: rgba(22, 21, 19, 0.18);
+        --rule-light: rgba(242, 239, 232, 0.24);
+
+        --app-bg: #090b10;
+        --app-panel: rgba(17, 19, 28, 0.88);
+        --app-panel-strong: rgba(10, 12, 18, 0.96);
+        --app-line: rgba(226, 229, 235, 0.12);
+        --app-line-strong: rgba(226, 229, 235, 0.22);
+        --app-text: #f4efe7;
+        --app-text-soft: rgba(244, 239, 231, 0.68);
+        --app-accent: #dfe7ee;
+
+        --display: 'Instrument Serif', 'Noto Serif SC', 'Songti SC', 'STSong', 'SimSun', serif;
+        --ui: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+        --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+        --ease-cinema: cubic-bezier(0.65, 0, 0.35, 1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: var(--ui);
+        font-weight: 300;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      body {
+        min-height: 100vh;
+        min-height: 100dvh;
+      }
+
+      button,
+      input,
+      textarea,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+
+      .page {
+        max-width: 1460px;
+        margin: 0 auto;
+        padding: 32px 24px 56px;
+      }
+
+      .topbar {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 32px;
+        align-items: start;
+        margin-bottom: 28px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 14px;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: var(--ink-soft);
+      }
+
+      .eyebrow .num {
+        font-family: var(--display);
+        font-size: 14px;
+        font-style: italic;
+        letter-spacing: 0;
+        text-transform: none;
+      }
+
+      .eyebrow .bar {
+        width: 36px;
+        height: 1px;
+        background: currentColor;
+        opacity: 0.5;
+      }
+
+      .topbar h1 {
+        margin: 18px 0 0;
+        max-width: 12ch;
+        font-family: var(--display);
+        font-size: clamp(42px, 5vw, 76px);
+        line-height: 0.98;
+        letter-spacing: -0.015em;
+      }
+
+      .topbar p {
+        max-width: 48ch;
+        margin: 18px 0 0;
+        color: var(--ink-soft);
+        font-size: 15px;
+        line-height: 1.76;
+      }
+
+      .control-dock {
+        width: min(420px, 100%);
+        padding: 20px 22px;
+        border: 1px solid var(--rule);
+        background: rgba(255, 252, 246, 0.7);
+      }
+
+      .dock-title {
+        font-size: 11px;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        color: var(--ink-mute);
+      }
+
+      .dock-group {
+        margin-top: 16px;
+      }
+
+      .dock-group label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 10px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--ink-mute);
+      }
+
+      .state-tabs {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 6px;
+        padding: 6px;
+        border: 1px solid var(--rule);
+        background: var(--paper-soft);
+      }
+
+      .state-tabs button {
+        border: none;
+        background: transparent;
+        min-height: 40px;
+        padding: 0 10px;
+        font-size: 11px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition: background 0.28s var(--ease-soft), color 0.28s var(--ease-soft);
+      }
+
+      .state-tabs button.active {
+        background: var(--ink);
+        color: var(--paper);
+      }
+
+      .dock-field {
+        width: 100%;
+        border: none;
+        border-bottom: 1px solid var(--rule);
+        background: transparent;
+        padding: 0 0 10px;
+        outline: none;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 420px minmax(0, 1fr);
+        gap: clamp(28px, 4vw, 64px);
+        align-items: start;
+      }
+
+      .device-wrap {
+        position: sticky;
+        top: 20px;
+      }
+
+      .device {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 9 / 19.5;
+        border-radius: 38px;
+        padding: 14px;
+        background: #0b0d12;
+        box-shadow:
+          0 28px 60px rgba(24, 18, 13, 0.18),
+          inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+      }
+
+      .device::before {
+        content: '';
+        position: absolute;
+        top: 10px;
+        left: 50%;
+        width: 120px;
+        height: 24px;
+        margin-left: -60px;
+        border-radius: 0 0 18px 18px;
+        background: #050608;
+        z-index: 6;
+      }
+
+      .screen {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        border-radius: 28px;
+        background: radial-gradient(circle at 50% -10%, rgba(190, 160, 132, 0.08), transparent 36%), var(--app-bg);
+        color: var(--app-text);
+      }
+
+      .screen::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background-image: radial-gradient(circle, rgba(255, 255, 255, 0.08) 0.8px, transparent 0.8px);
+        background-size: 24px 24px;
+        opacity: 0.12;
+        mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.22), transparent 78%);
+        pointer-events: none;
+      }
+
+      .screen__bg {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        transition: opacity 0.45s var(--ease-soft);
+      }
+
+      .screen.state-empty .screen__bg {
+        opacity: 1;
+      }
+
+      .cover-image {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transform: scale(1.07);
+        filter: saturate(0.88) contrast(1.02) brightness(0.75);
+      }
+
+      .cover-veil {
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(180deg, rgba(0, 0, 0, 0.22) 0%, rgba(0, 0, 0, 0) 20%, rgba(0, 0, 0, 0) 50%, rgba(0, 0, 0, 0.68) 100%),
+          linear-gradient(90deg, rgba(0, 0, 0, 0.34) 0%, rgba(0, 0, 0, 0) 46%);
+      }
+
+      .cover-grain {
+        position: absolute;
+        inset: 0;
+        opacity: 0.08;
+        mix-blend-mode: overlay;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      }
+
+      .statusbar {
+        position: absolute;
+        top: 18px;
+        left: 18px;
+        right: 18px;
+        z-index: 3;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: rgba(244, 239, 231, 0.86);
+      }
+
+      .statusbar__icons {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .battery {
+        min-width: 28px;
+        padding: 4px 7px;
+        border: 1px solid rgba(244, 239, 231, 0.3);
+        border-radius: 999px;
+        text-align: center;
+      }
+
+      .app-header {
+        position: absolute;
+        left: 18px;
+        right: 18px;
+        top: 54px;
+        z-index: 3;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .header-pill {
+        display: grid;
+        grid-template-columns: 34px 1fr 24px;
+        align-items: center;
+        gap: 12px;
+        min-height: 52px;
+        padding: 0 18px;
+        border: 1px solid rgba(244, 239, 231, 0.16);
+        border-radius: 999px;
+        background: rgba(10, 12, 18, 0.24);
+        backdrop-filter: blur(14px);
+      }
+
+      .screen:not(.state-empty) .header-pill {
+        background: rgba(10, 12, 18, 0.72);
+      }
+
+      .menu-icon {
+        width: 18px;
+        height: 12px;
+        display: inline-flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+
+      .menu-icon span {
+        display: block;
+        height: 1px;
+        background: currentColor;
+      }
+
+      .title-line {
+        text-align: center;
+        font-size: 15px;
+        letter-spacing: 0.08em;
+      }
+
+      .title-line em {
+        font-family: var(--display);
+        font-style: italic;
+      }
+
+      .stats-row {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+
+      .stats-row span {
+        min-height: 22px;
+        padding: 0 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(244, 239, 231, 0.12);
+        background: rgba(10, 12, 18, 0.22);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--app-text-soft);
+      }
+
+      .screen:not(.state-empty) .stats-row span {
+        background: rgba(10, 12, 18, 0.7);
+      }
+
+      .main-surface {
+        position: absolute;
+        inset: 126px 0 118px;
+        z-index: 2;
+        overflow: hidden;
+      }
+
+      .view {
+        position: absolute;
+        inset: 0;
+        padding: 0 18px 20px;
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(12px);
+        transition: opacity 0.32s var(--ease-soft), transform 0.32s var(--ease-soft);
+      }
+
+      .screen.state-empty .view-empty,
+      .screen.state-chat .view-chat,
+      .screen.state-drawer .view-chat,
+      .screen.state-settings .view-settings {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translateY(0);
+      }
+
+      .view-empty {
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+      }
+
+      .issue-line {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 9px;
+        letter-spacing: 0.26em;
+        text-transform: uppercase;
+        color: rgba(244, 239, 231, 0.7);
+      }
+
+      .issue-line::after {
+        content: '';
+        width: 34px;
+        height: 1px;
+        background: rgba(244, 239, 231, 0.34);
+      }
+
+      .cover-title {
+        margin: 16px 0 0;
+        max-width: 7ch;
+        font-family: var(--display);
+        font-size: clamp(40px, 9vw, 62px);
+        line-height: 0.92;
+        letter-spacing: -0.02em;
+      }
+
+      .cover-title em {
+        font-style: italic;
+      }
+
+      .cover-byline {
+        margin-top: 16px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        font-size: 11px;
+        color: rgba(244, 239, 231, 0.78);
+      }
+
+      .cover-byline .dot {
+        width: 3px;
+        height: 3px;
+        border-radius: 50%;
+        background: currentColor;
+        opacity: 0.48;
+      }
+
+      .cover-foot {
+        margin-top: 26px;
+        padding-top: 14px;
+        border-top: 1px solid rgba(244, 239, 231, 0.16);
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .cover-foot .cell {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .cover-foot .label {
+        font-size: 8px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: rgba(244, 239, 231, 0.5);
+      }
+
+      .cover-foot .value {
+        font-family: var(--display);
+        font-size: 14px;
+      }
+
+      .empty-card {
+        margin-top: 18px;
+        padding: 18px 18px 16px;
+        border: 1px solid rgba(244, 239, 231, 0.14);
+        background: rgba(10, 12, 18, 0.52);
+        backdrop-filter: blur(12px);
+      }
+
+      .empty-card h3 {
+        margin: 0;
+        font-family: var(--display);
+        font-size: 26px;
+        letter-spacing: -0.01em;
+      }
+
+      .empty-card p {
+        margin: 14px 0 0;
+        line-height: 1.7;
+        font-size: 14px;
+        color: rgba(244, 239, 231, 0.72);
+      }
+
+      .view-chat {
+        overflow-y: auto;
+      }
+
+      .message-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .chat-cover-banner {
+        min-height: 156px;
+        border: 1px solid rgba(244, 239, 231, 0.12);
+        background: rgba(10, 12, 18, 0.78);
+        overflow: hidden;
+        position: relative;
+      }
+
+      .chat-cover-banner img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        opacity: 0.36;
+      }
+
+      .chat-cover-banner::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(10, 12, 18, 0.24), rgba(10, 12, 18, 0.88));
+      }
+
+      .chat-cover-banner .copy {
+        position: relative;
+        z-index: 1;
+        padding: 16px;
+      }
+
+      .chat-cover-banner .copy .small {
+        font-size: 9px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: rgba(244, 239, 231, 0.58);
+      }
+
+      .chat-cover-banner .copy h4 {
+        margin: 10px 0 0;
+        font-family: var(--display);
+        font-size: 24px;
+        line-height: 1.02;
+      }
+
+      .chat-cover-banner .copy p {
+        margin: 10px 0 0;
+        font-size: 13px;
+        line-height: 1.68;
+        color: rgba(244, 239, 231, 0.72);
+      }
+
+      .message {
+        max-width: 92%;
+      }
+
+      .message.user {
+        margin-left: auto;
+      }
+
+      .bubble {
+        padding: 14px 16px;
+        border: 1px solid var(--app-line);
+        background: rgba(255, 255, 255, 0.04);
+        line-height: 1.72;
+        font-size: 14px;
+      }
+
+      .message.user .bubble {
+        background: rgba(248, 252, 255, 0.08);
+      }
+
+      .message-head {
+        margin-bottom: 8px;
+        font-size: 10px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--app-text-soft);
+      }
+
+      .assistant-panel {
+        padding: 14px 16px;
+        border: 1px solid var(--app-line);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .assistant-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 11px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: rgba(244, 239, 231, 0.66);
+      }
+
+      .assistant-title strong {
+        font-weight: 400;
+        color: var(--app-text);
+      }
+
+      .assistant-copy {
+        margin-top: 10px;
+        font-size: 14px;
+        line-height: 1.72;
+        color: rgba(244, 239, 231, 0.76);
+      }
+
+      .skill-card {
+        margin-top: 12px;
+        padding: 12px;
+        border: 1px solid rgba(244, 239, 231, 0.1);
+        background: rgba(244, 239, 231, 0.02);
+      }
+
+      .skill-card .top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 10px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: rgba(244, 239, 231, 0.58);
+      }
+
+      .skill-card .body {
+        margin-top: 8px;
+        font-size: 13px;
+        line-height: 1.68;
+        color: rgba(244, 239, 231, 0.74);
+      }
+
+      .metrics {
+        margin-top: 10px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .metrics span {
+        min-height: 20px;
+        padding: 0 8px;
+        border: 1px solid rgba(244, 239, 231, 0.1);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 9px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: rgba(244, 239, 231, 0.58);
+      }
+
+      .composer {
+        position: absolute;
+        left: 18px;
+        right: 18px;
+        bottom: 18px;
+        z-index: 4;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .composer-row {
+        display: grid;
+        grid-template-columns: 1fr 74px;
+        gap: 10px;
+      }
+
+      .composer-input,
+      .composer-send,
+      .composer-tools button,
+      .composer-model {
+        border: 1px solid var(--app-line);
+        background: rgba(10, 12, 18, 0.86);
+        color: var(--app-text);
+      }
+
+      .composer-input {
+        min-height: 52px;
+        padding: 0 18px;
+        display: flex;
+        align-items: center;
+        font-size: 14px;
+        color: var(--app-text-soft);
+      }
+
+      .composer-send {
+        min-height: 52px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      .composer-tools {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        gap: 8px;
+      }
+
+      .composer-model {
+        min-height: 46px;
+        padding: 0 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 12px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .composer-tools button {
+        width: 46px;
+        min-height: 46px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .drawer {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 82%;
+        z-index: 5;
+        border-right: 1px solid rgba(244, 239, 231, 0.12);
+        background: rgba(6, 7, 11, 0.92);
+        backdrop-filter: blur(18px);
+        transform: translateX(-100%);
+        transition: transform 0.36s var(--ease-soft);
+        padding: 78px 18px 18px;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .screen.state-drawer .drawer {
+        transform: translateX(0);
+      }
+
+      .drawer h3 {
+        margin: 0;
+        font-family: var(--display);
+        font-size: 34px;
+      }
+
+      .drawer-list {
+        margin-top: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        overflow: auto;
+      }
+
+      .drawer-group-label {
+        font-size: 9px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: rgba(244, 239, 231, 0.42);
+      }
+
+      .drawer-item {
+        padding: 14px 14px 12px;
+        border: 1px solid rgba(244, 239, 231, 0.1);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .drawer-item.active {
+        background: rgba(227, 236, 245, 0.08);
+        border-color: rgba(227, 236, 245, 0.2);
+      }
+
+      .drawer-item strong {
+        display: block;
+        font-weight: 400;
+        font-size: 16px;
+      }
+
+      .drawer-item span {
+        display: block;
+        margin-top: 7px;
+        font-size: 11px;
+        line-height: 1.55;
+        color: rgba(244, 239, 231, 0.58);
+      }
+
+      .drawer-footer {
+        margin-top: auto;
+        padding-top: 16px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        border-top: 1px solid rgba(244, 239, 231, 0.08);
+      }
+
+      .drawer-footer button {
+        min-height: 46px;
+        border: 1px solid rgba(244, 239, 231, 0.12);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--app-text);
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        font-size: 11px;
+      }
+
+      .view-settings {
+        overflow-y: auto;
+        padding-top: 0;
+      }
+
+      .settings-page {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+
+      .settings-page h3 {
+        margin: 0;
+        font-family: var(--display);
+        font-size: 34px;
+      }
+
+      .settings-section {
+        padding-top: 16px;
+        border-top: 1px solid rgba(244, 239, 231, 0.1);
+      }
+
+      .settings-section:first-child {
+        border-top: none;
+        padding-top: 0;
+      }
+
+      .settings-section .label {
+        font-size: 9px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: rgba(244, 239, 231, 0.48);
+      }
+
+      .settings-section h4 {
+        margin: 10px 0 0;
+        font-family: var(--display);
+        font-size: 24px;
+        line-height: 1.04;
+      }
+
+      .settings-section p {
+        margin: 10px 0 0;
+        font-size: 13px;
+        line-height: 1.7;
+        color: rgba(244, 239, 231, 0.68);
+      }
+
+      .settings-card {
+        margin-top: 14px;
+        padding: 14px;
+        border: 1px solid rgba(244, 239, 231, 0.1);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .settings-card .title {
+        font-size: 10px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: rgba(244, 239, 231, 0.5);
+      }
+
+      .settings-card .content {
+        margin-top: 10px;
+        font-size: 13px;
+        line-height: 1.7;
+      }
+
+      .settings-card .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .settings-card .row:first-child {
+        margin-top: 0;
+      }
+
+      .mini-switch {
+        width: 44px;
+        height: 26px;
+        border-radius: 999px;
+        background: rgba(244, 239, 231, 0.18);
+        position: relative;
+      }
+
+      .mini-switch::after {
+        content: '';
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: #fff;
+        transition: transform 0.22s var(--ease-soft);
+      }
+
+      .mini-switch.on::after {
+        transform: translateX(18px);
+      }
+
+      .settings-pool-grid {
+        margin-top: 12px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .settings-pool-grid .thumb {
+        aspect-ratio: 1;
+        overflow: hidden;
+        border: 1px solid rgba(244, 239, 231, 0.12);
+        position: relative;
+      }
+
+      .settings-pool-grid .thumb img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .settings-pool-grid .thumb span {
+        position: absolute;
+        left: 8px;
+        bottom: 8px;
+        font-size: 9px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #fff;
+        mix-blend-mode: difference;
+      }
+
+      .settings-api-lines {
+        margin-top: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .settings-api-lines .line {
+        padding-bottom: 8px;
+        border-bottom: 1px solid rgba(244, 239, 231, 0.1);
+      }
+
+      .settings-api-lines .line strong {
+        display: block;
+        font-size: 10px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: rgba(244, 239, 231, 0.48);
+        font-weight: 400;
+      }
+
+      .settings-api-lines .line span {
+        display: block;
+        margin-top: 6px;
+        font-size: 13px;
+        line-height: 1.6;
+        color: rgba(244, 239, 231, 0.78);
+      }
+
+      .mapping {
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+      }
+
+      .mapping-card {
+        padding-bottom: 24px;
+        border-bottom: 1px solid var(--rule);
+      }
+
+      .mapping-card:last-child {
+        border-bottom: none;
+        padding-bottom: 0;
+      }
+
+      .mapping-card .kicker {
+        font-size: 11px;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        color: var(--ink-mute);
+      }
+
+      .mapping-card h2 {
+        margin: 10px 0 0;
+        font-family: var(--display);
+        font-size: clamp(30px, 3.2vw, 48px);
+        line-height: 1.04;
+      }
+
+      .mapping-card p {
+        max-width: 54ch;
+        margin: 12px 0 0;
+        font-size: 15px;
+        line-height: 1.8;
+        color: var(--ink-soft);
+      }
+
+      .mapping-list {
+        margin-top: 18px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px 22px;
+      }
+
+      .mapping-item {
+        padding-top: 12px;
+        border-top: 1px solid var(--rule);
+      }
+
+      .mapping-item strong {
+        display: block;
+        font-size: 11px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--ink-mute);
+        font-weight: 500;
+      }
+
+      .mapping-item span {
+        display: block;
+        margin-top: 8px;
+        font-size: 14px;
+        line-height: 1.7;
+        color: var(--ink-soft);
+      }
+
+      @media (max-width: 1180px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+
+        .device-wrap {
+          position: static;
+          max-width: 420px;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .page {
+          padding: 18px 14px 36px;
+        }
+
+        .topbar,
+        .mapping-list,
+        .control-dock,
+        .state-tabs {
+          grid-template-columns: 1fr;
+        }
+
+        .control-dock {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <section class="topbar">
+        <div>
+          <span class="eyebrow">
+            <span class="num">04</span>
+            <span class="bar"></span>
+            <span>Real Product Demo</span>
+          </span>
+          <h1>把“摄影册页风格”压到你的真实聊天 App 结构上。</h1>
+          <p>
+            这一版不再是独立品牌页，而是对照你当前的移动端产品结构做映射：
+            顶栏、Token 摘要、空白新对话、消息流、历史抽屉、设置页、模型选择、图片入口、技能结果和每日风景封面都放进同一个演示里。
+          </p>
+        </div>
+
+        <aside class="control-dock">
+          <div class="dock-title">Prototype controls</div>
+          <div class="dock-group">
+            <label>Screen state</label>
+            <div class="state-tabs">
+              <button type="button" class="active" data-state="empty">Empty</button>
+              <button type="button" data-state="chat">Chat</button>
+              <button type="button" data-state="drawer">Drawer</button>
+              <button type="button" data-state="settings">Settings</button>
+            </div>
+          </div>
+          <div class="dock-group">
+            <label for="demoDate">Cover date</label>
+            <input id="demoDate" class="dock-field" type="date" />
+          </div>
+        </aside>
+      </section>
+
+      <section class="layout">
+        <div class="device-wrap">
+          <div class="device">
+            <div class="screen state-empty" id="screen">
+              <div class="screen__bg">
+                <img id="coverImage" class="cover-image" alt="每日风景封面" />
+                <div class="cover-veil"></div>
+                <div class="cover-grain"></div>
+              </div>
+
+              <div class="statusbar">
+                <span>08:16</span>
+                <div class="statusbar__icons">
+                  <span>5G</span>
+                  <span>WiFi</span>
+                  <span class="battery">100</span>
+                </div>
+              </div>
+
+              <div class="app-header">
+                <div class="header-pill">
+                  <span class="menu-icon" aria-hidden="true">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </span>
+                  <div class="title-line">动话 · <em>新对话</em></div>
+                  <span style="opacity: .58;">✎</span>
+                </div>
+                <div class="stats-row">
+                  <span>轮次 0</span>
+                  <span>输入 0</span>
+                  <span>输出 0</span>
+                  <span>总计 0</span>
+                </div>
+              </div>
+
+              <div class="main-surface">
+                <section class="view view-empty">
+                  <div class="issue-line" id="coverIssueLine">08 · selected cover · 2026-04-29</div>
+                  <h2 class="cover-title">
+                    先看 <em>今日</em> 风景，<br />
+                    再开始<br />
+                    新的对话。
+                  </h2>
+                  <div class="cover-byline">
+                    <span id="coverTitleText">Crater Lake</span>
+                    <span class="dot"></span>
+                    <span id="coverPhotographerText">Sanaan Mazhar</span>
+                    <span class="dot"></span>
+                    <span id="coverDescriptionText">A calm opening image for a fresh conversation.</span>
+                  </div>
+
+                  <div class="cover-foot">
+                    <div class="cell">
+                      <span class="label">Default pool</span>
+                      <span class="value">4 landscapes</span>
+                    </div>
+                    <div class="cell">
+                      <span class="label">Source</span>
+                      <span class="value" id="coverSourceText">Pexels curated</span>
+                    </div>
+                    <div class="cell">
+                      <span class="label">Rotation</span>
+                      <span class="value">Daily hash</span>
+                    </div>
+                    <div class="cell">
+                      <span class="label">Mode</span>
+                      <span class="value">Cold start only</span>
+                    </div>
+                  </div>
+
+                  <article class="empty-card">
+                    <h3>动话</h3>
+                    <p>
+                      这是映射到你真实项目的空白新对话界面：封面先提供情绪入口，下面仍然保留你当前产品的统计摘要和输入区位置，不改变主要交互节奏。
+                    </p>
+                  </article>
+                </section>
+
+                <section class="view view-chat">
+                  <div class="message-stack">
+                    <div class="chat-cover-banner">
+                      <img id="bannerImage" alt="会话封面摘要" />
+                      <div class="copy">
+                        <div class="small">Today's cover · bundled fallback</div>
+                        <h4 id="bannerTitle">Crater Lake</h4>
+                        <p>封面在进入消息流后退化成一张低存在感的摘要卡，而不是继续主导整个聊天页。</p>
+                      </div>
+                    </div>
+
+                    <div class="message user">
+                      <div class="message-head">You</div>
+                      <div class="bubble">
+                        我想让首页空白态先有一张每天变化的风景图，但进入对话后不要太喧宾夺主。
+                      </div>
+                    </div>
+
+                    <div class="message">
+                      <div class="assistant-panel">
+                        <div class="assistant-title">
+                          <span>Assistant</span>
+                          <strong>gpt-5.4</strong>
+                        </div>
+                        <div class="assistant-copy">
+                          可以。最合理的做法是把风景封面限定在“冷启动新对话空白态”，进入消息流后只保留一张缩减版封面摘要卡。
+                        </div>
+                        <div class="skill-card">
+                          <div class="top">
+                            <span>Skill step</span>
+                            <span>Completed</span>
+                          </div>
+                          <div class="body">
+                            读取封面设置，命中本地默认图池；若自定义每日一图 API 可用，则用当天结果覆盖，并保留本地回退。
+                          </div>
+                        </div>
+                        <div class="metrics">
+                          <span>输入 812</span>
+                          <span>输出 356</span>
+                          <span>总计 1168</span>
+                          <span>首 token 1.2s</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="view view-settings">
+                  <div class="settings-page">
+                    <section class="settings-section">
+                      <div class="label">Settings</div>
+                      <h3>动话设置</h3>
+                      <p>这是对你真实设置页的定向重绘：保留服务商、模型、技能、运行时和权限，只把视觉系统换成现在这套更安静的 editorial 语言。</p>
+                    </section>
+
+                    <section class="settings-section">
+                      <div class="label">Daily cover</div>
+                      <h4>首页每日风景封面</h4>
+                      <div class="settings-card">
+                        <div class="row">
+                          <span>冷启动新对话时显示封面</span>
+                          <span class="mini-switch on"></span>
+                        </div>
+                        <div class="row">
+                          <span>进入消息流后退化为摘要卡</span>
+                          <span class="mini-switch on"></span>
+                        </div>
+                        <div class="row">
+                          <span>请求失败时回退到默认图池</span>
+                          <span class="mini-switch on"></span>
+                        </div>
+                      </div>
+                      <div class="settings-card">
+                        <div class="title">Bundled pool</div>
+                        <div class="content">默认内置 12 到 24 张精选风景图。当前演示仅展示 4 张样图。</div>
+                        <div class="settings-pool-grid" id="settingsThumbs"></div>
+                      </div>
+                      <div class="settings-card">
+                        <div class="title">Daily image API</div>
+                        <div class="settings-api-lines">
+                          <div class="line">
+                            <strong>Endpoint</strong>
+                            <span>https://example.com/api/daily-cover?date={YYYY-MM-DD}</span>
+                          </div>
+                          <div class="line">
+                            <strong>Authorization</strong>
+                            <span>Bearer YOUR_TOKEN</span>
+                          </div>
+                          <div class="line">
+                            <strong>Field mapping</strong>
+                            <span>image: data.image.url · title: data.image.title · credit: data.image.credit.name</span>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section class="settings-section">
+                      <div class="label">Existing modules</div>
+                      <h4>服务商、模型、技能与运行时</h4>
+                      <div class="settings-card">
+                        <div class="title">Provider management</div>
+                        <div class="content">这里仍保留你现在的 API Base URL、API Key、模型拉取、模型检测、Tag Prompt 和 Skill 配置，只是排版和节奏变了。</div>
+                      </div>
+                    </section>
+                  </div>
+                </section>
+              </div>
+
+              <aside class="drawer">
+                <h3>动话</h3>
+                <div class="drawer-list">
+                  <div class="drawer-group-label">Today · 01:30</div>
+                  <div class="drawer-item active">
+                    <strong>讲讲微积分</strong>
+                    <span>创建：04/16 01:29 · 更新：04/16 01:30</span>
+                  </div>
+                  <div class="drawer-item">
+                    <strong>图片对话</strong>
+                    <span>创建：04/16 01:25 · 更新：04/16 01:25</span>
+                  </div>
+                  <div class="drawer-group-label">Yesterday · 22:58</div>
+                  <div class="drawer-item">
+                    <strong>你好</strong>
+                    <span>创建：04/15 22:47 · 更新：04/15 22:58</span>
+                  </div>
+                </div>
+                <div class="drawer-footer">
+                  <button type="button">设置</button>
+                  <button type="button">新增对话</button>
+                </div>
+              </aside>
+
+              <footer class="composer">
+                <div class="composer-row">
+                  <div class="composer-input">输入消息</div>
+                  <div class="composer-send">发送</div>
+                </div>
+                <div class="composer-tools">
+                  <div class="composer-model">
+                    <span>gpt-5.4</span>
+                    <span>▾</span>
+                  </div>
+                  <button type="button" aria-label="选择图片">▣</button>
+                  <button type="button" aria-label="拍照">◎</button>
+                </div>
+              </footer>
+            </div>
+          </div>
+        </div>
+
+        <div class="mapping">
+          <article class="mapping-card">
+            <div class="kicker">Targeted plan</div>
+            <h2>这不是“换主题”，而是把你的真实产品切成三种视觉权重。</h2>
+            <p>
+              真正落地时，前端不应该所有页面都保持同等戏剧性。最强的是“空白新对话”，其次是“历史抽屉与设置页”，最弱的是“消息流本体”。
+            </p>
+            <div class="mapping-list">
+              <div class="mapping-item">
+                <strong>最强视觉层</strong>
+                <span>新对话空白态，使用全屏风景封面和大标题，承担品牌第一印象。</span>
+              </div>
+              <div class="mapping-item">
+                <strong>中等视觉层</strong>
+                <span>历史抽屉、设置页、模型与封面配置页，延续 editorial 语言，但不过分抢眼。</span>
+              </div>
+              <div class="mapping-item">
+                <strong>最弱视觉层</strong>
+                <span>真实聊天消息流、技能结果、推理折叠和输入区，保持阅读效率优先。</span>
+              </div>
+              <div class="mapping-item">
+                <strong>封面出现时机</strong>
+                <span>只在冷启动新对话强展示；已有聊天内容的会话不再回到 full-bleed hero。</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="mapping-card">
+            <div class="kicker">Real project mapping</div>
+            <h2>和你当前项目一一对应的改造建议。</h2>
+            <div class="mapping-list">
+              <div class="mapping-item">
+                <strong>当前 header-card</strong>
+                <span>保留结构，改成更薄的刊头式 pill，减少可爱感，增强对齐和字距控制。</span>
+              </div>
+              <div class="mapping-item">
+                <strong>当前 summary-bar</strong>
+                <span>保留 Token 摘要，但只在需要时出现；空白态可以更安静，聊天态更紧凑。</span>
+              </div>
+              <div class="mapping-item">
+                <strong>当前 empty-state</strong>
+                <span>替换成演示里的封面空白态，历史统计文案可以退到下层卡片或次级段落里。</span>
+              </div>
+              <div class="mapping-item">
+                <strong>当前 drawer</strong>
+                <span>保留时间分组和新建/设置按钮，但换成更轻的边线、弱玻璃、强排版。</span>
+              </div>
+              <div class="mapping-item">
+                <strong>当前 settings</strong>
+                <span>按章节做“册页式长表面”，新增“每日风景封面”配置组，放在显示设置附近。</span>
+              </div>
+              <div class="mapping-item">
+                <strong>当前 message-card</strong>
+                <span>保留用户/助手区分，但把装饰噪音降下来，让技能步骤和 reasoning panel 更像编辑批注。</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="mapping-card">
+            <div class="kicker">Implementation strategy</div>
+            <h2>继续不改项目代码时，我建议下一步这样推进。</h2>
+            <div class="mapping-list">
+              <div class="mapping-item">
+                <strong>Step 1</strong>
+                <span>先把真实产品拆成 4 个目标界面：新对话、对话中、抽屉、设置。</span>
+              </div>
+              <div class="mapping-item">
+                <strong>Step 2</strong>
+                <span>给这 4 个界面各出一版更精细的高保真原型，而不是直接进 `App.tsx`。</span>
+              </div>
+              <div class="mapping-item">
+                <strong>Step 3</strong>
+                <span>确定每日封面设置的数据模型和缓存策略，再反推设置页结构。</span>
+              </div>
+              <div class="mapping-item">
+                <strong>Step 4</strong>
+                <span>最后才做真正的组件拆分：App shell、Drawer、Settings、Chat surface、DailyCover system。</span>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const landscapePool = [
+        {
+          id: 'alpine-lake',
+          title: 'Alpine Lake',
+          photographer: 'Jplenio',
+          source: 'Pexels curated',
+          description: 'A still opening image with long air and clean water.',
+          image: './assets/landscapes/alpine-lake.jpg',
+        },
+        {
+          id: 'mirror-mountain',
+          title: 'Mirror Mountain',
+          photographer: 'Eberhard Grossgasteiger',
+          source: 'Pexels curated',
+          description: 'A colder, more editorial cover with restrained contrast.',
+          image: './assets/landscapes/mirror-mountain.jpg',
+        },
+        {
+          id: 'crater-lake',
+          title: 'Crater Lake',
+          photographer: 'Sanaan Mazhar',
+          source: 'Pexels curated',
+          description: 'A calm opening image for a fresh conversation.',
+          image: './assets/landscapes/crater-lake.jpg',
+        },
+        {
+          id: 'autumn-ridge',
+          title: 'Autumn Ridge',
+          photographer: 'Nenad Rakicevic',
+          source: 'Pexels curated',
+          description: 'For days that need more warmth without losing control.',
+          image: './assets/landscapes/autumn-ridge.jpg',
+        },
+      ]
+
+      const screen = document.getElementById('screen')
+      const demoDate = document.getElementById('demoDate')
+      const coverImage = document.getElementById('coverImage')
+      const bannerImage = document.getElementById('bannerImage')
+      const coverIssueLine = document.getElementById('coverIssueLine')
+      const coverTitleText = document.getElementById('coverTitleText')
+      const coverPhotographerText = document.getElementById('coverPhotographerText')
+      const coverDescriptionText = document.getElementById('coverDescriptionText')
+      const coverSourceText = document.getElementById('coverSourceText')
+      const bannerTitle = document.getElementById('bannerTitle')
+      const settingsThumbs = document.getElementById('settingsThumbs')
+
+      const dateHash = (dateString) => {
+        const compact = dateString.replaceAll('-', '')
+        let total = 0
+        for (let index = 0; index < compact.length; index += 1) {
+          total += Number(compact[index]) * (index + 7)
+        }
+        return total
+      }
+
+      const getItemByDate = (dateString) => {
+        const index = dateHash(dateString) % landscapePool.length
+        return landscapePool[index]
+      }
+
+      const renderThumbs = () => {
+        settingsThumbs.innerHTML = ''
+        landscapePool.forEach((item) => {
+          const figure = document.createElement('figure')
+          figure.className = 'thumb'
+          figure.innerHTML = `
+            <img src="${item.image}" alt="${item.title}" />
+            <span>${item.title}</span>
+          `
+          settingsThumbs.appendChild(figure)
+        })
+      }
+
+      const updateCover = () => {
+        const item = getItemByDate(demoDate.value)
+        coverImage.src = item.image
+        bannerImage.src = item.image
+        coverIssueLine.textContent = `08 · selected cover · ${demoDate.value}`
+        coverTitleText.textContent = item.title
+        coverPhotographerText.textContent = item.photographer
+        coverDescriptionText.textContent = item.description
+        coverSourceText.textContent = item.source
+        bannerTitle.textContent = item.title
+      }
+
+      document.querySelectorAll('[data-state]').forEach((button) => {
+        button.addEventListener('click', () => {
+          document.querySelectorAll('[data-state]').forEach((entry) => entry.classList.remove('active'))
+          button.classList.add('active')
+          const state = button.dataset.state
+          screen.className = `screen state-${state}`
+        })
+      })
+
+      demoDate.addEventListener('change', updateCover)
+
+      const today = new Date()
+      const localToday = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+      demoDate.value = localToday.toISOString().slice(0, 10)
+
+      renderThumbs()
+      updateCover()
+    </script>
+  </body>
+</html>

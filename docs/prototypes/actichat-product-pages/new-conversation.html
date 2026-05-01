@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ActiChat · New Conversation</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="page-new-conversation" data-demo-theme-preference="dark">
+    <main class="page">
+      <header class="sheet-head">
+        <div>
+          <span class="eyebrow"><span class="num">01</span><span class="bar"></span><span>New Conversation</span></span>
+          <h1 class="sheet-title">新对话空白态</h1>
+          <p class="sheet-copy">
+            这是每日风景封面真正该出现的地方。它必须足够强，能承担品牌第一印象；但同时不能推翻你现有的聊天产品结构。
+          </p>
+        </div>
+        <nav class="sheet-links">
+          <a class="sheet-link" href="./index.html">All Pages</a>
+          <a class="sheet-link is-active" href="./new-conversation.html">New Conversation</a>
+          <a class="sheet-link" href="./active-chat.html">Next</a>
+        </nav>
+      </header>
+
+      <section class="artboard">
+        <div class="device">
+          <div class="screen" data-screen-theme="dark">
+            <div class="cover-bg">
+              <img data-cover-image alt="每日风景封面" />
+            </div>
+
+            <div class="statusbar">
+              <span>08:16</span>
+              <div class="statusbar__icons"><span>5G</span><span>WiFi</span><span class="battery">100</span></div>
+            </div>
+
+            <div class="app-header">
+              <div class="header-pill">
+                <span class="menu-icon"><span></span><span></span><span></span></span>
+                <div class="title-line">动话 · <em>新对话</em></div>
+                <span style="opacity:.58;">✎</span>
+              </div>
+              <div class="stats-row">
+                <span>轮次 0</span>
+                <span>输入 0</span>
+                <span>输出 0</span>
+                <span>总计 0</span>
+              </div>
+            </div>
+
+            <div class="screen-body screen-body-home">
+              <div class="cover-body cover-body-home">
+                <div class="cover-copy-main">
+                  <div class="issue-line">01 · cold start · <span data-cover-date></span></div>
+                  <h2 class="cover-title cover-title-home">
+                    <span class="line">让今天的风景，</span>
+                    <span class="line">成为这段</span>
+                    <span class="line quiet quiet-latin">new conversation</span>
+                    <span class="line">的开场。</span>
+                  </h2>
+                  <div class="cover-byline">
+                    <span data-cover-title></span>
+                    <span class="dot"></span>
+                    <span data-cover-photographer></span>
+                    <span class="dot"></span>
+                    <span data-cover-description></span>
+                  </div>
+                </div>
+
+                <div class="home-bottom-grid">
+                  <div class="cover-foot home-cover-foot">
+                    <div class="cell"><span class="label">Default pool</span><span class="value">4 landscapes</span></div>
+                    <div class="cell"><span class="label">Source</span><span class="value" data-cover-source></span></div>
+                    <div class="cell"><span class="label">Rotation</span><span class="value">Daily hash</span></div>
+                    <div class="cell"><span class="label">Mode</span><span class="value" data-home-mode-summary>Skill mode</span></div>
+                  </div>
+                  <div class="legacy-stats home-stats" id="homepageStats"></div>
+                </div>
+              </div>
+            </div>
+
+            <footer class="composer">
+              <div class="composer-row">
+                <div class="composer-input">输入消息</div>
+                <div class="composer-send">发送</div>
+              </div>
+              <div class="composer-tools">
+                <div class="composer-model composer-model-stack">
+                  <div class="home-model-sheet" aria-label="模型选择列表">
+                    <button type="button" class="home-model-option is-active">gpt-5.4</button>
+                    <button type="button" class="home-model-option">gpt-4.1</button>
+                    <button type="button" class="home-model-option">claude-sonnet</button>
+                    <div class="home-model-sheet-footer">
+                      <span class="label">Response mode</span>
+                      <div class="home-model-mode-row" role="group" aria-label="选择起始模式">
+                        <button type="button" class="composer-mode-chip is-active" data-home-mode="skill">技能模式</button>
+                        <button type="button" class="composer-mode-chip" data-home-mode="text">文本模式</button>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="composer-model-main">
+                    <span data-home-model-label>gpt-5.4 · 技能模式</span>
+                    <span>▾</span>
+                  </div>
+                </div>
+                <button type="button">▣</button>
+                <button type="button">◎</button>
+              </div>
+            </footer>
+          </div>
+        </div>
+
+        <div class="notes">
+          <article class="note-card">
+            <div class="note-kicker">Why this page matters</div>
+            <h2 class="note-title">封面最该服务的是“开始”，不是“过程”。</h2>
+            <p class="note-copy">
+              这页承接你产品不变的核心约束：冷启动一定进入全新对话。既然进入点已经天然是“新的开始”，那最适合把每日风景封面放在这里，而不是对话中途。
+            </p>
+          </article>
+          <article class="note-card">
+            <div class="note-kicker">Targeted design points</div>
+            <div class="spec-grid">
+              <div class="spec">
+                <strong>模式切换放到模型列表底部</strong>
+                <span>技能模式和文本模式不再占首页主视觉面积，也不直接塞在模型卡片里，而是并到模型选择列表的最后一段。</span>
+              </div>
+              <div class="spec">
+                <strong>保留 3 个首页统计</strong>
+                <span>继续显示 3 个关键摘要，但把它们压成更薄的下沿信息带，让封面仍然是主角。</span>
+              </div>
+              <div class="spec">
+                <strong>主题切换能力保留</strong>
+                <span>真实产品不需要把 theme 暴露成首页主按钮，但首页本身必须能适应 theme 变化，所以这里做了 dark / light / system 预览。</span>
+              </div>
+              <div class="spec">
+                <strong>字体改成本地可商用</strong>
+                <span>首页不再依赖在线字体。中文标题、中文 UI 和英文斜体都改为可免费商用且可本地托管的字族。</span>
+              </div>
+            </div>
+          </article>
+          <article class="note-card">
+            <div class="note-kicker">Prototype control</div>
+            <p class="note-copy note-copy-controls">
+              这里不改真实产品逻辑，只调整首页展示结构。日期切换看封面轮换，主题切换看空白态在不同主题里的适应性。
+            </p>
+            <div class="prototype-controls">
+              <label class="prototype-control-field" for="demoDate">
+                <span>Cover date</span>
+                <input id="demoDate" type="date" />
+              </label>
+
+              <div class="prototype-control-field">
+                <span>Theme preview</span>
+                <div class="preview-chip-group" role="group" aria-label="切换主题预览">
+                  <button type="button" class="preview-chip is-active" data-theme-preview="dark">Dark</button>
+                  <button type="button" class="preview-chip" data-theme-preview="light">Light</button>
+                  <button type="button" class="preview-chip" data-theme-preview="system">System</button>
+                </div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+    <script src="./script.js"></script>
+  </body>
+</html>

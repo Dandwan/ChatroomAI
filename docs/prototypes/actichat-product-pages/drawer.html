@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ActiChat · Drawer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Noto+Serif+SC:wght@300;400;500&family=Space+Grotesk:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="sheet-head">
+        <div>
+          <span class="eyebrow"><span class="num">03</span><span class="bar"></span><span>Drawer</span></span>
+          <h1 class="sheet-title">历史抽屉</h1>
+          <p class="sheet-copy">
+            抽屉不是另一个产品，它只是聊天页的旁侧目录。所以这里要保留你的时间分组和操作按钮，但把视觉收成更薄的条目式秩序。
+          </p>
+        </div>
+        <nav class="sheet-links">
+          <a class="sheet-link" href="./active-chat.html">Prev</a>
+          <a class="sheet-link is-active" href="./drawer.html">Drawer</a>
+          <a class="sheet-link" href="./settings-home.html">Next</a>
+        </nav>
+      </header>
+
+      <section class="artboard">
+        <div class="device">
+          <div class="screen">
+            <div class="statusbar">
+              <span>08:16</span>
+              <div class="statusbar__icons"><span>5G</span><span>WiFi</span><span class="battery">100</span></div>
+            </div>
+            <div class="app-header">
+              <div class="header-pill">
+                <span class="menu-icon"><span></span><span></span><span></span></span>
+                <div class="title-line">动话 · <em>讲讲微积分</em></div>
+                <span style="opacity:.58;">✎</span>
+              </div>
+            </div>
+
+            <div class="screen-body"></div>
+
+            <aside class="drawer">
+              <h3>动话</h3>
+              <div class="drawer-list">
+                <div class="drawer-group-label">Issue 08 · Today’s index</div>
+                <div class="drawer-group-label">Today · 01:30</div>
+                <div class="drawer-item active">
+                  <strong>讲讲微积分</strong>
+                  <span>创建：04/16 01:29 · 更新：04/16 01:30</span>
+                </div>
+                <div class="drawer-item">
+                  <strong>图片对话</strong>
+                  <span>创建：04/16 01:25 · 更新：04/16 01:25</span>
+                </div>
+                <div class="drawer-group-label">Yesterday · 22:58</div>
+                <div class="drawer-item">
+                  <strong>你好</strong>
+                  <span>创建：04/15 22:47 · 更新：04/15 22:58</span>
+                </div>
+                <div class="drawer-item">
+                  <strong>你好</strong>
+                  <span>创建：04/15 22:17 · 更新：04/15 23:51</span>
+                </div>
+              </div>
+              <div class="drawer-footer">
+                <button type="button">设置</button>
+                <button type="button">新增对话</button>
+              </div>
+            </aside>
+
+            <footer class="composer">
+              <div class="composer-row">
+                <div class="composer-input">输入消息</div>
+                <div class="composer-send">发送</div>
+              </div>
+              <div class="composer-tools">
+                <div class="composer-model"><span>gpt-5.4</span><span>▾</span></div>
+                <button type="button">▣</button>
+                <button type="button">◎</button>
+              </div>
+            </footer>
+          </div>
+        </div>
+
+        <div class="notes">
+          <article class="note-card">
+            <div class="note-kicker">What stays</div>
+            <h2 class="note-title">时间分组、新增对话、设置入口都保留。</h2>
+            <p class="note-copy">
+              这一页不需要重新发明交互。真正有价值的是把你已经对的结构保留下来，只重做节奏、边线、激活态和层次。
+            </p>
+          </article>
+          <article class="note-card">
+            <div class="note-kicker">Targeted suggestions</div>
+            <div class="spec-grid">
+              <div class="spec">
+                <strong>条目像目录行</strong>
+                <span>会话条目不再像厚重卡片，而是更接近摄影册页里的索引行。</span>
+              </div>
+              <div class="spec">
+                <strong>激活态更克制</strong>
+                <span>当前蓝色高亮可以收得更轻，避免抽屉整体太像管理后台。</span>
+              </div>
+              <div class="spec">
+                <strong>分组线更有秩序</strong>
+                <span>时间分组用更细的 typographic labels，而不是明显的 UI 组件感。</span>
+              </div>
+              <div class="spec">
+                <strong>底部动作稳定</strong>
+                <span>“设置 / 新增对话”仍然贴底，延续你现有操作习惯。</span>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

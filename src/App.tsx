@@ -6,6 +6,7 @@ import {
   type ChangeEvent,
   type KeyboardEvent,
   type PointerEvent,
+  type ReactNode,
   type UIEvent,
   useEffect,
   useLayoutEffect,
@@ -37,13 +38,16 @@ import {
   createConversationFromTranscript,
   createUserMessageTranscriptEvent,
   isTranscriptConversationWorkspacePlaceholder,
+  normalizeConversationResponseMode,
   projectConversationMessages,
+  withConversationResponseMode,
   withConversationTranscript,
   type AssistantMessageTranscriptEvent,
   type HostMessageTranscriptEvent,
   type ProjectedConversationMessage,
   type TranscriptContentPart,
   type TranscriptConversation,
+  type TranscriptConversationResponseMode,
   type TranscriptEvent,
   type TranscriptImageAttachment,
   type TranscriptTokenUsage,
@@ -120,7 +124,21 @@ import type {
 } from './services/skills/types'
 import ChatInputBox from './components/ChatInputBox'
 import ImageViewer, { type ImageViewerItem } from './components/ImageViewer'
+import NewConversationShowcase from './components/NewConversationShowcase'
 import SkillConfigJsonEditor, { type JsonObjectValue } from './components/SkillConfigJsonEditor'
+import {
+  BUNDLED_DAILY_COVER_POOL,
+  DEFAULT_DAILY_COVER_SETTINGS,
+  getLocalDateKey,
+  resolveBundledDailyCover,
+  resolveDailyCover,
+  type DailyCoverSettings,
+  type ResolvedDailyCover,
+} from './services/daily-cover'
+import {
+  selectHomepageHighlights,
+  type HomepageHighlightStat,
+} from './services/homepage-highlights'
 import {
   appendAssistantFlowContent,
   appendAssistantFlowDivider,
@@ -142,6 +160,7 @@ import {
 } from './services/chat-storage'
 import { compressImageDataUrl, createImageAttachments } from './utils/images'
 import './App.css'
+import './styles/app-editorial-redesign.css'
 
 type ModelHealth = 'untested' | 'testing' | 'ok' | 'error'
 type ThemeMode = 'light' | 'dark' | 'system'
@@ -209,6 +228,7 @@ type SkillStepKind = AssistantFlowSkillKind
 
 type ChatMessage = ProjectedConversationMessage
 type Conversation = TranscriptConversation
+type ConversationResponseMode = TranscriptConversationResponseMode
 
 interface ConversationGroup {
   id: string
@@ -341,7 +361,7 @@ interface AppSettings {
   workspaceInfoPromptEnabled: boolean
   deprecatedTagPrompts: string
   themeMode: ThemeMode
-  skillModeEnabled: boolean
+  defaultResponseMode: ConversationResponseMode
   temperature: number
   topP: number
   maxTokens: number
@@ -359,6 +379,7 @@ interface AppSettings {
   emptyStateStatsMinConversations: number
   maxModelRetryCount: number
   permissionToggles: PermissionToggles
+  dailyCover: DailyCoverSettings
 }
 
 interface Notice {
@@ -416,6 +437,7 @@ interface CompletionResult {
 interface TurnExecutionJob {
   conversationId: string
   turnId: string
+  responseMode: ConversationResponseMode
   historyTranscript?: TranscriptEvent[]
 }
 
@@ -462,6 +484,7 @@ type SettingsView =
   | 'skill-config'
   | 'runtimes'
   | 'permissions'
+  | 'daily-cover'
 type PromptEditorKey = GlobalPromptSettingKey
 type TagPromptEditorKey = PromptEditorKey | DeprecatedPromptSettingKey
 
@@ -476,6 +499,16 @@ const DEFAULT_DELETE_CONFIRM_GRACE_SECONDS = 30
 const DEFAULT_CONVERSATION_GROUP_GAP_MINUTES = 30
 const DEFAULT_AUTO_COLLAPSE_CONVERSATIONS = true
 const DEFAULT_EMPTY_STATE_STATS_MIN_CONVERSATIONS = 3
+const TOOL_CALL_HOST_MESSAGE_CATEGORIES = new Set<HostMessageTranscriptEvent['category']>([
+  'read_result',
+  'read_error',
+  'edit_result',
+  'edit_error',
+  'run_result',
+  'run_error',
+  'skill_result',
+  'skill_error',
+])
 const SWIPE_DELETE_TOGGLE_THRESHOLD_PX = 72
 const SWIPE_DELETE_MAX_OFFSET_PX = 96
 const LONG_PRESS_DELETE_MODE_MS = 520
@@ -497,6 +530,29 @@ const MESSAGE_LIST_SMOOTH_SCROLL_MIN_STEP_PX = 10
 const DRAWER_TO_SETTINGS_OPEN_DELAY_MS = 220
 const SETTINGS_PERSIST_DEBOUNCE_MS = 320
 const CHAT_STATE_PERSIST_DEBOUNCE_MS = 1200
+const DEFAULT_RESPONSE_MODE: ConversationResponseMode = 'tool'
+
+const getResponseModeLabel = (mode: ConversationResponseMode): string =>
+  mode === 'tool' ? '技能模式' : '文本模式'
+
+const buildHomepageModelTriggerLabel = (
+  modelId: string,
+  responseMode: ConversationResponseMode,
+): string => {
+  const trimmedModelId = modelId.trim()
+  const modeLabel = getResponseModeLabel(responseMode)
+  return trimmedModelId ? `${trimmedModelId} · ${modeLabel}` : `选择模型 · ${modeLabel}`
+}
+
+const hasConversationStarted = (
+  conversation: Pick<Conversation, 'transcript'>,
+): boolean => conversation.transcript.some((event) => event.kind === 'user_message')
+
+const resolveConversationResponseMode = (
+  conversation: Pick<Conversation, 'preferences'> | null,
+  defaultResponseMode: ConversationResponseMode,
+): ConversationResponseMode =>
+  normalizeConversationResponseMode(conversation?.preferences?.responseMode) ?? defaultResponseMode
 
 const truncateDebugLogText = (value: string, limit = DEBUG_LOG_TEXT_LIMIT): string =>
   value.length <= limit ? value : `${value.slice(0, limit)}…(truncated ${value.length - limit})`
@@ -673,7 +729,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   ...DEFAULT_INFO_PROMPT_SETTINGS,
   deprecatedTagPrompts: '',
   themeMode: 'system',
-  skillModeEnabled: true,
+  defaultResponseMode: DEFAULT_RESPONSE_MODE,
   temperature: 0.7,
   topP: 1,
   maxTokens: 8192,
@@ -691,6 +747,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   emptyStateStatsMinConversations: DEFAULT_EMPTY_STATE_STATS_MIN_CONVERSATIONS,
   maxModelRetryCount: 3,
   permissionToggles: DEFAULT_PERMISSION_TOGGLES,
+  dailyCover: DEFAULT_DAILY_COVER_SETTINGS,
 }
 
 const PROMPT_DEFAULTS: Record<GlobalPromptSettingKey, string> = {
@@ -706,6 +763,7 @@ const createDefaultSettings = (): AppSettings => ({
   ...DEFAULT_SETTINGS,
   providers: [],
   permissionToggles: { ...DEFAULT_PERMISSION_TOGGLES },
+  dailyCover: { ...DEFAULT_DAILY_COVER_SETTINGS },
 })
 
 interface DeprecatedPromptBlock {
@@ -959,6 +1017,49 @@ const normalizeProviderModels = (value: unknown): ProviderModel[] => {
   return models
 }
 
+const normalizeDailyCoverSettings = (value: unknown): DailyCoverSettings => {
+  if (!isRecord(value)) {
+    return { ...DEFAULT_DAILY_COVER_SETTINGS }
+  }
+
+  return {
+    enabled:
+      typeof value.enabled === 'boolean' ? value.enabled : DEFAULT_DAILY_COVER_SETTINGS.enabled,
+    showChatBanner:
+      typeof value.showChatBanner === 'boolean'
+        ? value.showChatBanner
+        : DEFAULT_DAILY_COVER_SETTINGS.showChatBanner,
+    useApi:
+      typeof value.useApi === 'boolean' ? value.useApi : DEFAULT_DAILY_COVER_SETTINGS.useApi,
+    apiEndpoint:
+      typeof value.apiEndpoint === 'string'
+        ? value.apiEndpoint
+        : DEFAULT_DAILY_COVER_SETTINGS.apiEndpoint,
+    apiMethod:
+      value.apiMethod === 'POST' ? 'POST' : DEFAULT_DAILY_COVER_SETTINGS.apiMethod,
+    apiAuthHeader:
+      typeof value.apiAuthHeader === 'string'
+        ? value.apiAuthHeader
+        : DEFAULT_DAILY_COVER_SETTINGS.apiAuthHeader,
+    apiImagePath:
+      typeof value.apiImagePath === 'string'
+        ? value.apiImagePath
+        : DEFAULT_DAILY_COVER_SETTINGS.apiImagePath,
+    apiTitlePath:
+      typeof value.apiTitlePath === 'string'
+        ? value.apiTitlePath
+        : DEFAULT_DAILY_COVER_SETTINGS.apiTitlePath,
+    apiCreditPath:
+      typeof value.apiCreditPath === 'string'
+        ? value.apiCreditPath
+        : DEFAULT_DAILY_COVER_SETTINGS.apiCreditPath,
+    apiLinkPath:
+      typeof value.apiLinkPath === 'string'
+        ? value.apiLinkPath
+        : DEFAULT_DAILY_COVER_SETTINGS.apiLinkPath,
+  }
+}
+
 const resolveProviderTagPromptOverrides = (
   value: Record<string, unknown>,
   migrateLegacyPrompts: boolean,
@@ -1112,11 +1213,6 @@ const resolveProviderRequestSettings = (settings: AppSettings): ActiveProviderRe
 
 const padTwoDigits = (value: number): string => String(value).padStart(2, '0')
 
-const formatClockTime = (timestamp: number): string => {
-  const date = new Date(timestamp)
-  return `${padTwoDigits(date.getHours())}:${padTwoDigits(date.getMinutes())}`
-}
-
 const getChatDayReferenceDate = (timestamp: number): Date => new Date(timestamp - CHAT_DAY_MS_OFFSET)
 
 const getChatDayStartTimestamp = (timestamp: number): number => {
@@ -1135,18 +1231,6 @@ const getChatDayTimeRank = (timestamp: number): number => {
   return (date.getHours() * 60 + date.getMinutes() - CHAT_DAY_START_HOUR * 60 + 1440) % 1440
 }
 
-const formatChatDayMonthDay = (timestamp: number, prefixThisYear = false): string => {
-  const date = getChatDayReferenceDate(timestamp)
-  const prefix = prefixThisYear ? '今年的' : ''
-  return `${prefix}${date.getMonth() + 1}月${date.getDate()}日`
-}
-
-const formatCalendarMonthDay = (timestamp: number, prefixThisYear = false): string => {
-  const date = new Date(timestamp)
-  const prefix = prefixThisYear ? '今年的' : ''
-  return `${prefix}${date.getMonth() + 1}月${date.getDate()}日`
-}
-
 const formatCompactCount = (value: number): string => {
   const absolute = Math.abs(value)
   if (absolute < 1000) {
@@ -1163,11 +1247,6 @@ const formatCompactCount = (value: number): string => {
   const scaled = value / unit.value
   const digits = Math.abs(scaled) >= 10 ? 1 : 1
   return `${scaled.toFixed(digits).replace(/\.0$/, '')}${unit.suffix}`
-}
-
-const formatTokenLabel = (value: number): string => {
-  const compact = formatCompactCount(value)
-  return /[a-z]$/i.test(compact) ? `${compact} Token` : `${compact}Token`
 }
 
 const snapshotRect = (element: Element | null): RectSnapshot | null => {
@@ -1610,8 +1689,15 @@ const parseActionExecutionPayload = (
   }
 }
 
-const createConversation = (transcript: TranscriptEvent[] = []): Conversation =>
-  createConversationFromTranscript(createId(), transcript)
+const createConversation = (
+  transcript: TranscriptEvent[] = [],
+  responseMode: ConversationResponseMode = DEFAULT_RESPONSE_MODE,
+): Conversation =>
+  createConversationFromTranscript(createId(), transcript, {
+    preferences: {
+      responseMode,
+    },
+  })
 
 const buildUserTranscriptContent = (
   text: string,
@@ -1921,6 +2007,13 @@ const loadSettings = (): AppSettings => {
     const rawConversationGroupGapMinutes = toFiniteNumber(parsed.conversationGroupGapMinutes)
     const rawEmptyStateStatsMinConversations = toFiniteNumber(parsed.emptyStateStatsMinConversations)
     const rawMaxModelRetryCount = toFiniteNumber(parsed.maxModelRetryCount)
+    const defaultResponseMode =
+      normalizeConversationResponseMode(parsed.defaultResponseMode) ??
+      (typeof parsed.skillModeEnabled === 'boolean'
+        ? parsed.skillModeEnabled
+          ? 'tool'
+          : 'text'
+        : DEFAULT_SETTINGS.defaultResponseMode)
     const currentProviderId =
       typeof parsed.currentProviderId === 'string' && parsed.currentProviderId.trim()
         ? parsed.currentProviderId
@@ -1969,10 +2062,7 @@ const loadSettings = (): AppSettings => {
           : DEFAULT_SETTINGS.workspaceInfoPromptEnabled,
       deprecatedTagPrompts: nextDeprecatedTagPrompts,
       themeMode: normalizeThemeMode(parsed.themeMode),
-      skillModeEnabled:
-        typeof parsed.skillModeEnabled === 'boolean'
-          ? parsed.skillModeEnabled
-          : DEFAULT_SETTINGS.skillModeEnabled,
+      defaultResponseMode,
       temperature:
         rawTemperature !== undefined ? clamp(rawTemperature, 0, 2) : DEFAULT_SETTINGS.temperature,
       topP: rawTopP !== undefined ? clamp(rawTopP, 0, 1) : DEFAULT_SETTINGS.topP,
@@ -2026,14 +2116,15 @@ const loadSettings = (): AppSettings => {
           ? Math.round(clamp(rawMaxModelRetryCount, 0, 10))
           : DEFAULT_SETTINGS.maxModelRetryCount,
       permissionToggles: normalizePermissionToggles(parsed.permissionToggles),
+      dailyCover: normalizeDailyCoverSettings(parsed.dailyCover),
     })
   } catch {
     return createDefaultSettings()
   }
 }
 
-const createInitialChatState = (): LoadedChatState => {
-  const fallbackConversation = createConversation()
+const createInitialChatState = (defaultResponseMode: ConversationResponseMode): LoadedChatState => {
+  const fallbackConversation = createConversation([], defaultResponseMode)
   return {
     conversations: [fallbackConversation],
     activeConversationId: fallbackConversation.id,
@@ -2054,14 +2145,14 @@ const MarkdownMessage = memo(({ text }: { text: string }) => {
 MarkdownMessage.displayName = 'MarkdownMessage'
 
 function App() {
-  const initialStateRef = useRef<LoadedChatState | null>(null)
-  if (!initialStateRef.current) {
-    initialStateRef.current = createInitialChatState()
-  }
-
   const initialSettingsRef = useRef<AppSettings | null>(null)
   if (!initialSettingsRef.current) {
     initialSettingsRef.current = loadSettings()
+  }
+
+  const initialStateRef = useRef<LoadedChatState | null>(null)
+  if (!initialStateRef.current) {
+    initialStateRef.current = createInitialChatState(initialSettingsRef.current.defaultResponseMode)
   }
 
   const [settings, setSettings] = useState<AppSettings>(initialSettingsRef.current)
@@ -2155,6 +2246,9 @@ function App() {
   const [skillConfigRawError, setSkillConfigRawError] = useState<string | null>(null)
   const [isLoadingSkillConfig, setIsLoadingSkillConfig] = useState(false)
   const [isSavingSkillConfig, setIsSavingSkillConfig] = useState(false)
+  const [resolvedDailyCover, setResolvedDailyCover] = useState<ResolvedDailyCover | null>(() =>
+    resolveBundledDailyCover(getLocalDateKey()),
+  )
   const [openPromptEditors, setOpenPromptEditors] = useState<Record<TagPromptEditorKey, boolean>>({
     systemPrompt: false,
     topLevelTagSystemPrompt: false,
@@ -2209,6 +2303,7 @@ function App() {
     'skill-config': 0,
     runtimes: 0,
     permissions: 0,
+    'daily-cover': 0,
   })
   const drawerScrollTopRef = useRef(0)
   const titleTransitionPrepRef = useRef<PendingTitleTransition | null>(null)
@@ -2295,6 +2390,14 @@ function App() {
       null,
     [conversations, activeConversationId],
   )
+  const activeConversationResponseMode = useMemo(
+    () => resolveConversationResponseMode(activeConversation, settings.defaultResponseMode),
+    [activeConversation, settings.defaultResponseMode],
+  )
+  const activeConversationModeLocked = useMemo(
+    () => (activeConversation ? hasConversationStarted(activeConversation) : false),
+    [activeConversation],
+  )
   const setConversationsState = useCallback(
     (
       nextState:
@@ -2343,6 +2446,13 @@ function App() {
     () => (activeConversation ? projectedMessagesByConversationId.get(activeConversation.id) ?? [] : []),
     [activeConversation, projectedMessagesByConversationId],
   )
+  const isHomepageEmptyState = chatStateLoaded && !chatStateLoadError && activeMessages.length === 0
+  const displayConversationTitle = isHomepageEmptyState
+    ? '动话 · 新对话'
+    : activeConversation?.title ?? '动话'
+  const homepageBackgroundStyle = isHomepageEmptyState && resolvedDailyCover
+    ? ({ '--homepage-cover-image': `url("${resolvedDailyCover.imageUrl}")` } as CSSProperties)
+    : undefined
   const draft = activeConversation ? draftsByConversation[activeConversation.id] ?? '' : ''
   const imageViewerItems = useMemo(
     () => collectConversationImageViewerItems(activeMessages, pendingImages),
@@ -2488,8 +2598,18 @@ function App() {
       (sum, message) => sum + (message.images?.length ?? 0),
       0,
     )
+    const totalMessageCount = userMessages.length
     const totalTokenCount = assistantMessages.reduce(
       (sum, message) => sum + (message.usage?.totalTokens ?? 0),
+      0,
+    )
+    const totalToolCallCount = visibleConversations.reduce(
+      (sum, conversation) =>
+        sum +
+        conversation.transcript.filter(
+          (event) =>
+            event.kind === 'host_message' && TOOL_CALL_HOST_MESSAGE_CATEGORIES.has(event.category),
+        ).length,
       0,
     )
 
@@ -2596,7 +2716,9 @@ function App() {
       totalConversationCount,
       daysSinceFirstConversation,
       totalPhotoCount,
+      totalMessageCount,
       totalTokenCount,
+      totalToolCallCount,
       earliestTimeRecord,
       latestTimeRecord,
       busiestDay: currentYearMessagesByChatDay.length > 0 ? busiestDay : null,
@@ -2604,11 +2726,58 @@ function App() {
     }
   }, [projectedMessagesByConversationId, settings.emptyStateStatsMinConversations, visibleConversations])
 
+  const homepageHighlightStats = useMemo<HomepageHighlightStat[]>(
+    () =>
+      selectHomepageHighlights([
+        {
+          id: 'tokenUsage',
+          label: 'Total token use',
+          value: formatCompactCount(emptyStateStats.totalTokenCount),
+          meta: '词元消耗',
+          count: emptyStateStats.totalTokenCount,
+          priority: 'primary',
+        },
+        {
+          id: 'conversationHistory',
+          label: 'Conversation archive',
+          value: numberFormatter.format(emptyStateStats.totalConversationCount),
+          meta: '历史会话',
+          count: emptyStateStats.totalConversationCount,
+          priority: 'primary',
+        },
+        {
+          id: 'toolCalls',
+          label: 'Tool calls',
+          value: numberFormatter.format(emptyStateStats.totalToolCallCount),
+          meta: '工具调用',
+          count: emptyStateStats.totalToolCallCount,
+          priority: 'primary',
+        },
+        {
+          id: 'imagesSent',
+          label: 'Images sent',
+          value: numberFormatter.format(emptyStateStats.totalPhotoCount),
+          meta: '发送图片',
+          count: emptyStateStats.totalPhotoCount,
+          priority: 'backup',
+        },
+        {
+          id: 'messageCount',
+          label: 'Messages sent',
+          value: numberFormatter.format(emptyStateStats.totalMessageCount),
+          meta: '消息数量',
+          count: emptyStateStats.totalMessageCount,
+          priority: 'backup',
+        },
+      ]),
+    [emptyStateStats],
+  )
+
   const hasDraftText = draft.trim().length > 0
   const hasComposerPayload = hasDraftText || pendingImages.length > 0
   const canSend = activeConversation !== null && hasComposerPayload && !isSending
   const canAppendWhileSending =
-    settings.skillModeEnabled &&
+    activeConversationResponseMode === 'tool' &&
     isSending &&
     isRunningInActiveConversation &&
     hasComposerPayload
@@ -2617,6 +2786,29 @@ function App() {
     messageListScrollMetrics.viewportHeight > 0 &&
     messageListScrollMetrics.bottomOffset >
       messageListScrollMetrics.viewportHeight * MESSAGE_LIST_SCROLL_BUTTON_DISTANCE_FACTOR
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (!settings.dailyCover.enabled) {
+      setResolvedDailyCover(null)
+      return undefined
+    }
+
+    const dateKey = getLocalDateKey()
+    setResolvedDailyCover(resolveBundledDailyCover(dateKey))
+
+    void (async () => {
+      const nextCover = await resolveDailyCover(settings.dailyCover, dateKey)
+      if (!cancelled) {
+        setResolvedDailyCover(nextCover)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [settings.dailyCover])
 
   const pushNotice = useCallback((text: string, type: Notice['type'] = 'info'): void => {
     setNotice({ text, type })
@@ -3067,6 +3259,19 @@ function App() {
     }))
   }
 
+  const updateDailyCoverSetting = useCallback(
+    <K extends keyof DailyCoverSettings>(key: K, value: DailyCoverSettings[K]): void => {
+      applySettingsUpdate((previous) => ({
+        ...previous,
+        dailyCover: {
+          ...previous.dailyCover,
+          [key]: value,
+        },
+      }))
+    },
+    [applySettingsUpdate],
+  )
+
   const resetPromptToDefault = (key: GlobalPromptSettingKey): void => {
     updateSetting(key, PROMPT_DEFAULTS[key] as AppSettings[typeof key])
     pushNotice('已重置为默认提示词。', 'success')
@@ -3433,6 +3638,19 @@ function App() {
       ),
     )
   }
+
+  const updateConversationResponseMode = useCallback(
+    (conversationId: string, responseMode: ConversationResponseMode): void => {
+      setConversationsState((previous) =>
+        previous.map((conversation) =>
+          conversation.id === conversationId
+            ? withConversationResponseMode(conversation, responseMode)
+            : conversation,
+        ),
+      )
+    },
+    [setConversationsState],
+  )
 
   const resetComposerState = useCallback(
     (conversationId: string): void => {
@@ -3902,6 +4120,7 @@ function App() {
     conversationId: string,
     historyTranscript: TranscriptEvent[],
     turnId: string,
+    responseMode: ConversationResponseMode,
     controller: AbortController,
   ): Promise<TurnExecutionOutcome> => {
     if (!ensureReadyToRequest()) {
@@ -3924,7 +4143,7 @@ function App() {
       conversationId,
       turnId,
       model: settingsSnapshot.currentModel,
-      skillModeEnabled: settings.skillModeEnabled,
+      responseMode,
       userInput:
         currentUserEvent?.kind === 'user_message'
           ? truncateDebugLogText(getUserTranscriptText(currentUserEvent))
@@ -4311,7 +4530,7 @@ function App() {
         throw new Error('当前对话无法定位本轮用户输入。')
       }
 
-      if (!settings.skillModeEnabled) {
+      if (responseMode === 'text') {
         const promptMessages = buildApiMessagesFromTranscript(historyTranscript, settingsSnapshot.systemPrompt)
         appendSkillRoundLog({
           event: 'round_input',
@@ -5031,6 +5250,7 @@ function App() {
           job.conversationId,
           historyTranscript,
           job.turnId,
+          job.responseMode,
           controller,
         )
 
@@ -5257,6 +5477,7 @@ function App() {
     enqueueTurnExecution({
       conversationId: activeConversation.id,
       turnId,
+      responseMode: activeConversationResponseMode,
       historyTranscript,
     })
   }
@@ -5264,7 +5485,7 @@ function App() {
   const handleAppend = (): void => {
     if (
       !activeConversation ||
-      !settings.skillModeEnabled ||
+      activeConversationResponseMode !== 'tool' ||
       !isSending ||
       !isRunningInActiveConversation
     ) {
@@ -5288,6 +5509,7 @@ function App() {
     enqueueTurnExecution({
       conversationId: activeConversation.id,
       turnId,
+      responseMode: activeConversationResponseMode,
     })
   }
 
@@ -5598,6 +5820,7 @@ function App() {
     enqueueTurnExecution({
       conversationId: activeConversation.id,
       turnId: updatedUserEvent.turnId,
+      responseMode: activeConversationResponseMode,
       historyTranscript: nextTranscript,
     })
   }
@@ -5628,6 +5851,7 @@ function App() {
     enqueueTurnExecution({
       conversationId: activeConversation.id,
       turnId: target.turnId,
+      responseMode: activeConversationResponseMode,
       historyTranscript,
     })
   }
@@ -6009,7 +6233,8 @@ function App() {
       }
 
       const fallbackConversation =
-        [...remaining].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? createConversation()
+        [...remaining].sort((left, right) => right.updatedAt - left.updatedAt)[0] ??
+        createConversation([], settingsRef.current.defaultResponseMode)
       nextActiveConversationId = fallbackConversation.id
       return remaining.length > 0 ? remaining : [fallbackConversation]
     })
@@ -6205,7 +6430,8 @@ function App() {
     const existingPlaceholder = conversations.find((conversation) =>
       isTranscriptConversationWorkspacePlaceholder(conversation, draftsByConversation[conversation.id] ?? ''),
     )
-    const nextConversation = existingPlaceholder ?? createConversation()
+    const nextConversation =
+      existingPlaceholder ?? createConversation([], settingsRef.current.defaultResponseMode)
 
     if (!existingPlaceholder) {
       setConversationsState((previous) => [nextConversation, ...previous])
@@ -6377,14 +6603,29 @@ function App() {
           return
         }
 
-        const fallbackConversation = createConversation()
+        const fallbackConversation = createConversation([], settingsRef.current.defaultResponseMode)
         const persistedConversationIds = new Set(loaded.conversations.map((conversation) => conversation.id))
         const nextDrafts = Object.fromEntries(
           Object.entries(loaded.draftsByConversation).filter(
             ([conversationId, draft]) => persistedConversationIds.has(conversationId) && draft.length > 0,
           ),
         )
-        const nextConversations = [fallbackConversation, ...loaded.conversations]
+        const nextConversations = [
+          fallbackConversation,
+          ...loaded.conversations.map((conversation) => {
+            if (conversation.preferences?.responseMode || !hasConversationStarted(conversation)) {
+              return conversation
+            }
+
+            return withConversationResponseMode(
+              conversation,
+              settingsRef.current.defaultResponseMode,
+              {
+                keepUpdatedAt: true,
+              },
+            )
+          }),
+        ]
         // Product invariant: a cold launch must always land in a fresh new conversation.
         // History is restored below, but initial focus must never jump back to the last active thread.
         const nextActiveConversationId = fallbackConversation.id
@@ -6848,7 +7089,7 @@ function App() {
 
   useEffect(() => {
     if (conversations.length === 0) {
-      const fallback = createConversation()
+      const fallback = createConversation([], settingsRef.current.defaultResponseMode)
       setConversationsState([fallback])
       setActiveConversationId(fallback.id)
       return
@@ -7051,23 +7292,38 @@ function App() {
     }
   }, [conversationGroups, drawerVisible, settings.autoCollapseConversations])
 
-  const renderComposerTools = (className = 'composer-tools') => (
+  const renderComposerTools = ({
+    className = 'composer-tools',
+    homepageEmpty = false,
+  }: {
+    className?: string
+    homepageEmpty?: boolean
+  } = {}) => (
     <div className={className}>
-      <div className="model-picker composer-model-picker" ref={modelMenuRef}>
+      <div
+        className={`model-picker composer-model-picker ${homepageEmpty ? 'homepage-model-picker' : ''}`}
+        ref={modelMenuRef}
+      >
         <button
           type="button"
-          className="model-trigger composer-model-trigger"
+          className={`model-trigger composer-model-trigger ${homepageEmpty ? 'is-homepage-empty' : ''}`}
           onClick={() =>
             modelMenuVisible ? closeModelMenu() : openModelMenu()
           }
         >
-          <span>{settings.currentModel || '选择模型'}</span>
+          <span className="model-trigger-label">
+            {homepageEmpty
+              ? buildHomepageModelTriggerLabel(settings.currentModel, activeConversationResponseMode)
+              : settings.currentModel || '选择模型'}
+          </span>
           <span className={`arrow ${modelMenuVisible ? 'open' : ''}`}>▾</span>
         </button>
 
         {modelMenuMounted ? (
           <div
-            className={`model-popover composer-model-popover frosted-surface ${modelMenuVisible ? 'is-open' : 'is-closing'}`}
+            className={`model-popover composer-model-popover frosted-surface ${
+              homepageEmpty ? 'homepage-model-popover' : ''
+            } ${modelMenuVisible ? 'is-open' : 'is-closing'}`}
             style={{ top: 'auto', bottom: 'calc(100% + 8px)', transformOrigin: 'center bottom' }}
           >
             {enabledModelOptions.length === 0 ? (
@@ -7114,6 +7370,48 @@ function App() {
                 </div>
               ))
             )}
+
+            {homepageEmpty && enabledModelOptions.length > 0 ? (
+              <div className="homepage-model-mode-footer">
+                <span className="homepage-model-mode-label">Response mode</span>
+                <div className="homepage-model-mode-actions" role="group" aria-label="选择首页响应模式">
+                  <button
+                    type="button"
+                    className={`homepage-model-mode-button ${
+                      activeConversationResponseMode === 'tool' ? 'active' : ''
+                    }`}
+                    disabled={activeConversationModeLocked || !activeConversation}
+                    onClick={() => {
+                      if (!activeConversation || activeConversationModeLocked) {
+                        return
+                      }
+                      updateConversationResponseMode(activeConversation.id, 'tool')
+                      updateSetting('defaultResponseMode', 'tool')
+                      closeModelMenu()
+                    }}
+                  >
+                    技能模式
+                  </button>
+                  <button
+                    type="button"
+                    className={`homepage-model-mode-button ${
+                      activeConversationResponseMode === 'text' ? 'active' : ''
+                    }`}
+                    disabled={activeConversationModeLocked || !activeConversation}
+                    onClick={() => {
+                      if (!activeConversation || activeConversationModeLocked) {
+                        return
+                      }
+                      updateConversationResponseMode(activeConversation.id, 'text')
+                      updateSetting('defaultResponseMode', 'text')
+                      closeModelMenu()
+                    }}
+                  >
+                    文本模式
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -7182,6 +7480,127 @@ function App() {
         </svg>
       </button>
     </div>
+  )
+
+  const renderComposerFooter = ({
+    homepageEmpty = false,
+  }: {
+    homepageEmpty?: boolean
+  } = {}): ReactNode => (
+    <footer className={`composer ${homepageEmpty ? 'is-homepage-empty' : ''}`}>
+      {scrollToBottomButtonMounted ? (
+        <button
+          type="button"
+          className={`icon-button composer-scroll-bottom-button ${
+            scrollToBottomButtonVisible ? 'is-open' : 'is-closing'
+          }`}
+          onClick={handleScrollToBottomButtonClick}
+          aria-label="回到底部"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 5.5v11.2"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+            <path
+              d="m7.5 13.3 4.5 4.9 4.5-4.9"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      ) : null}
+
+      {pendingImages.length > 0 ? (
+        <div className="pending-image-strip">
+          {pendingImages.map((image) => (
+            <div key={image.id} className="pending-image-item">
+              <button
+                type="button"
+                className="pending-image-preview"
+                onClick={() => openImageViewer(buildPendingImageViewerKey(image.id), image)}
+                aria-label={`查看图片 ${image.name}`}
+              >
+                <img src={image.dataUrl} alt={image.name} />
+              </button>
+              <button
+                type="button"
+                className="pending-image-remove-button"
+                onClick={() => removePendingImage(image.id)}
+                aria-label={`移除图片 ${image.name}`}
+              >
+                ×
+              </button>
+              <div className="pending-image-controls">
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={image.compressionRate}
+                  onChange={(event) =>
+                    updatePendingImageCompression(image.id, Number(event.target.value))
+                  }
+                  aria-label={`压缩率 ${image.name}`}
+                />
+                <span>{image.compressionRate}%</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="composer-panel">
+        <div className="composer-row">
+          <ChatInputBox
+            ref={composerInputRef}
+            className="chat-input-box composer-input"
+            value={draft}
+            onChange={(event) => {
+              if (!activeConversation) {
+                return
+              }
+              updateConversationDraft(activeConversation.id, event.target.value)
+            }}
+            placeholder="输入消息"
+            maxHeight={188}
+          />
+
+          {isSending ? (
+            canAppendWhileSending ? (
+              <button type="button" className="composer-send-button" onClick={handleAppend}>
+                追加
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="composer-send-button danger-button"
+                onClick={stopGeneration}
+              >
+                停止
+              </button>
+            )
+          ) : (
+            <button
+              type="button"
+              className="composer-send-button"
+              disabled={!canSend}
+              onClick={() => void handleSend()}
+            >
+              发送
+            </button>
+          )}
+        </div>
+
+        {renderComposerTools({ homepageEmpty })}
+      </div>
+    </footer>
   )
 
   const renderPromptEditorPanel = ({
@@ -7283,6 +7702,191 @@ function App() {
     </div>
   )
 
+  const renderDailyCoverSettings = () => (
+    <div className="daily-cover-settings-page">
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">首页封面</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+
+        <div className="settings-static-card daily-cover-hero-card">
+          {resolvedDailyCover ? <img src={resolvedDailyCover.imageUrl} alt={resolvedDailyCover.title} /> : null}
+          <div className="daily-cover-kicker">
+            {resolvedDailyCover
+              ? `Today’s cover · ${resolvedDailyCover.sourceLabel}`
+              : 'Daily cover unavailable'}
+          </div>
+          <h3 className="daily-cover-title">
+            {resolvedDailyCover ? (
+              <>
+                {resolvedDailyCover.title}
+                <br />
+                <em>{resolvedDailyCover.photographer}</em>
+              </>
+            ) : (
+              'Daily Cover'
+            )}
+          </h3>
+          <p className="daily-cover-copy">
+            {resolvedDailyCover?.description ?? '封面不可用时，界面会自动退回到安静的默认壳层。'}
+          </p>
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">显示策略</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+
+        <div className="settings-static-card">
+          <div className="daily-cover-field-list">
+            <label className="daily-cover-field-row">
+              <span className="name">启用首页每日风景封面</span>
+              <input
+                className="toggle-switch"
+                type="checkbox"
+                checked={settings.dailyCover.enabled}
+                onChange={(event) => updateDailyCoverSetting('enabled', event.target.checked)}
+              />
+            </label>
+
+            <label className="daily-cover-field-row">
+              <span className="name">进入消息流后保留摘要横幅</span>
+              <input
+                className="toggle-switch"
+                type="checkbox"
+                checked={settings.dailyCover.showChatBanner}
+                onChange={(event) => updateDailyCoverSetting('showChatBanner', event.target.checked)}
+              />
+            </label>
+
+            <label className="daily-cover-field-row">
+              <span className="name">使用自定义每日一图 API</span>
+              <input
+                className="toggle-switch"
+                type="checkbox"
+                checked={settings.dailyCover.useApi}
+                onChange={(event) => updateDailyCoverSetting('useApi', event.target.checked)}
+              />
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">默认图池</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+
+        <div className="settings-static-card">
+          <p className="settings-entry-meta">
+            默认图池用于保证稳定与冷启动体验。即使自定义 API 失败，也会自动回退到本地图池。
+          </p>
+          <div className="daily-cover-thumb-grid">
+            {BUNDLED_DAILY_COVER_POOL.map((cover) => (
+              <figure key={cover.id} className="daily-cover-thumb">
+                <img src={cover.imageUrl} alt={cover.title} />
+                <span>{cover.title}</span>
+              </figure>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">每日一图 API</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+
+        <div className="settings-static-card">
+          <label className="field">
+            <span>API Endpoint</span>
+            <ChatInputBox
+              className="settings-chat-input settings-chat-input-compact"
+              value={settings.dailyCover.apiEndpoint}
+              onChange={(event) => updateDailyCoverSetting('apiEndpoint', event.target.value)}
+              placeholder="https://example.com/api/daily-cover?date={YYYY-MM-DD}"
+              maxHeight={140}
+            />
+          </label>
+
+          <label className="field">
+            <span>Request Method</span>
+            <select
+              className="theme-mode-select"
+              value={settings.dailyCover.apiMethod}
+              onChange={(event) =>
+                updateDailyCoverSetting('apiMethod', event.target.value === 'POST' ? 'POST' : 'GET')
+              }
+            >
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+            </select>
+          </label>
+
+          <label className="field">
+            <span>Authorization Header</span>
+            <ChatInputBox
+              className="settings-chat-input settings-chat-input-compact"
+              value={settings.dailyCover.apiAuthHeader}
+              onChange={(event) => updateDailyCoverSetting('apiAuthHeader', event.target.value)}
+              placeholder="Bearer YOUR_TOKEN"
+              maxHeight={140}
+            />
+          </label>
+
+          <label className="field">
+            <span>Image URL Path</span>
+            <ChatInputBox
+              className="settings-chat-input settings-chat-input-compact"
+              value={settings.dailyCover.apiImagePath}
+              onChange={(event) => updateDailyCoverSetting('apiImagePath', event.target.value)}
+              placeholder="data.image.url"
+              maxHeight={140}
+            />
+          </label>
+
+          <label className="field">
+            <span>Title Path</span>
+            <ChatInputBox
+              className="settings-chat-input settings-chat-input-compact"
+              value={settings.dailyCover.apiTitlePath}
+              onChange={(event) => updateDailyCoverSetting('apiTitlePath', event.target.value)}
+              placeholder="data.image.title"
+              maxHeight={140}
+            />
+          </label>
+
+          <label className="field">
+            <span>Credit Path</span>
+            <ChatInputBox
+              className="settings-chat-input settings-chat-input-compact"
+              value={settings.dailyCover.apiCreditPath}
+              onChange={(event) => updateDailyCoverSetting('apiCreditPath', event.target.value)}
+              placeholder="data.image.credit.name"
+              maxHeight={140}
+            />
+          </label>
+
+          <label className="field">
+            <span>Credit Link Path</span>
+            <ChatInputBox
+              className="settings-chat-input settings-chat-input-compact"
+              value={settings.dailyCover.apiLinkPath}
+              onChange={(event) => updateDailyCoverSetting('apiLinkPath', event.target.value)}
+              placeholder="data.image.credit.link"
+              maxHeight={140}
+            />
+          </label>
+        </div>
+      </section>
+    </div>
+  )
+
   const renderMainSettings = () => (
     <>
       <section className="settings-section">
@@ -7337,9 +7941,7 @@ function App() {
           >
             <span className="settings-entry-title">标签提示词</span>
             <span className="settings-entry-meta">
-              {settings.skillModeEnabled
-                ? '分别配置一般标签、顶层标签、<read>、<run> 与 <edit>，并支持一键恢复默认。'
-                : '技能模式关闭时暂不生效；开启后会用于控制一般标签、顶层标签、<read>、<run> 与 <edit>。'}
+              {'分别配置一般标签、顶层标签、<read>、<run> 与 <edit>，并支持一键恢复默认。'}
             </span>
           </button>
         </div>
@@ -7623,6 +8225,30 @@ function App() {
             onChange={(event) => updateSetting('firstTokenHapticsEnabled', event.target.checked)}
           />
         </label>
+      </section>
+
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">首页封面</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+
+        <div className="settings-entry-list">
+          <button
+            type="button"
+            className="settings-entry-button"
+            onClick={() => navigateSettingsView('daily-cover')}
+          >
+            <span className="settings-entry-title">每日风景封面</span>
+            <span className="settings-entry-meta">
+              {settings.dailyCover.enabled
+                ? `${resolvedDailyCover?.title ?? '默认图池'} · ${
+                    settings.dailyCover.useApi ? '自定义 API 已启用' : '使用默认图池'
+                  }`
+                : '已关闭首页每日风景封面'}
+            </span>
+          </button>
+        </div>
       </section>
     </>
   )
@@ -8365,7 +8991,10 @@ function App() {
             <p className="summary-muted">暂无可用 skill。</p>
           ) : (
             skillRecords.map((skill) => (
-              <article key={skill.id} className="settings-entity-card">
+              <article
+                key={skill.id}
+                className={`settings-entity-card ${skill.loadError ? 'is-load-error' : ''}`}
+              >
                 <div className="settings-entity-main">
                   <div className="settings-entity-title-row">
                     <strong>{skill.frontmatter.name || skill.id}</strong>
@@ -8374,19 +9003,28 @@ function App() {
                       <span>{skill.source === 'builtin' ? '内置' : '外部'}</span>
                       <span>{skill.frontmatter.version ? `v${skill.frontmatter.version}` : '未标版本'}</span>
                       {skill.overrideBuiltin ? <span>覆盖内置</span> : null}
+                      {skill.loadError ? <span>加载失败</span> : null}
                     </div>
                   </div>
 
                   <p className="summary-muted">{skill.frontmatter.description}</p>
+                  {skill.loadError ? (
+                    <p className="message-error">加载失败：{skill.loadError}</p>
+                  ) : null}
                 </div>
 
                 <div className="settings-entity-actions">
-                  <label className="toggle-row settings-inline-toggle">
+                  <label
+                    className={`toggle-row settings-inline-toggle ${
+                      skill.loadError ? 'is-disabled' : ''
+                    }`}
+                  >
                     <span>启用</span>
                     <input
                       className="toggle-switch"
                       type="checkbox"
                       checked={skill.enabled}
+                      disabled={Boolean(skill.loadError)}
                       onChange={(event) =>
                         void handleSetSkillEnabled(skill.id, event.target.checked)
                       }
@@ -8397,6 +9035,7 @@ function App() {
                     <button
                       type="button"
                       className="tiny-button"
+                      disabled={Boolean(skill.loadError)}
                       onClick={() => void openSkillConfigEditor(skill.id)}
                     >
                       配置
@@ -8701,6 +9340,10 @@ function App() {
         title = '权限设置'
         settingsContent = renderPermissionsSettings()
         break
+      case 'daily-cover':
+        title = '首页每日风景封面'
+        settingsContent = renderDailyCoverSettings()
+        break
       default:
         break
     }
@@ -8759,7 +9402,17 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell ${isHomepageEmptyState ? 'is-homepage-empty' : ''}`}
+      style={homepageBackgroundStyle}
+    >
+      {isHomepageEmptyState ? (
+        <div
+          className={`homepage-empty-background ${resolvedDailyCover ? 'has-cover' : 'is-fallback'}`}
+          aria-hidden="true"
+        />
+      ) : null}
+
       {titleTransition ? (
         <div className="title-transition-layer" aria-hidden="true">
           <div
@@ -8834,8 +9487,12 @@ function App() {
         </div>
       ) : null}
 
-      <header className="app-header">
-        <div className={`header-card ${isEditingTitle ? 'is-editing-title' : ''}`}>
+      <header className={`app-header ${isHomepageEmptyState ? 'is-homepage-empty' : ''}`}>
+        <div
+          className={`header-card ${isEditingTitle ? 'is-editing-title' : ''} ${
+            isHomepageEmptyState ? 'is-homepage-empty' : ''
+          }`}
+        >
           <button
             type="button"
             className="menu-button"
@@ -8885,7 +9542,7 @@ function App() {
             ) : (
               <div className={`title-display ${titleTransition ? 'is-hidden' : ''}`}>
                 <span ref={titleTextRef} className="title-text">
-                  {activeConversation?.title ?? '动话'}
+                  {displayConversationTitle}
                 </span>
                 <button
                   ref={titleRenameButtonRef}
@@ -8952,137 +9609,29 @@ function App() {
             onWheelCapture={handleMessageListWheelCapture}
           >
             {activeMessages.length === 0 ? (
-              <>
-                <section className="empty-state">
-              <h2>动话</h2>
-              <p className="empty-state-line empty-state-intro">
-                我是<span className="empty-state-nowrap">动话</span>！
-                <wbr />
-                欢迎找我聊天呀<span className="empty-state-emoticon">ʕ˶'༥'˶ʔ♡</span>
-              </p>
+              <NewConversationShowcase
+                cover={resolvedDailyCover}
+                highlightStats={homepageHighlightStats}
+                responseModeLabel={getResponseModeLabel(activeConversationResponseMode)}
+                footerContent={isHomepageEmptyState ? renderComposerFooter({ homepageEmpty: true }) : null}
+              />
+            ) : null}
 
-              {emptyStateStats.shouldShowMiddleSection ? (
-                <>
-                  <div className="empty-state-divider" aria-hidden="true" />
-
-                  <div className="empty-state-body">
-                    <p className="empty-state-line">
-                      在过去的
-                      <span className="empty-state-nowrap">
-                        {emptyStateStats.daysSinceFirstConversation}天
-                      </span>
-                      里，
-                      <wbr />
-                      我们曾经有过
-                      <span className="empty-state-nowrap">
-                        {numberFormatter.format(emptyStateStats.totalConversationCount)}次对话
-                      </span>
-                      ，
-                      <wbr />
-                      你发送过
-                      <span className="empty-state-nowrap">
-                        {numberFormatter.format(emptyStateStats.totalPhotoCount)}张照片
-                      </span>
-                      ，
-                      <wbr />
-                      我们一起消耗了
-                      <span className="empty-state-nowrap">
-                        {formatTokenLabel(emptyStateStats.totalTokenCount)}
-                      </span>
-                      <span className="empty-state-emoticon">(՞˶･֊･˶՞)</span>
-                    </p>
-
-                    {emptyStateStats.earliestTimeRecord ? (
-                      <p className="empty-state-line">
-                        最早的时候，
-                        <wbr />
-                        你从
-                        <span className="empty-state-nowrap">
-                          {formatClockTime(emptyStateStats.earliestTimeRecord.timestamp)}
-                        </span>
-                        就开始与我聊天了，
-                        <wbr />
-                        在
-                        <span className="empty-state-nowrap">
-                          {formatChatDayMonthDay(emptyStateStats.earliestTimeRecord.timestamp, true)}
-                        </span>
-                        <span className="empty-state-emoticon"> ε٩(๑&gt; ₃ &lt;)۶з</span>
-                      </p>
-                    ) : null}
-
-                    {emptyStateStats.latestTimeRecord ? (
-                      <p className="empty-state-line">
-                        最晚的时候，
-                        <wbr />
-                        你在
-                        <span className="empty-state-nowrap">
-                          {formatClockTime(emptyStateStats.latestTimeRecord.timestamp)}时
-                        </span>
-                        还没有入睡，
-                        <wbr />
-                        在
-                        <span className="empty-state-nowrap">
-                          {formatChatDayMonthDay(emptyStateStats.latestTimeRecord.timestamp)}
-                        </span>
-                        ，
-                        <wbr />
-                        要注意身体哦<span className="empty-state-emoticon"> (๑• . •๑)</span>
-                      </p>
-                    ) : null}
-
-                    {emptyStateStats.busiestDay ? (
-                      <p className="empty-state-line">
-                        聊的最多的一天，
-                        <wbr />
-                        我们有过
-                        <span className="empty-state-nowrap">
-                          {numberFormatter.format(emptyStateStats.busiestDay.rounds)}次对话
-                        </span>
-                        ，
-                        <wbr />
-                        一起消耗了
-                        <span className="empty-state-nowrap">
-                          {formatTokenLabel(emptyStateStats.busiestDay.tokens)}
-                        </span>
-                        ，
-                        <wbr />
-                        在
-                        <span className="empty-state-nowrap">
-                          {formatCalendarMonthDay(emptyStateStats.busiestDay.timestamp, true)}
-                        </span>
-                        <span className="empty-state-emoticon">(｡•ㅅ•｡)♡</span>
-                      </p>
-                    ) : null}
-                  </div>
-
-                  <div className="empty-state-divider" aria-hidden="true" />
-                </>
-              ) : (
-                <div className="empty-state-divider" aria-hidden="true" />
-              )}
-
-              <p className="empty-state-line empty-state-outro">
-                接下来，
-                <wbr />
-                让我来回答你的问题吧<span className="empty-state-emoticon">(´,,•ω•,,)♡</span>
-              </p>
-                </section>
-                <section className="empty-state empty-state-mode-card">
-              <h3>对话模式设置</h3>
-              <p className="empty-state-line">
-                当前模式：{settings.skillModeEnabled ? '技能模式（可调用 Skills）' : '文本模式（仅文本回复）'}
-              </p>
-              <label className="toggle-row empty-state-mode-toggle">
-                <span>{settings.skillModeEnabled ? '关闭可切换为文本模式' : '打开可切换为技能模式'}</span>
-                <input
-                  className="toggle-switch"
-                  type="checkbox"
-                  checked={settings.skillModeEnabled}
-                  onChange={(event) => updateSetting('skillModeEnabled', event.target.checked)}
-                />
-              </label>
-                </section>
-              </>
+            {activeMessages.length > 0 && settings.dailyCover.enabled && settings.dailyCover.showChatBanner && resolvedDailyCover ? (
+              <section className="chat-cover-summary">
+                <div className="chat-cover-summary-media" aria-hidden="true">
+                  <img src={resolvedDailyCover.imageUrl} alt="" />
+                </div>
+                <div className="chat-cover-summary-content">
+                  <span className="chat-cover-summary-kicker">
+                    today&apos;s cover
+                    <span className="chat-cover-summary-dot" />
+                    {resolvedDailyCover.sourceLabel}
+                  </span>
+                  <h3>{resolvedDailyCover.title}</h3>
+                  <p>{resolvedDailyCover.description}</p>
+                </div>
+              </section>
             ) : null}
 
             {activeMessages.map((message) => {
@@ -9305,151 +9854,38 @@ function App() {
             <div ref={messageEndRef} />
           </main>
 
-          <footer className="composer">
-            {scrollToBottomButtonMounted ? (
-              <button
-                type="button"
-                className={`icon-button composer-scroll-bottom-button ${
-                  scrollToBottomButtonVisible ? 'is-open' : 'is-closing'
-                }`}
-                onClick={handleScrollToBottomButtonClick}
-                aria-label="回到底部"
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d="M12 5.5v11.2"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d="m7.5 13.3 4.5 4.9 4.5-4.9"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </button>
-            ) : null}
+          {!isHomepageEmptyState ? renderComposerFooter() : null}
 
-            {pendingImages.length > 0 ? (
-              <div className="pending-image-strip">
-                {pendingImages.map((image) => (
-                  <div key={image.id} className="pending-image-item">
-                    <button
-                      type="button"
-                      className="pending-image-preview"
-                      onClick={() => openImageViewer(buildPendingImageViewerKey(image.id), image)}
-                      aria-label={`查看图片 ${image.name}`}
-                    >
-                      <img src={image.dataUrl} alt={image.name} />
-                    </button>
-                    <button
-                      type="button"
-                      className="pending-image-remove-button"
-                      onClick={() => removePendingImage(image.id)}
-                      aria-label={`移除图片 ${image.name}`}
-                    >
-                      ×
-                    </button>
-                    <div className="pending-image-controls">
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={image.compressionRate}
-                        onChange={(event) =>
-                          updatePendingImageCompression(image.id, Number(event.target.value))
-                        }
-                        aria-label={`压缩率 ${image.name}`}
-                      />
-                      <span>{image.compressionRate}%</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-
-            <div className="composer-panel">
-              <div className="composer-row">
-                <ChatInputBox
-                  ref={composerInputRef}
-                  className="chat-input-box composer-input"
-                  value={draft}
-                  onChange={(event) => {
-                    if (!activeConversation) {
-                      return
-                    }
-                    updateConversationDraft(activeConversation.id, event.target.value)
-                  }}
-                  placeholder="输入消息"
-                  maxHeight={188}
-                />
-
-                {isSending ? (
-                  canAppendWhileSending ? (
-                    <button type="button" className="composer-send-button" onClick={handleAppend}>
-                      追加
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="composer-send-button danger-button"
-                      onClick={stopGeneration}
-                    >
-                      停止
-                    </button>
-                  )
-                ) : (
-                  <button
-                    type="button"
-                    className="composer-send-button"
-                    disabled={!canSend}
-                    onClick={() => void handleSend()}
-                  >
-                    发送
-                  </button>
-                )}
-              </div>
-
-              {renderComposerTools()}
-            </div>
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              hidden
-              onChange={(event) => void handleImageSelect(event)}
-            />
-            <input
-              ref={cameraInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              hidden
-              onChange={(event) => void handleImageSelect(event)}
-            />
-            <input
-              ref={skillArchiveInputRef}
-              type="file"
-              accept=".zip,application/zip"
-              hidden
-              onChange={(event) => void handleSkillArchiveSelect(event)}
-            />
-            <input
-              ref={runtimeArchiveInputRef}
-              type="file"
-              accept=".zip,application/zip"
-              hidden
-              onChange={(event) => void handleRuntimeArchiveSelect(event)}
-            />
-          </footer>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={(event) => void handleImageSelect(event)}
+          />
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            hidden
+            onChange={(event) => void handleImageSelect(event)}
+          />
+          <input
+            ref={skillArchiveInputRef}
+            type="file"
+            accept=".zip,application/zip"
+            hidden
+            onChange={(event) => void handleSkillArchiveSelect(event)}
+          />
+          <input
+            ref={runtimeArchiveInputRef}
+            type="file"
+            accept=".zip,application/zip"
+            hidden
+            onChange={(event) => void handleRuntimeArchiveSelect(event)}
+          />
         </>
       )}
 

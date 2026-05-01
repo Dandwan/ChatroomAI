@@ -1,0 +1,1245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>ActiChat Front Redesign v0</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f4efe7;
+        --bg-deep: #e7ddd0;
+        --paper: rgba(255, 251, 246, 0.82);
+        --panel: rgba(253, 249, 243, 0.88);
+        --panel-strong: rgba(247, 241, 233, 0.96);
+        --line: rgba(72, 54, 37, 0.16);
+        --line-strong: rgba(72, 54, 37, 0.28);
+        --text: #241a12;
+        --text-soft: rgba(36, 26, 18, 0.7);
+        --accent: #0f5f73;
+        --accent-soft: rgba(15, 95, 115, 0.12);
+        --accent-warm: #bd6f39;
+        --shadow: 0 24px 60px rgba(50, 36, 24, 0.12);
+        --radius-xl: 28px;
+        --radius-lg: 22px;
+        --radius-md: 16px;
+        --radius-pill: 999px;
+        --content-width: 1420px;
+        --dot-opacity: 0.42;
+        --line-opacity: 0.58;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+
+      body {
+        font-family: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 20% 10%, rgba(189, 111, 57, 0.12), transparent 28%),
+          radial-gradient(circle at 80% 0%, rgba(15, 95, 115, 0.12), transparent 24%),
+          linear-gradient(180deg, #f6f1e8 0%, #efe6da 100%);
+        overflow-x: hidden;
+      }
+
+      body::before,
+      body::after {
+        content: '';
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      body::before {
+        background:
+          linear-gradient(
+            90deg,
+            transparent 0,
+            transparent calc(50% - 1px),
+            rgba(84, 64, 44, 0.045) calc(50% - 1px),
+            rgba(84, 64, 44, 0.045) calc(50% + 1px),
+            transparent calc(50% + 1px)
+          ),
+          linear-gradient(
+            0deg,
+            transparent 0,
+            transparent calc(50% - 1px),
+            rgba(84, 64, 44, 0.032) calc(50% - 1px),
+            rgba(84, 64, 44, 0.032) calc(50% + 1px),
+            transparent calc(50% + 1px)
+          );
+        opacity: var(--line-opacity);
+      }
+
+      body::after {
+        background-image: radial-gradient(circle, rgba(65, 49, 34, var(--dot-opacity)) 0.8px, transparent 0.8px);
+        background-size: 26px 26px;
+        mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.3), transparent 80%);
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .page {
+        position: relative;
+        z-index: 1;
+        width: min(100%, var(--content-width));
+        margin: 0 auto;
+        padding: 36px 24px 28px;
+      }
+
+      .page-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 22px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .brand-mark {
+        width: 44px;
+        height: 44px;
+        border-radius: 14px;
+        border: 1px solid rgba(36, 26, 18, 0.12);
+        background:
+          radial-gradient(circle at 32% 30%, rgba(255, 255, 255, 0.85), transparent 30%),
+          linear-gradient(150deg, rgba(15, 95, 115, 0.18), rgba(189, 111, 57, 0.18));
+        position: relative;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+      }
+
+      .brand-mark::before,
+      .brand-mark::after {
+        content: '';
+        position: absolute;
+        background: rgba(36, 26, 18, 0.78);
+      }
+
+      .brand-mark::before {
+        width: 16px;
+        height: 1.5px;
+        left: 13px;
+        top: 21px;
+      }
+
+      .brand-mark::after {
+        width: 1.5px;
+        height: 16px;
+        left: 21px;
+        top: 13px;
+      }
+
+      .brand-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .brand-title {
+        font-family: 'Noto Serif SC', serif;
+        font-size: 22px;
+        line-height: 1;
+        letter-spacing: 0.04em;
+      }
+
+      .brand-subtitle,
+      .page-note {
+        color: var(--text-soft);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .shell {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.78fr);
+        gap: 22px;
+        align-items: start;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-xl);
+        background: var(--paper);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(18px);
+        overflow: hidden;
+      }
+
+      .hero {
+        position: relative;
+        min-height: 760px;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+      }
+
+      .hero::before {
+        content: '';
+        position: absolute;
+        inset: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        border-radius: calc(var(--radius-xl) - 10px);
+        pointer-events: none;
+      }
+
+      .hero-media {
+        position: absolute;
+        inset: 0;
+        background-position: center;
+        background-size: cover;
+        transform: scale(1.02);
+      }
+
+      .hero-media::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(180deg, rgba(9, 17, 22, 0.2), rgba(9, 17, 22, 0.15) 20%, rgba(9, 17, 22, 0.52) 70%, rgba(9, 17, 22, 0.78) 100%),
+          linear-gradient(120deg, rgba(8, 28, 35, 0.36), transparent 42%, rgba(90, 53, 28, 0.18) 100%);
+      }
+
+      .hero-decoration,
+      .hero-decoration::before,
+      .hero-decoration::after {
+        position: absolute;
+        pointer-events: none;
+      }
+
+      .hero-decoration {
+        inset: 0;
+        z-index: 1;
+      }
+
+      .hero-decoration::before {
+        content: '';
+        left: 28px;
+        right: 28px;
+        top: 112px;
+        height: 1px;
+        background: linear-gradient(90deg, rgba(255, 255, 255, 0.36), transparent 24%, transparent 76%, rgba(255, 255, 255, 0.36));
+      }
+
+      .hero-decoration::after {
+        content: '';
+        right: 44px;
+        top: 48px;
+        width: 160px;
+        height: 160px;
+        border-radius: 50%;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        box-shadow:
+          0 0 0 18px rgba(255, 255, 255, 0.05),
+          0 0 0 38px rgba(255, 255, 255, 0.03);
+      }
+
+      .hero-top,
+      .hero-main,
+      .hero-bottom {
+        position: relative;
+        z-index: 2;
+      }
+
+      .hero-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 24px 26px 0;
+      }
+
+      .hero-chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 34px;
+        padding: 0 14px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: var(--radius-pill);
+        background: rgba(255, 255, 255, 0.08);
+        color: #f8f5f0;
+        font-size: 12px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        backdrop-filter: blur(10px);
+      }
+
+      .chip::before {
+        content: '';
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: rgba(246, 223, 185, 0.96);
+        box-shadow: 0 0 0 4px rgba(246, 223, 185, 0.1);
+      }
+
+      .hero-main {
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        gap: 18px;
+        padding: 0 26px 28px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        color: rgba(249, 243, 235, 0.78);
+        font-size: 12px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+      }
+
+      .eyebrow::before,
+      .eyebrow::after {
+        content: '';
+        width: 34px;
+        height: 1px;
+        background: rgba(255, 255, 255, 0.3);
+      }
+
+      .hero-title {
+        max-width: 10ch;
+        margin: 0;
+        color: #fcf8f3;
+        font-family: 'Noto Serif SC', serif;
+        font-size: clamp(44px, 7vw, 86px);
+        line-height: 0.98;
+        letter-spacing: 0.02em;
+        text-wrap: pretty;
+      }
+
+      .hero-copy {
+        max-width: 560px;
+        margin: 0;
+        color: rgba(249, 243, 235, 0.85);
+        font-size: 16px;
+        line-height: 1.75;
+        text-wrap: pretty;
+      }
+
+      .hero-bottom {
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        gap: 16px;
+        padding: 0 26px 26px;
+      }
+
+      .floating-card {
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: var(--radius-lg);
+        background: rgba(12, 17, 20, 0.32);
+        color: #f8f5f0;
+        backdrop-filter: blur(14px);
+      }
+
+      .conversation-card {
+        padding: 18px;
+      }
+
+      .section-label {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 14px;
+        color: rgba(255, 244, 231, 0.78);
+        font-size: 12px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .section-label::after {
+        content: '';
+        flex: 1;
+        min-width: 28px;
+        height: 1px;
+        background: linear-gradient(90deg, rgba(255, 255, 255, 0.34), transparent);
+      }
+
+      .mock-messages {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .message {
+        padding: 14px 14px 13px;
+        border-radius: 18px;
+        line-height: 1.7;
+        font-size: 14px;
+      }
+
+      .message.user {
+        margin-left: auto;
+        max-width: 75%;
+        background: rgba(255, 255, 255, 0.14);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+      }
+
+      .message.assistant {
+        max-width: 88%;
+        background: rgba(11, 24, 29, 0.44);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .stats-card {
+        padding: 18px;
+        display: grid;
+        gap: 12px;
+      }
+
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .metric {
+        padding: 12px;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .metric-name {
+        color: rgba(255, 244, 231, 0.66);
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      .metric-value {
+        margin-top: 6px;
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .settings {
+        display: flex;
+        flex-direction: column;
+        min-height: 760px;
+        background: linear-gradient(180deg, rgba(255, 252, 247, 0.96), rgba(245, 238, 229, 0.96));
+      }
+
+      .settings-header {
+        padding: 26px 26px 20px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .settings-kicker {
+        color: var(--accent);
+        font-size: 12px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .settings-title {
+        margin: 8px 0 0;
+        font-family: 'Noto Serif SC', serif;
+        font-size: 34px;
+        line-height: 1.08;
+      }
+
+      .settings-desc {
+        max-width: 30ch;
+        margin: 10px 0 0;
+        color: var(--text-soft);
+        line-height: 1.65;
+        font-size: 14px;
+      }
+
+      .settings-body {
+        padding: 20px 26px 26px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .config-card {
+        position: relative;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        background: var(--panel);
+        overflow: hidden;
+      }
+
+      .config-card::before {
+        content: '';
+        position: absolute;
+        inset: auto 18px 0 18px;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(36, 26, 18, 0.12), transparent);
+      }
+
+      .config-header {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 14px;
+        margin-bottom: 14px;
+      }
+
+      .config-title {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .config-copy {
+        margin: 6px 0 0;
+        color: var(--text-soft);
+        font-size: 14px;
+        line-height: 1.65;
+      }
+
+      .config-badge {
+        flex-shrink: 0;
+        min-height: 30px;
+        padding: 0 12px;
+        border-radius: var(--radius-pill);
+        border: 1px solid rgba(15, 95, 115, 0.18);
+        background: rgba(15, 95, 115, 0.08);
+        color: var(--accent);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .segmented {
+        display: inline-grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+        padding: 6px;
+        border-radius: var(--radius-pill);
+        background: rgba(36, 26, 18, 0.05);
+        border: 1px solid rgba(36, 26, 18, 0.08);
+      }
+
+      .segment {
+        min-height: 38px;
+        padding: 0 14px;
+        border-radius: var(--radius-pill);
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--text-soft);
+        cursor: pointer;
+        font: inherit;
+        transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+      }
+
+      .segment.active {
+        background: rgba(255, 255, 255, 0.78);
+        border-color: rgba(36, 26, 18, 0.08);
+        color: var(--text);
+      }
+
+      .field-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .field.full {
+        grid-column: 1 / -1;
+      }
+
+      .field label {
+        color: var(--text-soft);
+        font-size: 12px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .field input,
+      .field textarea,
+      .field select {
+        width: 100%;
+        border: 1px solid rgba(36, 26, 18, 0.12);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.78);
+        color: var(--text);
+        font: inherit;
+        padding: 12px 14px;
+        outline: none;
+      }
+
+      .field textarea {
+        min-height: 104px;
+        resize: vertical;
+      }
+
+      .field input:focus,
+      .field textarea:focus,
+      .field select:focus {
+        border-color: rgba(15, 95, 115, 0.34);
+        box-shadow: 0 0 0 3px rgba(15, 95, 115, 0.08);
+      }
+
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 0;
+        border-top: 1px solid rgba(36, 26, 18, 0.08);
+      }
+
+      .toggle-row:first-child {
+        border-top: none;
+      }
+
+      .toggle-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .toggle-title {
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .toggle-desc {
+        color: var(--text-soft);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .toggle-switch {
+        width: 46px;
+        height: 28px;
+        border-radius: 999px;
+        background: rgba(36, 26, 18, 0.12);
+        position: relative;
+        flex-shrink: 0;
+      }
+
+      .toggle-switch::after {
+        content: '';
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+        transition: transform 0.22s ease;
+      }
+
+      .toggle-switch.on {
+        background: rgba(15, 95, 115, 0.24);
+      }
+
+      .toggle-switch.on::after {
+        transform: translateX(18px);
+      }
+
+      .thumb-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .thumb {
+        position: relative;
+        border: 1px solid rgba(36, 26, 18, 0.12);
+        border-radius: 16px;
+        overflow: hidden;
+        background: #ddd;
+        aspect-ratio: 0.9;
+        cursor: pointer;
+      }
+
+      .thumb img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
+      .thumb::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.44));
+      }
+
+      .thumb.active {
+        outline: 2px solid rgba(15, 95, 115, 0.42);
+        outline-offset: 2px;
+      }
+
+      .thumb-label {
+        position: absolute;
+        left: 10px;
+        right: 10px;
+        bottom: 8px;
+        z-index: 1;
+        color: #fff;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .api-contract {
+        display: grid;
+        gap: 10px;
+        padding: 14px;
+        border-radius: 16px;
+        background: rgba(15, 95, 115, 0.07);
+        border: 1px solid rgba(15, 95, 115, 0.12);
+      }
+
+      .api-contract pre {
+        margin: 0;
+        white-space: pre-wrap;
+        font-family: 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
+        font-size: 12px;
+        line-height: 1.65;
+      }
+
+      .footer-notes {
+        margin-top: 18px;
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+        color: var(--text-soft);
+        font-size: 13px;
+        line-height: 1.65;
+      }
+
+      .footer-notes p {
+        margin: 0;
+      }
+
+      .tweaks {
+        position: fixed;
+        right: 20px;
+        bottom: 20px;
+        z-index: 12;
+        width: min(320px, calc(100vw - 24px));
+        border: 1px solid rgba(36, 26, 18, 0.12);
+        border-radius: 22px;
+        background: rgba(251, 247, 241, 0.94);
+        box-shadow: 0 18px 42px rgba(46, 33, 22, 0.16);
+        backdrop-filter: blur(16px);
+        overflow: hidden;
+      }
+
+      .tweaks-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 14px 16px;
+        border-bottom: 1px solid rgba(36, 26, 18, 0.08);
+      }
+
+      .tweaks-title {
+        font-size: 12px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--text-soft);
+      }
+
+      .tweaks-body {
+        padding: 14px 16px 16px;
+        display: grid;
+        gap: 12px;
+      }
+
+      .tweaks .field input[type='range'] {
+        padding: 0;
+        background: transparent;
+        border: none;
+      }
+
+      .hidden {
+        display: none;
+      }
+
+      @media (max-width: 1100px) {
+        .shell {
+          grid-template-columns: 1fr;
+        }
+
+        .hero-bottom {
+          grid-template-columns: 1fr;
+        }
+
+        .settings {
+          min-height: auto;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .page {
+          padding: 18px 14px 96px;
+        }
+
+        .page-header,
+        .settings-header {
+          flex-direction: column;
+          align-items: start;
+        }
+
+        .hero {
+          min-height: 680px;
+        }
+
+        .field-grid,
+        .thumb-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .hero-title {
+          max-width: none;
+          font-size: clamp(40px, 14vw, 64px);
+        }
+
+        .footer-notes {
+          flex-direction: column;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="page-header">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true"></div>
+          <div class="brand-copy">
+            <div class="brand-title">动话前端重构 v0</div>
+            <div class="brand-subtitle">更精致的移动封面体验，更清楚的每日一图配置边界。</div>
+          </div>
+        </div>
+        <div class="page-note">
+          独立设计原型，不接入当前项目逻辑。重点展示：封面风景图、每日一图、设置 API、点线质感元素。
+        </div>
+      </header>
+
+      <section class="shell">
+        <article class="panel hero">
+          <div class="hero-media" id="heroMedia"></div>
+          <div class="hero-decoration" aria-hidden="true"></div>
+
+          <div class="hero-top">
+            <div class="hero-chip-row">
+              <span class="chip">Daily Landscape</span>
+              <span class="chip" id="dayLabel">2026-04-29</span>
+            </div>
+            <span class="chip" id="sourceLabel">Pexels Curated Pack</span>
+          </div>
+
+          <div class="hero-main">
+            <div class="eyebrow">Open With Distance</div>
+            <h1 class="hero-title">每天先看一眼远方，再开始对话。</h1>
+            <p class="hero-copy">
+              封面不再只是空白背景，而是一张每天切换的风景图。它既提供情绪入口，也承担品牌识别。
+              视觉上用细线、点阵、坐标感标签和留白，把“聊天工具”做得更像一件精致物件。
+            </p>
+          </div>
+
+          <div class="hero-bottom">
+            <section class="floating-card conversation-card">
+              <div class="section-label">Conversation Surface</div>
+              <div class="mock-messages">
+                <div class="message user">
+                  今天这个封面像一张杂志开篇。能不能保持克制一点，不要做得太花？
+                </div>
+                <div class="message assistant">
+                  可以。核心不是堆效果，而是让风景图、标题排版、线性秩序和设置层级形成统一气质。
+                  现在这版把“远景感”放在封面，把“控制感”放在设置面板。
+                </div>
+              </div>
+            </section>
+
+            <section class="floating-card stats-card">
+              <div class="section-label">Daily Cover System</div>
+              <div class="stats-grid">
+                <div class="metric">
+                  <div class="metric-name">Rotation</div>
+                  <div class="metric-value">按日期哈希</div>
+                </div>
+                <div class="metric">
+                  <div class="metric-name">Fallback</div>
+                  <div class="metric-value">本地图池</div>
+                </div>
+                <div class="metric">
+                  <div class="metric-name">Cache</div>
+                  <div class="metric-value">24h</div>
+                </div>
+                <div class="metric">
+                  <div class="metric-name">Credit</div>
+                  <div class="metric-value" id="photoCredit">Pexels</div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </article>
+
+        <aside class="panel settings">
+          <div class="settings-header">
+            <div>
+              <div class="settings-kicker">Settings Surface</div>
+              <h2 class="settings-title">每日一图与默认风景图池</h2>
+              <p class="settings-desc">
+                默认走本地精选风景图包，确保首屏稳定、冷启动快、无外链依赖；需要时再切换到每日一图 API。
+              </p>
+            </div>
+            <div class="config-badge" id="modeBadge">默认图池模式</div>
+          </div>
+
+          <div class="settings-body">
+            <section class="config-card">
+              <div class="config-header">
+                <div>
+                  <h3 class="config-title">图片来源策略</h3>
+                  <p class="config-copy">
+                    建议内置一组纯风景、无人物、无商标的高质量图片作为默认池，并把线上 API 做成可选增强项。
+                  </p>
+                </div>
+              </div>
+              <div class="segmented" role="tablist" aria-label="图片来源模式">
+                <button class="segment active" id="modePoolButton" type="button">默认图池</button>
+                <button class="segment" id="modeApiButton" type="button">每日一图 API</button>
+              </div>
+            </section>
+
+            <section class="config-card">
+              <div class="config-header">
+                <div>
+                  <h3 class="config-title">默认风景图池</h3>
+                  <p class="config-copy">
+                    当前原型使用 4 张本地化样图演示轮播。正式落地建议扩展为 12 到 24 张，并按季节与色温分层。
+                  </p>
+                </div>
+                <div class="config-badge">本地包</div>
+              </div>
+              <div class="thumb-grid" id="thumbGrid"></div>
+            </section>
+
+            <section class="config-card hidden" id="apiConfigCard">
+              <div class="config-header">
+                <div>
+                  <h3 class="config-title">每日一图 API 配置</h3>
+                  <p class="config-copy">
+                    这层不绑定某一家供应商，直接支持“请求地址 + 鉴权 + 字段映射”。这样更稳，也方便以后切换。
+                  </p>
+                </div>
+                <div class="config-badge">Provider-Agnostic</div>
+              </div>
+
+              <div class="field-grid">
+                <div class="field full">
+                  <label for="apiEndpoint">API Endpoint</label>
+                  <input
+                    id="apiEndpoint"
+                    type="text"
+                    value="https://example.com/api/daily-cover?date={YYYY-MM-DD}"
+                  />
+                </div>
+                <div class="field">
+                  <label for="apiMethod">Request Method</label>
+                  <select id="apiMethod">
+                    <option>GET</option>
+                    <option>POST</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="apiAuth">Authorization Header</label>
+                  <input id="apiAuth" type="text" value="Bearer YOUR_TOKEN" />
+                </div>
+                <div class="field">
+                  <label for="imagePath">Image URL Path</label>
+                  <input id="imagePath" type="text" value="data.image.url" />
+                </div>
+                <div class="field">
+                  <label for="titlePath">Title Path</label>
+                  <input id="titlePath" type="text" value="data.image.title" />
+                </div>
+                <div class="field">
+                  <label for="creditPath">Credit Path</label>
+                  <input id="creditPath" type="text" value="data.image.credit.name" />
+                </div>
+                <div class="field">
+                  <label for="linkPath">Credit Link Path</label>
+                  <input id="linkPath" type="text" value="data.image.credit.link" />
+                </div>
+                <div class="field full">
+                  <label for="apiFallback">Failure Strategy</label>
+                  <textarea id="apiFallback">请求失败或字段缺失时，回退到本地默认风景图池，并缓存最后一次成功结果 24 小时。</textarea>
+                </div>
+              </div>
+            </section>
+
+            <section class="config-card">
+              <div class="config-header">
+                <div>
+                  <h3 class="config-title">建议的数据契约</h3>
+                  <p class="config-copy">
+                    为了把“设置每日一图 API”做得足够通用，前端最好使用字段路径映射，而不是写死某个平台返回结构。
+                  </p>
+                </div>
+              </div>
+              <div class="api-contract">
+                <pre>{
+  "data": {
+    "date": "2026-04-29",
+    "image": {
+      "url": "https://cdn.example.com/daily/2026-04-29.jpg",
+      "title": "Morning Above The Ridge",
+      "credit": {
+        "name": "Studio Name",
+        "link": "https://example.com/credit"
+      }
+    }
+  }
+}</pre>
+              </div>
+            </section>
+
+            <section class="config-card">
+              <div class="config-header">
+                <div>
+                  <h3 class="config-title">推荐交互细节</h3>
+                  <p class="config-copy">
+                    让封面既有审美价值，也不会干扰使用。图片应该是氛围层，而不是主角本身。
+                  </p>
+                </div>
+              </div>
+              <div class="toggle-row">
+                <div class="toggle-copy">
+                  <div class="toggle-title">冷启动先显示封面</div>
+                  <div class="toggle-desc">在新对话空白态保留一块完整封面区域，再自然过渡到输入与消息流。</div>
+                </div>
+                <div class="toggle-switch on" aria-hidden="true"></div>
+              </div>
+              <div class="toggle-row">
+                <div class="toggle-copy">
+                  <div class="toggle-title">每日只换一次</div>
+                  <div class="toggle-desc">基于本地日期和缓存判断，避免一天内频繁变化导致首页失去稳定性。</div>
+                </div>
+                <div class="toggle-switch on" aria-hidden="true"></div>
+              </div>
+              <div class="toggle-row">
+                <div class="toggle-copy">
+                  <div class="toggle-title">显示来源与摄影师</div>
+                  <div class="toggle-desc">放在设置或封面信息层内，保持合法与克制，不打断主界面阅读。</div>
+                </div>
+                <div class="toggle-switch on" aria-hidden="true"></div>
+              </div>
+            </section>
+          </div>
+        </aside>
+      </section>
+
+      <footer class="footer-notes">
+        <p>
+          设计重点：
+          用大面积风景图建立情绪入口，用细线、点阵、标签和纵深留白做“精致感”，而不是用厚玻璃和高饱和渐变堆气氛。
+        </p>
+        <p>
+          当前演示图来源于 Pexels，已本地化到原型目录。正式落地时建议把默认图池做成受控素材包，并在设置里保留来源说明。
+        </p>
+      </footer>
+    </main>
+
+    <aside class="tweaks">
+      <div class="tweaks-header">
+        <div class="tweaks-title">Tweaks</div>
+        <div class="config-badge">v0</div>
+      </div>
+      <div class="tweaks-body">
+        <div class="field">
+          <label for="demoDate">演示日期</label>
+          <input id="demoDate" type="date" />
+        </div>
+        <div class="field">
+          <label for="dotOpacity">点阵密度</label>
+          <input id="dotOpacity" type="range" min="10" max="80" step="1" value="42" />
+        </div>
+        <div class="field">
+          <label for="lineOpacity">线条强度</label>
+          <input id="lineOpacity" type="range" min="10" max="80" step="1" value="58" />
+        </div>
+        <div class="field">
+          <label for="imageInfo">当前图片</label>
+          <input id="imageInfo" type="text" value="" readonly />
+        </div>
+      </div>
+    </aside>
+
+    <script>
+      const landscapePool = [
+        {
+          id: 'alpine-lake',
+          title: 'Alpine Lake',
+          photographer: 'Jplenio',
+          source: 'Pexels',
+          href: 'https://www.pexels.com/photo/landscape-photo-of-a-lake-among-mountains-2539408/',
+          image: './assets/landscapes/alpine-lake.jpg',
+        },
+        {
+          id: 'mirror-mountain',
+          title: 'Mirror Mountain',
+          photographer: 'Eberhard Grossgasteiger',
+          source: 'Pexels',
+          href: 'https://www.pexels.com/photo/photo-of-mountain-and-lake-1366909/',
+          image: './assets/landscapes/mirror-mountain.jpg',
+        },
+        {
+          id: 'crater-lake',
+          title: 'Crater Lake',
+          photographer: 'Sanaan Mazhar',
+          source: 'Pexels',
+          href: 'https://www.pexels.com/photo/landscape-photography-of-green-mountain-beside-body-of-water-1287145/',
+          image: './assets/landscapes/crater-lake.jpg',
+        },
+        {
+          id: 'autumn-ridge',
+          title: 'Autumn Ridge',
+          photographer: 'Nenad Rakicevic',
+          source: 'Pexels',
+          href: 'https://www.pexels.com/photo/landscape-of-mountains-and-lake-10138521/',
+          image: './assets/landscapes/autumn-ridge.jpg',
+        },
+      ]
+
+      const heroMedia = document.getElementById('heroMedia')
+      const photoCredit = document.getElementById('photoCredit')
+      const sourceLabel = document.getElementById('sourceLabel')
+      const dayLabel = document.getElementById('dayLabel')
+      const imageInfo = document.getElementById('imageInfo')
+      const thumbGrid = document.getElementById('thumbGrid')
+      const demoDateInput = document.getElementById('demoDate')
+      const dotOpacityInput = document.getElementById('dotOpacity')
+      const lineOpacityInput = document.getElementById('lineOpacity')
+      const modePoolButton = document.getElementById('modePoolButton')
+      const modeApiButton = document.getElementById('modeApiButton')
+      const apiConfigCard = document.getElementById('apiConfigCard')
+      const modeBadge = document.getElementById('modeBadge')
+
+      let currentMode = 'pool'
+
+      const formatDisplayDate = (value) => value
+
+      const hashDate = (dateString) => {
+        const normalized = dateString.replaceAll('-', '')
+        let sum = 0
+        for (let index = 0; index < normalized.length; index += 1) {
+          sum += Number(normalized[index]) * (index + 3)
+        }
+        return sum
+      }
+
+      const getPoolItemByDate = (dateString) => {
+        const index = hashDate(dateString) % landscapePool.length
+        return landscapePool[index]
+      }
+
+      const renderThumbs = (activeId) => {
+        thumbGrid.innerHTML = ''
+        landscapePool.forEach((item) => {
+          const button = document.createElement('button')
+          button.type = 'button'
+          button.className = `thumb ${item.id === activeId ? 'active' : ''}`
+          button.innerHTML = `
+            <img src="${item.image}" alt="${item.title}" />
+            <span class="thumb-label">${item.title}<br />${item.photographer}</span>
+          `
+          button.addEventListener('click', () => {
+            const chosenIndex = landscapePool.findIndex((entry) => entry.id === item.id)
+            const nextDate = new Date(demoDateInput.value)
+            if (Number.isNaN(nextDate.getTime())) {
+              return
+            }
+            const nextHash = chosenIndex
+            nextDate.setDate(nextDate.getDate() + nextHash)
+            demoDateInput.value = nextDate.toISOString().slice(0, 10)
+            updateDailyCover()
+          })
+          thumbGrid.appendChild(button)
+        })
+      }
+
+      const updateDailyCover = () => {
+        const dateValue = demoDateInput.value
+        const item = getPoolItemByDate(dateValue)
+        heroMedia.style.backgroundImage = `url('${item.image}')`
+        photoCredit.textContent = `${item.source} / ${item.photographer}`
+        sourceLabel.textContent = `${item.source} Curated Pack`
+        dayLabel.textContent = formatDisplayDate(dateValue)
+        imageInfo.value = `${item.title} · ${item.photographer}`
+        renderThumbs(item.id)
+      }
+
+      const setMode = (mode) => {
+        currentMode = mode
+        const isApi = mode === 'api'
+        modePoolButton.classList.toggle('active', !isApi)
+        modeApiButton.classList.toggle('active', isApi)
+        apiConfigCard.classList.toggle('hidden', !isApi)
+        modeBadge.textContent = isApi ? '每日一图 API 模式' : '默认图池模式'
+      }
+
+      const today = new Date()
+      const initialDate = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+      demoDateInput.value = initialDate.toISOString().slice(0, 10)
+
+      dotOpacityInput.addEventListener('input', (event) => {
+        document.documentElement.style.setProperty('--dot-opacity', Number(event.target.value) / 100)
+      })
+
+      lineOpacityInput.addEventListener('input', (event) => {
+        document.documentElement.style.setProperty('--line-opacity', Number(event.target.value) / 100)
+      })
+
+      demoDateInput.addEventListener('change', updateDailyCover)
+      modePoolButton.addEventListener('click', () => setMode('pool'))
+      modeApiButton.addEventListener('click', () => setMode('api'))
+
+      setMode('pool')
+      updateDailyCover()
+    </script>
+  </body>
+</html>
