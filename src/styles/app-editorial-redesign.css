@@ -12,6 +12,8 @@
   --homepage-field-radius: 4px;
   --homepage-field-border: rgba(244, 247, 251, 0.12);
   --homepage-field-bg: rgba(10, 12, 18, 0.88);
+  --homepage-footer-bottom-offset: max(28px, calc(14px + env(safe-area-inset-bottom)));
+  --homepage-footer-reserved-space: clamp(166px, 21vh, 230px);
   gap: 10px;
   position: relative;
   isolation: isolate;
@@ -275,7 +277,7 @@
   padding-top: clamp(22px, 4vw, 34px);
   padding-right: clamp(22px, 4vw, 34px);
   padding-left: clamp(22px, 4vw, 34px);
-  padding-bottom: clamp(196px, 25vh, 288px);
+  padding-bottom: var(--homepage-footer-reserved-space);
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -285,7 +287,7 @@
   position: absolute;
   left: 18px;
   right: 18px;
-  bottom: 82px;
+  bottom: var(--homepage-footer-bottom-offset);
   z-index: 2;
 }
 
@@ -925,12 +927,13 @@
 }
 
 @media (max-width: 760px) {
-  .cover-empty-state {
-    min-height: 70vh;
+  .app-shell.is-homepage-empty {
+    --homepage-footer-bottom-offset: max(18px, calc(8px + env(safe-area-inset-bottom)));
+    --homepage-footer-reserved-space: 186px;
   }
 
-  .cover-empty-state-content {
-    padding-bottom: 238px;
+  .cover-empty-state {
+    min-height: 70vh;
   }
 
   .cover-empty-state-title {
@@ -961,12 +964,6 @@
   .cover-empty-state-stat .meta {
     font-size: 10px;
     line-height: 1.45;
-  }
-
-  .cover-empty-state-footer-slot {
-    left: 8px;
-    right: 8px;
-    bottom: 98px;
   }
 
   .composer.is-homepage-empty {

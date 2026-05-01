@@ -1,5 +1,49 @@
 # Handoff Log
 
+## 2026-05-02 00:00 +08:00
+
+### Scope
+
+- lower the homepage footer again using the safe-area usable bottom as the placement reference
+- make the second-row bottom spacing for `模型选择 + 相册 + 拍照` visually closer to the row’s side insets
+- revalidate both the closed and opened homepage footer states with fresh emulator screenshots
+
+### Current High-Signal State
+
+- homepage footer-positioning refinements in this handoff were limited to:
+  - `src/styles/app-editorial-redesign.css`
+- the homepage empty state now:
+  - drives footer placement through homepage-scoped footer offset / reserved-space variables instead of one-off hardcoded values
+  - places the second row noticeably lower than the previous pass while still staying above the safe-area usable bottom
+  - keeps the square/rectangular bottom control language from the prior pass intact
+- screenshot-based validation from `emulator-5554` confirms:
+  - the closed homepage state now has a bottom spacing for the second row that is visually much closer to the left/right insets
+  - the opened model-popover state still remains coherent after the lower footer placement
+- the white Android system-bar background remains visible in emulator screenshots and is still not solved by this pass
+- commit note:
+  - the resulting self-only git commit is created after these status-doc edits
+  - the commit hash is intentionally not written into this same entry to avoid a follow-up amend just to self-reference the commit
+
+### Validation Snapshot
+
+- `npm run lint`
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- assembleDebug`
+- `.codex/skills/chatroomai-android-emulator-test/scripts/prepare-chatroomai.ps1 -ProjectRoot C:\\Users\\Dandwan\\projects\\ChatroomAI`
+- homepage first-look screenshot after the lower-footer pass:
+  - `.tmp-homepage-footer-lower-v1.png`
+- homepage opened model-popover screenshot after the lower-footer pass:
+  - `.tmp-homepage-footer-lower-open-v1.png`
+
+### Open Follow-Up
+
+- if you still want the homepage pushed further, the next homepage-only passes should focus on:
+  - hero typography and line breaks
+  - Android/system-bar background behavior
+  - any remaining optical spacing between the header, stats pills, and hero
+- once homepage parity is accepted, move on to `active-chat`, `drawer`, `settings-home`, and `settings-daily-cover` under the same component/styling system
+
 ## 2026-05-01 22:45 +08:00
 
 ### Scope
