@@ -52,6 +52,8 @@ As of 2026-05-01:
   - `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- assembleDebug`
   - repo-local emulator skill headless launch on `emulator-5554`
   - `prepare-chatroomai.ps1` debug install/start on `emulator-5554`
+  - direct physical-phone reinstall of the current debug build on `c3fec216` through `adb install --no-streaming -r`
+  - app launch on `c3fec216` succeeded; Android reported the intent was delivered to the already running top-most instance
 - homepage first-look screenshots captured after install:
   - `.tmp-emulator-homepage-firstlook-v4.png`
   - `.tmp-emulator-homepage-firstlook-v7.png`
@@ -67,6 +69,10 @@ As of 2026-05-01:
   - the specific earlier issue where the bottom inset still looked obviously larger than the other footer gaps has now been corrected in the latest emulator screenshot pass
   - the footer spacing logic is now structurally simpler: the homepage footer dock owns visible side/bottom spacing, instead of splitting that responsibility between the hero scene and the outer shell
   - the remaining residual difference is now mostly minor pixel-level typography/spacing polish, the unavoidable real-app provider grouping inside the model popover, and the current white system-bar background still visible on emulator screenshots
+  - the latest phone-side package state after reinstall on `c3fec216` is:
+    - `versionName=1.5.0`
+    - `versionCode=1500`
+    - `lastUpdateTime=2026-05-02 03:31:11`
 
 As of 2026-04-30:
 

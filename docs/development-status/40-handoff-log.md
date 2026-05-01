@@ -1,5 +1,41 @@
 # Handoff Log
 
+## 2026-05-02 03:33 +08:00
+
+### Scope
+
+- install the current debug APK onto the connected physical phone over `adb`
+- verify that the currently built app package for the homepage redesign line is present on the device and launches cleanly
+
+### Current High-Signal State
+
+- target physical device:
+  - `c3fec216`
+  - model `23049RAD8C`
+- installed artifact:
+  - `C:\Users\Dandwan\projects\ChatroomAI\android\app\build\outputs\apk\debug\app-debug.apk`
+- install succeeded through the repo’s known-good non-streaming path
+- app launch succeeded; Android reported that the start intent was delivered to the existing top-most instance
+- package state after install:
+  - `versionName=1.5.0`
+  - `versionCode=1500`
+  - `lastUpdateTime=2026-05-02 03:31:11`
+- commit note:
+  - the resulting self-only git commit is created after these status-doc edits
+  - the commit hash is intentionally not written into this same entry to avoid a follow-up amend just to self-reference the commit
+
+### Validation Snapshot
+
+- `C:\Users\Dandwan\scoop\apps\android-clt\14742923\platform-tools\adb.exe devices -l`
+- `C:\Users\Dandwan\scoop\apps\android-clt\14742923\platform-tools\adb.exe -s c3fec216 install --no-streaming -r C:\Users\Dandwan\projects\ChatroomAI\android\app\build\outputs\apk\debug\app-debug.apk`
+- `C:\Users\Dandwan\scoop\apps\android-clt\14742923\platform-tools\adb.exe -s c3fec216 shell am start -n com.dandwan.chatroomai/.MainActivity`
+- `C:\Users\Dandwan\scoop\apps\android-clt\14742923\platform-tools\adb.exe -s c3fec216 shell dumpsys package com.dandwan.chatroomai | rg -n "versionName|versionCode|lastUpdateTime"`
+
+### Open Follow-Up
+
+- if you want the same current debug build sanity-checked on the phone UI itself, the next step is a quick visual/interaction pass on the homepage and composer behavior
+- if you want the current state shared as an installable artifact outside local `adb`, upload or distribute the latest debug or release APK separately
+
 ## 2026-05-02 03:14 +08:00
 
 ### Scope
