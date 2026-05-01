@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react'
 import type { ResolvedDailyCover } from '../services/daily-cover'
 import type { HomepageHighlightStat } from '../services/homepage-highlights'
 
@@ -6,14 +5,12 @@ interface NewConversationShowcaseProps {
   cover: ResolvedDailyCover | null
   highlightStats: HomepageHighlightStat[]
   responseModeLabel: string
-  footerContent?: ReactNode
 }
 
 const NewConversationShowcase = ({
   cover,
   highlightStats,
   responseModeLabel,
-  footerContent,
 }: NewConversationShowcaseProps) => {
   const displayHighlightStats =
     highlightStats.length > 0
@@ -110,7 +107,6 @@ const NewConversationShowcase = ({
         </div>
       </div>
 
-      {footerContent ? <div className="cover-empty-state-footer-slot">{footerContent}</div> : null}
     </section>
   )
 }

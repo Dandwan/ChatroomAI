@@ -14,13 +14,14 @@
   --homepage-field-radius: 4px;
   --homepage-field-border: rgba(244, 247, 251, 0.12);
   --homepage-field-bg: rgba(10, 12, 18, 0.88);
-  --homepage-footer-bottom-offset: var(--homepage-footer-gap);
-  --homepage-footer-reserved-space: 156px;
+  --homepage-footer-safe-bottom: env(safe-area-inset-bottom);
+  --homepage-footer-dock-height: 114px;
+  --homepage-footer-reserved-space: 32px;
   width: 100%;
   max-width: none;
   padding-left: 0;
   padding-right: 0;
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: 0;
   gap: 10px;
   position: relative;
   isolation: isolate;
@@ -178,8 +179,15 @@
 
 .app-shell.is-homepage-empty .message-list {
   gap: 0;
+  min-height: 0;
+  padding-right: 0;
   overflow: visible;
   background: transparent;
+}
+
+.message-list.is-homepage-empty {
+  display: flex;
+  flex-direction: column;
 }
 
 .message-card.assistant {
@@ -273,7 +281,8 @@
 .cover-empty-state {
   position: relative;
   overflow: visible;
-  min-height: min(82vh, 980px);
+  min-height: 100%;
+  flex: 1 1 auto;
   border: none;
   border-radius: 0;
   background: transparent;
@@ -292,14 +301,6 @@
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-}
-
-.cover-empty-state-footer-slot {
-  position: absolute;
-  left: var(--homepage-footer-gap);
-  right: var(--homepage-footer-gap);
-  bottom: var(--homepage-footer-bottom-offset);
-  z-index: 2;
 }
 
 .cover-empty-state-kicker {
@@ -570,6 +571,14 @@
 .composer.is-homepage-empty {
   margin-top: 0;
   padding-inline: 0;
+}
+
+.homepage-footer-dock {
+  position: relative;
+  z-index: 2;
+  min-height: calc(var(--homepage-footer-dock-height) + var(--homepage-footer-safe-bottom));
+  padding-inline: var(--homepage-footer-gap);
+  padding-bottom: calc(var(--homepage-footer-safe-bottom) + var(--homepage-footer-gap));
 }
 
 .composer.is-homepage-empty .composer-panel {
@@ -941,8 +950,8 @@
   .app-shell.is-homepage-empty {
     --homepage-header-inline-inset: 20px;
     --homepage-footer-gap: 8px;
-    --homepage-footer-bottom-offset: var(--homepage-footer-gap);
-    --homepage-footer-reserved-space: 164px;
+    --homepage-footer-dock-height: 114px;
+    --homepage-footer-reserved-space: 24px;
   }
 
   .cover-empty-state {

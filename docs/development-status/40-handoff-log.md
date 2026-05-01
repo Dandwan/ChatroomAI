@@ -1,5 +1,49 @@
 # Handoff Log
 
+## 2026-05-02 03:14 +08:00
+
+### Scope
+
+- replace the homepage hero-internal footer slot with an app-shell-level footer dock so footer spacing and safe-area behavior are owned by one layout layer
+- remove the multi-layer bottom-spacing accumulation that kept defeating the earlier “equal gap” attempts
+- revalidate both the closed and opened homepage states with fresh emulator screenshots after the dock refactor
+
+### Current High-Signal State
+
+- the structural footer-dock refactor in this handoff touched:
+  - `src/App.tsx`
+  - `src/styles/app-editorial-redesign.css`
+- the homepage empty state now:
+  - renders the homepage composer through a dedicated `homepage-footer-dock` sibling of the message list instead of inside `NewConversationShowcase`
+  - uses the homepage dock itself as the single owner of horizontal inset, bottom inset, and safe-area padding
+  - keeps the homepage hero focused on content layout instead of mixing content layout and footer positioning responsibilities
+- screenshot-based validation from `emulator-5554` confirms:
+  - the homepage closed state no longer shows the previous obviously oversized bottom gap caused by layered footer positioning
+  - the homepage opened model-popover state still remains coherent after the footer dock refactor
+- the white Android system-bar background remains visible in emulator screenshots and is still not solved by this pass
+- commit note:
+  - the resulting self-only git commit is created after these status-doc edits
+  - the commit hash is intentionally not written into this same entry to avoid a follow-up amend just to self-reference the commit
+
+### Validation Snapshot
+
+- `npm run lint`
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- assembleDebug`
+- `.codex/skills/chatroomai-android-emulator-test/scripts/prepare-chatroomai.ps1 -ProjectRoot C:\\Users\\Dandwan\\projects\\ChatroomAI`
+- homepage first-look screenshot after the footer dock refactor:
+  - `.tmp-homepage-footer-dock-v1.png`
+- homepage opened model-popover screenshot after the footer dock refactor:
+  - `.tmp-homepage-footer-dock-open-v1.png`
+
+### Open Follow-Up
+
+- if more homepage refinement is desired after this dock refactor, the next homepage-only work should focus on:
+  - optical spacing polish rather than further footer responsibility changes
+  - hero typography and line breaks
+  - Android/system-bar background behavior
+
 ## 2026-05-02 02:04 +08:00
 
 ### Scope
