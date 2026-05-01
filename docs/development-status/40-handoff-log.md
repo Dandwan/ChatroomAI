@@ -1,5 +1,44 @@
 # Handoff Log
 
+## 2026-05-02 02:04 +08:00
+
+### Scope
+
+- correct the last homepage-footer normalization pass after visual inspection showed the bottom inset still looked larger than the other footer gaps
+- reduce only the homepage footer bottom offset and homepage-empty shell bottom padding, leaving the side inset and inter-control gap values intact
+- revalidate the closed homepage state again with a fresh emulator screenshot
+
+### Current High-Signal State
+
+- this correction pass was intentionally minimal and limited to:
+  - `src/styles/app-editorial-redesign.css`
+- the homepage empty state now:
+  - keeps the shared `--homepage-footer-gap` spacing rule for side inset and inter-control gaps
+  - reduces the extra footer-bottom accumulation that had still been making the visible bottom inset look larger than the other footer gaps
+- screenshot-based validation from `emulator-5554` confirms:
+  - the previous obvious “bottom gap larger than everything else” issue is no longer the dominant footer mismatch in the latest closed-state screenshot
+- the white Android system-bar background remains visible in emulator screenshots and is still not solved by this pass
+- commit note:
+  - the resulting self-only git commit is created after these status-doc edits
+  - the commit hash is intentionally not written into this same entry to avoid a follow-up amend just to self-reference the commit
+
+### Validation Snapshot
+
+- `npm run lint`
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- assembleDebug`
+- `.codex/skills/chatroomai-android-emulator-test/scripts/prepare-chatroomai.ps1 -ProjectRoot C:\\Users\\Dandwan\\projects\\ChatroomAI`
+- homepage first-look screenshot after the bottom-inset correction:
+  - `.tmp-homepage-footer-bottomfix-v1.png`
+
+### Open Follow-Up
+
+- if you still want more homepage tightening after this correction, the remaining work is no longer basic footer-gap normalization; it is:
+  - optical spacing polish
+  - hero typography and line breaks
+  - Android/system-bar background behavior
+
 ## 2026-05-02 00:46 +08:00
 
 ### Scope
