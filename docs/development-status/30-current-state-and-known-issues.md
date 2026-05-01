@@ -20,11 +20,11 @@ As of 2026-05-01:
 
 - the homepage-only implementation pass for the approved product-page redesign now exists in real app code:
   - the empty new-conversation homepage keeps the editorial daily-cover hero
-  - the header title now reads as `动话 · 新对话` on the homepage empty state
-  - homepage summary pills are visible above the hero in the same editorial language as the approved prototype
+  - the homepage header now uses a dedicated compact `动话 · 新对话` title line closer to the approved prototype instead of the old larger generic title treatment
+  - homepage summary pills now use the approved shortened wording: `轮次`, `输入`, `输出`, `总计`
   - the separate homepage mode strip was removed
-  - the homepage composer model trigger now renders as `当前模型 · 技能模式/文本模式`
-  - the homepage model popover now includes response-mode switching at the bottom, while non-homepage pages keep the shared existing composer behavior
+  - the homepage composer model trigger keeps showing the selected model id plus the current mode, while the homepage model popover keeps response-mode switching at the bottom
+  - the homepage model popover styling was revalidated on-device in the open state, while non-homepage pages still keep the shared existing composer behavior
   - the homepage composer and model row are now rendered through a dedicated homepage footer slot inside the scene, rather than by globally overlaying the shared footer with large negative margins
   - the homepage daily-cover image is now elevated to a real scene-level background layer for the empty homepage state instead of remaining a large rounded card background
 - local self-hosted free commercial fonts are now wired into the real app homepage styling:
@@ -44,7 +44,7 @@ As of 2026-05-01:
   - `npm run lint`
   - `npm run build`
   - `node scripts/cap-sync-android.mjs`
-  - `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- clean assembleDebug`
+  - `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- assembleDebug`
   - repo-local emulator skill headless launch on `emulator-5554`
   - `prepare-chatroomai.ps1` debug install/start on `emulator-5554`
 - homepage first-look screenshots captured after install:
@@ -54,8 +54,9 @@ As of 2026-05-01:
   - `.tmp-emulator-homepage-firstlook-v12.png`
 - current known homepage visual state:
   - the homepage first-look is now much closer to `docs/prototypes/actichat-product-pages/new-conversation.html`
+  - the homepage open-state model popover also now reads much closer to the approved prototype on `emulator-5554`
   - the previous structural mismatch where the image looked like a rounded content card instead of a real background layer has been removed
-  - the remaining residual difference is now mostly pixel-level typography/spacing polish, not homepage scene structure
+  - the remaining residual difference is now mostly minor pixel-level typography/spacing polish plus the unavoidable real-app provider grouping inside the model popover, not homepage scene structure
 
 As of 2026-04-30:
 

@@ -1,5 +1,51 @@
 # Handoff Log
 
+## 2026-05-01 21:21 +08:00
+
+### Scope
+
+- tighten the real homepage empty-state so it matches `docs/prototypes/actichat-product-pages/new-conversation.html` more closely without turning it into a separate page scene
+- shorten the homepage top summary pills to `轮次 / 输入 / 输出 / 总计`
+- validate both the homepage first-look and the homepage model-popover open state on the Android emulator
+
+### Current High-Signal State
+
+- homepage-specific implementation was refined in:
+  - `src/App.tsx`
+  - `src/components/NewConversationShowcase.tsx`
+  - `src/styles/app-editorial-redesign.css`
+- the homepage empty state now:
+  - uses a dedicated compact header title line instead of the earlier larger generic serif title treatment
+  - keeps the real daily-cover scene but tightens hero type scale, byline contrast, meta spacing, stat-card density, and footer control sizing
+  - shows the shortened top summary-pill wording `轮次 / 输入 / 输出 / 总计`
+  - keeps real app behavior for daily-cover data, homepage stats, selected model, and conversation-owned response-mode locking
+  - keeps provider grouping in the homepage model popover while preserving the homepage-only response-mode footer at the bottom
+- emulator-side visual checks now confirm both:
+  - the cold-start homepage first-look is close to the approved prototype
+  - the opened homepage model popover remains coherent after the density/style tightening
+- commit note:
+  - the resulting self-only git commit is created after these status-doc edits
+  - the commit hash is intentionally not written into this same entry to avoid a follow-up amend just to self-reference the commit
+
+### Validation Snapshot
+
+- `npm run lint`
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- assembleDebug`
+- `.codex/skills/chatroomai-android-emulator-test/scripts/launch-emulator.ps1 -Mode headless`
+- `.codex/skills/chatroomai-android-emulator-test/scripts/prepare-chatroomai.ps1 -ProjectRoot C:\\Users\\Dandwan\\projects\\ChatroomAI`
+- `adb -s emulator-5554 shell screencap -p ...` plus local screenshot inspection for the homepage first-look
+- `adb -s emulator-5554 shell input tap 410 2185` plus `adb -s emulator-5554 shell screencap -p ...` for homepage model-popover open-state inspection
+
+### Open Follow-Up
+
+- if stricter pixel-level parity is still desired on the homepage, continue refining only:
+  - the hero title line breaks and type scale
+  - the header title line size and spacing
+  - the homepage model-popover provider-group presentation
+- once homepage parity is accepted, move to `active-chat`, `drawer`, `settings-home`, and `settings-daily-cover` under the same component/styling system
+
 ## 2026-05-01 08:28 +08:00
 
 ### Scope
