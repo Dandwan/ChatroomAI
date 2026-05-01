@@ -1,5 +1,605 @@
 # Handoff Log
 
+## 2026-05-01 08:28 +08:00
+
+### Scope
+
+- land the approved homepage-only redesign into the real app without changing active-chat, drawer, or settings flows
+- move homepage response-mode switching into the bottom of the model popover and remove the old standalone homepage mode strip
+- restore the local dependency/build environment and validate the homepage first-look on the Android emulator
+
+### Current High-Signal State
+
+- homepage-related app code now reflects the prototype structure more closely:
+  - `src/components/NewConversationShowcase.tsx`
+  - `src/styles/app-editorial-redesign.css`
+  - `src/App.tsx`
+  - `src/index.css`
+  - `src/assets/fonts/*`
+- the homepage empty state now:
+  - shows `动话 · 新对话` in the header
+  - keeps the editorial cover hero, byline, and 3 homepage stats
+  - removes the separate homepage mode strip
+  - renders the model trigger as `当前模型 · 技能模式/文本模式`
+  - places homepage response-mode switching at the bottom of the model popover only for the empty homepage state
+  - keeps non-homepage composer behavior on other pages unchanged
+- local free commercial font subsets are now self-hosted in the real app for homepage styling:
+  - `Noto Serif SC`
+  - `Noto Sans SC`
+  - `Newsreader Italic`
+  - `Manrope`
+- the Windows workspace environment also needed repair during this handoff:
+  - `node_modules/` had disappeared and was restored with `npm install`
+  - the Gradle wrapper distribution had to be downloaded manually into `.gradle-local-v120/wrapper/dists/gradle-8.14.3-all/...`
+  - a stale/generated `android/capacitor-cordova-android-plugins/` directory had to be removed and regenerated
+  - Android debug assembly recovered after a `clean assembleDebug`
+
+### Validation Snapshot
+
+- `npm install`
+- `npm run lint`
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- clean assembleDebug`
+- repo-local emulator skill launch:
+  - `.codex/skills/chatroomai-android-emulator-test/scripts/launch-emulator.ps1 -Mode headless`
+- emulator install/start:
+  - `.codex/skills/chatroomai-android-emulator-test/scripts/prepare-chatroomai.ps1 -ProjectRoot C:\\Users\\Dandwan\\projects\\ChatroomAI`
+- homepage first-look screenshots captured from `emulator-5554`:
+  - `.tmp-emulator-homepage-firstlook-v1.png`
+  - `.tmp-emulator-homepage-firstlook-v4.png`
+  - `.tmp-emulator-homepage-firstlook-v7.png`
+  - `.tmp-emulator-homepage-firstlook-v10.png`
+- later in the same handoff, the homepage layout was tightened again so the composer no longer relies on a large global negative-margin overlay:
+  - the homepage composer is now injected into `NewConversationShowcase` through a footer slot
+  - the cover content reserves an explicit footer safe area
+  - the homepage first-look now keeps both the input row and the model row visible on the emulator first screen
+- the final structural correction in this handoff moved the homepage image out of the rounded hero card model:
+  - a scene-level `homepage-empty-background` layer now lives at the app-shell level for the empty homepage state
+  - `NewConversationShowcase` no longer owns the actual background image bitmap
+  - the latest first-look proof for that change is `.tmp-emulator-homepage-firstlook-v12.png`
+
+### Open Follow-Up
+
+- if the user wants stricter pixel-level parity with the prototype, continue refining only the homepage:
+  - homepage stat-card density
+  - exact type-size/leading parity in the hero block
+  - minor lower-cover spacing polish
+- once homepage visual parity is accepted, only then extend the same visual system to active-chat, drawer, and settings
+- if future Android rebuilds on this machine fail again before task execution begins, first check:
+  - whether `node_modules/` disappeared again
+  - whether `.gradle-local-v120/wrapper/dists/gradle-8.14.3-all/...` still contains the full zip
+  - whether `android/capacitor-cordova-android-plugins/` needs regeneration through `cap sync`
+
+## 2026-04-30 20:53 +08:00
+
+### Scope
+
+- deploy the current per-conversation response-mode build onto the physical phone over `adb`
+- rebuild the Android debug artifact from the latest synced web assets on this Linux machine
+
+### Current High-Signal State
+
+- target physical device:
+  - `c3fec216`
+  - model `23049RAD8C`
+  - Android `15`
+- latest web assets were synced into `android/app/src/main/assets/public`
+- the current debug artifact was rebuilt as:
+  - `android/app/build/outputs/apk/debug/app-debug.apk`
+  - timestamp `2026-04-30 20:47:37 +08:00`
+- install succeeded through the repo’s known-good non-streaming adb path
+- app launch succeeded through explicit activity start
+- installed package state now shows:
+  - `versionName=1.5.0`
+  - `versionCode=1500`
+  - `lastUpdateTime=2026-04-30 20:48:52`
+
+### Validation Snapshot
+
+- `adb devices -l`
+- `node node_modules/@capacitor/cli/bin/capacitor sync android`
+- Linux-side Gradle workaround:
+  - `tr -d '\r' < android/gradlew > android/.gradlew-unix`
+  - `chmod +x android/.gradlew-unix`
+  - `cd android && ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk JAVA_HOME=/opt/android-studio/jbr GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 ./.gradlew-unix assembleDebug`
+- `adb -s c3fec216 install --no-streaming -r android/app/build/outputs/apk/debug/app-debug.apk`
+- `adb -s c3fec216 shell am start -n com.dandwan.chatroomai/.MainActivity`
+- `adb -s c3fec216 shell dumpsys package com.dandwan.chatroomai | rg -n "versionName|versionCode|firstInstallTime|lastUpdateTime"`
+
+### Open Follow-Up
+
+- if Linux-side Android builds are expected to remain routine, normalize `android/gradlew` line endings or regenerate the wrapper so the temp stripped wrapper is no longer needed
+- if the optional Rolldown native binding goes missing again after dependency reinstall, re-add the platform package before running Vite production builds
+- do one quick on-device sanity pass for the new per-conversation mode locking behavior now that the updated debug build is installed
+
+## 2026-04-30 19:22 +08:00
+
+### Scope
+
+- make text mode vs skill mode independent per conversation
+- lock each conversation’s selected mode after the first user message instead of using one global mode flag
+- preserve the mode across transcript/storage reloads and replay paths
+
+### Current High-Signal State
+
+- `src/App.tsx` no longer routes normal chat execution from a global `skillModeEnabled` switch
+- conversation mode now lives on each conversation record and is read through helper functions instead of ad hoc booleans
+- empty conversations can still switch modes from the homepage model popover
+- once a conversation has its first `user_message`, later send / append / regenerate paths all keep using that conversation’s locked mode
+- transcript/storage layers now expose and persist conversation response-mode metadata:
+  - `src/services/chat-transcript/types.ts`
+  - `src/services/chat-transcript/projection.ts`
+  - `src/services/chat-storage/types.ts`
+  - `src/services/chat-storage/repository.ts`
+- older stored conversations without explicit mode metadata now backfill from transcript evidence where possible and otherwise fall back from app defaults when the conversation has already started
+
+### Validation Snapshot
+
+- `node node_modules/eslint/bin/eslint.js .`
+- `node node_modules/typescript/bin/tsc -b`
+- `node node_modules/vite/bin/vite.js build --configLoader native`
+- environment workaround used on this Linux machine:
+  - `npm run lint` and `npm run build` currently fail before code execution because `node_modules/.bin/eslint` and `node_modules/.bin/tsc` lack execute permission
+  - `vite build` also needed a local optional dependency repair:
+    - `npm install --no-save @rolldown/binding-linux-x64-gnu`
+
+### Open Follow-Up
+
+- decide whether empty pre-first-message conversations with a manually switched mode should remain hidden as placeholder conversations or become visible in the history list
+- if future UX work revisits the homepage mode chooser, keep the locking rule tied to first `user_message` creation rather than UI clicks
+- if the repo should rely on `npm run lint` / `npm run build` in this environment, repair the executable bits or reinstall `node_modules` so the wrapper commands work again
+
+## 2026-04-29 23:28 +08:00
+
+### Scope
+
+- install the newest debug APK containing the per-skill failure-isolation change onto the physical phone
+- record the phone-side validation after the device reappeared in `adb`
+
+### Current High-Signal State
+
+- target physical device:
+  - `c3fec216`
+- installed artifact:
+  - `android/app/build/outputs/apk/debug/app-debug.apk`
+- the install succeeded with the repo’s known-good non-streaming path
+- app launch succeeded; Android reported that the existing task was brought to the front
+
+### Validation Snapshot
+
+- `C:\Users\Dandwan\scoop\apps\android-clt\14742923\platform-tools\adb.exe devices -l`
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- assembleDebug`
+- `C:\Users\Dandwan\scoop\apps\android-clt\14742923\platform-tools\adb.exe -s c3fec216 install --no-streaming -r C:\Users\Dandwan\projects\ChatroomAI\android\app\build\outputs\apk\debug\app-debug.apk`
+- `C:\Users\Dandwan\scoop\apps\android-clt\14742923\platform-tools\adb.exe -s c3fec216 shell am start -n com.dandwan.chatroomai/.MainActivity`
+
+### Open Follow-Up
+
+- validate on the physical phone that one broken skill now only disables itself instead of wiping the whole skill list:
+  - `device-info` should still load
+  - the broken skill should show its own error message and disabled controls
+
+## 2026-04-29 22:55 +08:00
+
+### Scope
+
+- isolate builtin skill load failures so one broken skill does not hide the rest of the skill catalog
+- surface per-skill load errors in the settings UI instead of failing the whole skill list
+- restore stable Android debug builds after the latest packaging changes
+
+### Current High-Signal State
+
+- `src/services/skills/host.ts` now catches builtin materialization failures per skill, records the error by skill id, and still returns the rest of the skill catalog
+- `SkillRecord` now carries `loadError`
+- the settings skill list in `src/App.tsx` now:
+  - shows a `加载失败` badge for failed skills
+  - renders the specific error under the description
+  - disables the enable toggle and config button for the failed skill
+- `src/styles/app-overlay-panels.css` now includes disabled/error styling for skill cards and toggle rows
+- the invalid placeholder files
+  - `android/capacitor-cordova-android-plugins/src/main/res/.gitkeep`
+  - `android/capacitor-cordova-android-plugins/src/main/java/.gitkeep`
+  were removed so Android debug builds can complete reliably again
+
+### Validation Snapshot
+
+- `npm run lint` passed
+- `npm run build` passed
+- `node scripts/cap-sync-android.mjs` passed
+- `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- assembleDebug` passed
+- the current debug artifact exists at:
+  - `android/app/build/outputs/apk/debug/app-debug.apk`
+- physical-phone reinstall for this exact change set did not complete in this handoff because:
+  - `adb devices -l` no longer showed `c3fec216`
+
+### Open Follow-Up
+
+- reconnect phone `c3fec216` and install the freshly built debug APK to validate the per-skill failure-isolation behavior on the physical device
+- after reinstall, verify the expected user-visible behavior:
+  - `device-info` still appears normally
+  - the broken skill shows its own error only
+  - failed skill toggle/config controls are disabled
+
+## 2026-04-29 22:27 +08:00
+
+### Scope
+
+- install the latest fixed release APK onto the connected physical phone
+- record the concrete device/install validation in repo-tracked status docs
+
+### Current High-Signal State
+
+- target physical device:
+  - `c3fec216`
+- installed artifact:
+  - `C:\Users\Dandwan\projects\ChatroomAI\ActiChat-v1.5.0-android-release-20260429-174609.apk`
+- install succeeded with the repo's known-good non-streaming path
+- app launch succeeded; Android brought the existing `com.dandwan.chatroomai` task to the front
+
+### Validation Snapshot
+
+- `C:\Users\Dandwan\scoop\apps\android-clt\14742923\platform-tools\adb.exe devices -l`
+- `C:\Users\Dandwan\scoop\apps\android-clt\14742923\platform-tools\adb.exe -s c3fec216 install --no-streaming -r C:\Users\Dandwan\projects\ChatroomAI\ActiChat-v1.5.0-android-release-20260429-174609.apk`
+- `C:\Users\Dandwan\scoop\apps\android-clt\14742923\platform-tools\adb.exe -s c3fec216 shell am start -n com.dandwan.chatroomai/.MainActivity`
+
+### Open Follow-Up
+
+- if the user wants the same fixed release package installed onto additional physical devices, repeat the same non-streaming install path per serial instead of relying on plain streamed installs
+
+## 2026-04-29 21:49 +08:00
+
+### Scope
+
+- begin landing the approved front-end redesign into the real app codebase
+- add a reusable daily-cover system, homepage highlight selection logic, and first-pass UI restyles
+- validate the changes through web builds plus Android emulator install/start and screenshot checks
+
+### Current High-Signal State
+
+- new reusable front-end modules added:
+  - `src/services/daily-cover.ts`
+  - `src/services/homepage-highlights.ts`
+  - `src/components/NewConversationShowcase.tsx`
+  - `src/styles/app-editorial-redesign.css`
+- `App.tsx` now:
+  - persists nested `dailyCover` settings
+  - resolves bundled / API-backed daily covers with fallback
+  - computes homepage highlight stats with priority ordering
+  - renders the new editorial empty-state cover component
+  - exposes a new settings view for daily-cover configuration
+  - shows a daily-cover summary banner in active chat when enabled
+- the first-pass restyle also lightens assistant message presentation and restyles drawer/settings surfaces without removing existing features
+
+### Validation Snapshot
+
+- `npm run lint` passed
+- `npm run build` passed multiple times after the redesign slice landed
+- `node scripts/cap-sync-android.mjs` passed
+- `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- assembleDebug` passed
+- `launch-emulator.ps1 -Mode headless` succeeded
+- `attach-running-emulator.ps1 -Port 5554` succeeded
+- `prepare-chatroomai.ps1 -ProjectRoot C:\\Users\\Dandwan\\projects\\ChatroomAI` installed and started the debug app on `emulator-5554`
+- emulator screenshots confirmed:
+  - the new-conversation daily-cover hero renders in the real app
+  - homepage stats now appear on-device after the mobile-density adjustments
+
+### Open Follow-Up
+
+- continue polishing the remaining app states under the same redesign system, especially active-chat reading flow and settings depth pages
+- decide whether the empty-state mode toggle should stay visually separate or be integrated more tightly into the homepage composition
+- investigate the intermittent duplicate-asset Android merge failure after repeated sync/build cycles involving `public/builtin-skills/union-search/...`; `clean` resolved the latest repro but the root cause still needs confirmation
+
+## 2026-04-29 17:43 +08:00
+
+### Scope
+
+- fix the page-prototype image-loading bug outside the new-conversation page
+- refine the new-conversation homepage prototype typography and summary stats based on user feedback
+- keep the redesign work prototype-only without touching production `src/` code
+
+### Current High-Signal State
+
+- prototype bug fixed in:
+  - `docs/prototypes/actichat-product-pages/script.js`
+- missing prototype script include fixed in:
+  - `docs/prototypes/actichat-product-pages/settings-home.html`
+- homepage prototype refined in:
+  - `docs/prototypes/actichat-product-pages/new-conversation.html`
+  - `docs/prototypes/actichat-product-pages/styles.css`
+- the new-conversation page now:
+  - uses a title rhythm closer to the approved editorial reference
+  - reintroduces key legacy summary data in a more restrained form
+  - explicitly states that the redesign inherits old-version functionality instead of dropping it
+- active chat, settings home, and daily-cover settings now correctly show their injected cover imagery
+- no production app files under `src/` were changed in this handoff
+
+### Validation Snapshot
+
+- Microsoft Edge headless re-render succeeded for:
+  - `new-conversation.html`
+  - `active-chat.html`
+  - `settings-home.html`
+- verification screenshots produced:
+  - `.tmp-page-new-conversation-v2.png`
+  - `.tmp-page-active-chat-fixed.png`
+  - `.tmp-page-settings-home-fixed.png`
+
+### Open Follow-Up
+
+- confirm whether the revised mixed-language homepage title is the right direction, or whether the user wants a fully Chinese title with the same editorial pacing
+- decide whether the homepage summary stats should stay at three items, or be reduced further to only one or two highest-value metrics
+- if approved, continue refining the remaining pages under the same “inherits all old functionality” constraint
+
+## 2026-04-29 17:17 +08:00
+
+### Scope
+
+- build a fresh release APK from the current worktree
+- upload that release package to the user's File Browser server root
+
+### Current High-Signal State
+
+- local source artifact:
+  - `android/app/build/outputs/apk/release/app-release.apk`
+- copied local upload artifact:
+  - `ActiChat-v1.5.0-android-release-20260429-171520.apk`
+- remote destination:
+  - `/ActiChat-v1.5.0-android-release-20260429-171520.apk`
+- remote root listing and remote stat both confirm the uploaded file exists with size `210734086` bytes
+
+### Validation Snapshot
+
+- `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- assembleRelease`
+- `python ...filebrowser_ops.py upload C:\\Users\\Dandwan\\projects\\ChatroomAI\\ActiChat-v1.5.0-android-release-20260429-171520.apk /ActiChat-v1.5.0-android-release-20260429-171520.apk`
+- `python ...filebrowser_ops.py list / --json`
+- `python ...filebrowser_ops.py stat /ActiChat-v1.5.0-android-release-20260429-171520.apk`
+
+### Open Follow-Up
+
+- if you also want the latest debug APK re-uploaded alongside this release build, upload it under a separate timestamped filename instead of overwriting older debug artifacts
+
+## 2026-04-29 17:06 +08:00
+
+### Scope
+
+- expand the front-end product demo into a page-by-page prototype set for targeted design review
+- keep the approved editorial direction while exposing separate real-product surfaces
+- add a prototype index plus standalone pages for the main app states without touching `src/`
+
+### Current High-Signal State
+
+- new prototype set added under:
+  - `docs/prototypes/actichat-product-pages/`
+- the page set currently includes:
+  - `index.html`
+  - `new-conversation.html`
+  - `active-chat.html`
+  - `drawer.html`
+  - `settings-home.html`
+  - `settings-daily-cover.html`
+  - shared `styles.css`
+  - shared `script.js`
+- these pages now let the user review the redesign as separate product surfaces instead of one combined overview
+- no production app files under `src/` were changed in this handoff
+
+### Validation Snapshot
+
+- Microsoft Edge headless renders succeeded for the page set
+- verification screenshots produced:
+  - `.tmp-pages-index.png`
+  - `.tmp-page-new-conversation.png`
+  - `.tmp-page-active-chat.png`
+  - `.tmp-page-settings-home.png`
+  - `.tmp-page-daily-cover-settings.png`
+
+### Open Follow-Up
+
+- decide which of the five surfaces should be refined next at high fidelity:
+  - new conversation
+  - active chat
+  - drawer
+  - settings home
+  - daily cover settings
+- decide whether follow-up prototypes should go deeper into provider / model / skill-config subpages, or focus first on polishing the main five surfaces
+- if this page set is approved, the next non-code step should be producing tighter v2 page variants before implementation planning
+
+## 2026-04-29 16:55 +08:00
+
+### Scope
+
+- rebuild `union-search` around a canonical Codex-native skill source package
+- make `visit_url` use Defuddle as the owned extraction core
+- remove the old host-coupled `union-search` browser extraction path and clean up the related host assets
+
+### Current High-Signal State
+
+- canonical skill source package now exists at:
+  - `codex-skills/union-search`
+- built-in app copy is now synced from that canonical source package through:
+  - `scripts/sync-union-search-skill.mjs`
+- `visit_url` now works through the skill itself:
+  - direct mode: request-client HTML fetch -> Defuddle extraction
+  - browser mode: local Chrome / Edge `--dump-dom` -> Defuddle extraction
+- the host no longer special-cases `union-search` webpage visits:
+  - `src/services/skills/browser-visit.ts` was removed
+  - `src/services/skills/run-executor.ts` no longer intercepts `union-search` `visit_url` / `fetch_url`
+  - `src/services/skills/native-runtime.ts` no longer exposes `extractWebPage(...)`
+  - `android/app/src/main/assets/browser-page-extractor.js` was removed
+  - `SkillRuntimePlugin.java` no longer carries the old browser extraction implementation
+- built-in skill materialization was upgraded so the large synced `union-search` bundle is no longer inlined as raw strings into the web bundle:
+  - `src/services/skills/host.ts` now keeps only metadata files inline
+  - the rest of the built-in files are imported as emitted asset URLs and fetched during materialization
+  - a builtin signature file now skips repeated rewrites when the materialized snapshot is unchanged
+
+### Validation Snapshot
+
+- `python ...quick_validate.py C:/Users/Dandwan/projects/ChatroomAI/codex-skills/union-search` passed
+- direct `visit_url` smoke:
+  - `node codex-skills/union-search/scripts/run-union-search.cjs visit_url.internal --url https://example.com`
+- browser-mode `visit_url` smoke:
+  - `node codex-skills/union-search/scripts/run-union-search.cjs visit_url.internal --url https://example.com --extract browser`
+- search smoke:
+  - `node codex-skills/union-search/scripts/run-union-search.cjs web_search.internal --query "Example Domain" --site example.com --limit 3 --markdown`
+  - `node codex-skills/union-search/scripts/run-union-search.cjs union_search.internal --query "OpenAI agent runtime" --group preferred --limit 2 --deduplicate --markdown`
+- `npm run lint` passed
+- `npm run build` passed
+- `node scripts/cap-sync-android.mjs` passed
+- Android debug build and emulator install/start smoke passed through:
+  - `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- assembleDebug`
+  - `launch-emulator.ps1 -Mode headless`
+  - `prepare-chatroomai.ps1 -ProjectRoot C:\\Users\\Dandwan\\projects\\ChatroomAI`
+
+### Open Follow-Up
+
+- run one fresh in-app `union-search` smoke through the normal chat loop instead of relying only on direct Node entrypoint checks plus install/start smoke
+- consider whether the remaining `.internal` wrappers should stay as a compatibility layer or be simplified in a later cleanup now that the canonical skill source exists
+
+## 2026-04-29 16:45 +08:00
+
+### Scope
+
+- move from style exploration to a product-mapped front-end demo for the real ActiChat app
+- keep the corrected editorial direction, but apply it to the actual mobile chat shell, drawer, and settings structure
+- add a standalone prototype that demonstrates empty state, chat state, drawer, and settings without touching production code
+
+### Current High-Signal State
+
+- new independent product-mapped prototype added:
+  - `docs/prototypes/actichat-product-demo-v1.html`
+- the new prototype explicitly maps the approved editorial language onto the real product surfaces:
+  - new conversation empty state
+  - active chat state
+  - conversation drawer
+  - settings page with daily-cover configuration
+- the prototype also includes a control dock for switching between those app states locally in the browser
+- no production app files under `src/` were changed in this handoff
+
+### Validation Snapshot
+
+- Microsoft Edge headless render succeeded for:
+  - `file:///C:/Users/Dandwan/projects/ChatroomAI/docs/prototypes/actichat-product-demo-v1.html`
+- product demo screenshot produced:
+  - `.tmp-actichat-product-demo-v1.png`
+
+### Open Follow-Up
+
+- decide whether the real-product redesign should preserve the current summary token pills on the empty state, or reduce them further to keep the cover cleaner
+- decide whether the final production settings page should remain fully in-app and dark, or borrow more of the lighter editorial-sheet treatment shown outside the phone frame in the prototype
+- if this direction is approved, the next best non-code step is to produce one higher-fidelity prototype for each of the four app states separately before implementation
+
+## 2026-04-29 16:22 +08:00
+
+### Scope
+
+- replace the previous redesign visual reference with the user-corrected `demo2-with-skill.html`
+- derive a new editorial / photography-book direction from that corrected reference
+- add a second standalone redesign prototype without touching production `src/` code
+
+### Current High-Signal State
+
+- corrected local reference used for this handoff:
+  - `C:\Users\Dandwan\Downloads\garden-skills\demo\web-design-demo\demo2-with-skill.html`
+- new independent prototype added:
+  - `docs/prototypes/actichat-front-redesign-v2-editorial.html`
+- the new prototype direction is now:
+  - full-viewport daily landscape hero
+  - restrained editorial typography and fixed masthead
+  - bundled landscape pool plus optional daily-image API configuration
+  - settings and schema shown as magazine-style follow-up sections rather than dashboard cards
+- no production app files under `src/` were changed in this handoff
+
+### Validation Snapshot
+
+- local reference screenshot produced:
+  - `.tmp-demo2-with-skill-reference.png`
+- local prototype screenshot produced:
+  - `.tmp-front-redesign-v2-editorial-final.png`
+- Microsoft Edge headless render succeeded for:
+  - `file:///C:/Users/Dandwan/projects/ChatroomAI/docs/prototypes/actichat-front-redesign-v2-editorial.html`
+
+### Open Follow-Up
+
+- decide whether the final product should keep the current full-screen hero on desktop only, or also preserve a shortened hero treatment on mobile
+- decide whether the settings surface should remain editorial and quiet, or become slightly more app-like once moved into the real product shell
+- if this direction is approved, the next step should be a concrete IA / component mapping from this prototype into the existing `App.tsx` responsibilities
+
+## 2026-04-29 15:56 +08:00
+
+### Scope
+
+- refine the front-end redesign requirements without touching the current `src/` application code
+- research a free commercial-use landscape image source plus daily-image API direction
+- add a standalone desktop-viewable HTML prototype under `docs/prototypes/`
+
+### Current High-Signal State
+
+- new independent prototype added:
+  - `docs/prototypes/actichat-front-redesign-v0.html`
+- local prototype landscape assets added:
+  - `docs/prototypes/assets/landscapes/alpine-lake.jpg`
+  - `docs/prototypes/assets/landscapes/mirror-mountain.jpg`
+  - `docs/prototypes/assets/landscapes/crater-lake.jpg`
+  - `docs/prototypes/assets/landscapes/autumn-ridge.jpg`
+- prototype direction now centers on:
+  - a daily-rotating landscape cover on the new-conversation surface
+  - a bundled default landscape pool with custom daily-image API as an optional override
+  - more deliberate point/line editorial detailing instead of the current stacked cute/glass refinement passes
+- no production app files under `src/` were changed in this handoff
+
+### Validation Snapshot
+
+- local asset downloads succeeded for the four prototype landscape images
+- Microsoft Edge headless render succeeded for:
+  - `file:///C:/Users/Dandwan/projects/ChatroomAI/docs/prototypes/actichat-front-redesign-v0.html`
+- render screenshot produced:
+  - `.tmp-front-redesign-v0.png`
+
+### Open Follow-Up
+
+- confirm whether the desired art direction should stay in the current editorial / serene direction or become warmer, darker, or more minimal
+- decide the exact scope of the future settings model:
+  - bundled default pool only plus optional custom API
+  - or first-class presets for providers such as Pexels / Pixabay / Unsplash-compatible endpoints
+- if the prototype direction is approved, the next step should be a code-free IA / component blueprint before touching `src/App.tsx`
+
+## 2026-04-29 15:50 +08:00
+
+### Scope
+
+- document the enforced portability requirement for `union-search`
+- write down the target architecture needed for `union-search` to run as a complete equivalent skill in Codex
+- make the new requirement discoverable from project-level docs
+
+### Current High-Signal State
+
+- added a dedicated project document:
+  - `docs/union-search-skill-requirements.md`
+- top-level project docs now point at that requirement:
+  - `README.md`
+- development-status docs now treat the requirement as binding:
+  - `docs/development-status/10-project-overview.md`
+  - `docs/development-status/30-current-state-and-known-issues.md`
+- the documented requirement is explicit that:
+  - `union-search` must evolve into a Codex-native, host-independent skill
+  - the current built-in browser-mode `visit_url` path is still host-coupled and therefore does not yet satisfy that standard
+
+### Validation Snapshot
+
+- reviewed current `union-search` entrypoints and host coupling points in:
+  - `builtin-skills/union-search/scripts/*`
+  - `src/services/skills/run-executor.ts`
+  - `src/services/skills/browser-visit.ts`
+  - `src/services/skills/native-runtime.ts`
+  - `android/app/src/main/assets/browser-page-extractor.js`
+- verified the new project documentation content through local `git diff`
+
+### Open Follow-Up
+
+- implement the Codex-native `union-search` skill as the canonical source package instead of continuing to treat the ChatroomAI built-in bundle as the source of truth
+- migrate browser-mode page access into the skill itself and retire the host-owned extraction path as a required dependency
+
 ## 2026-04-29 15:07 +08:00
 
 ### Scope

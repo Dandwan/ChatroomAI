@@ -16,6 +16,73 @@ The repository is very dirty.
 
 ## Recently Validated State
 
+As of 2026-05-01:
+
+- the homepage-only implementation pass for the approved product-page redesign now exists in real app code:
+  - the empty new-conversation homepage keeps the editorial daily-cover hero
+  - the header title now reads as `动话 · 新对话` on the homepage empty state
+  - homepage summary pills are visible above the hero in the same editorial language as the approved prototype
+  - the separate homepage mode strip was removed
+  - the homepage composer model trigger now renders as `当前模型 · 技能模式/文本模式`
+  - the homepage model popover now includes response-mode switching at the bottom, while non-homepage pages keep the shared existing composer behavior
+  - the homepage composer and model row are now rendered through a dedicated homepage footer slot inside the scene, rather than by globally overlaying the shared footer with large negative margins
+  - the homepage daily-cover image is now elevated to a real scene-level background layer for the empty homepage state instead of remaining a large rounded card background
+- local self-hosted free commercial fonts are now wired into the real app homepage styling:
+  - `Noto Serif SC`
+  - `Noto Sans SC`
+  - `Newsreader Italic`
+  - `Manrope`
+  - the corresponding subset assets live under `src/assets/fonts/`
+- this Windows machine’s frontend dependency environment was restored:
+  - `node_modules/` had gone missing locally
+  - `npm install` restored the dependency tree and updated the lockfile back into a runnable state
+- Android debug validation for the homepage redesign succeeded on `emulator-5554`, but required a few local-environment recoveries:
+  - the Gradle wrapper distribution had to be downloaded into `.gradle-local-v120/wrapper/dists/...` because wrapper TLS download failed from Java
+  - one stale/generated `android/capacitor-cordova-android-plugins/` directory had to be removed and regenerated through `cap sync`
+  - one `clean assembleDebug` run cleared an intermediate Android resource-linking failure
+- current validation passed through:
+  - `npm run lint`
+  - `npm run build`
+  - `node scripts/cap-sync-android.mjs`
+  - `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- clean assembleDebug`
+  - repo-local emulator skill headless launch on `emulator-5554`
+  - `prepare-chatroomai.ps1` debug install/start on `emulator-5554`
+- homepage first-look screenshots captured after install:
+  - `.tmp-emulator-homepage-firstlook-v4.png`
+  - `.tmp-emulator-homepage-firstlook-v7.png`
+  - `.tmp-emulator-homepage-firstlook-v10.png`
+  - `.tmp-emulator-homepage-firstlook-v12.png`
+- current known homepage visual state:
+  - the homepage first-look is now much closer to `docs/prototypes/actichat-product-pages/new-conversation.html`
+  - the previous structural mismatch where the image looked like a rounded content card instead of a real background layer has been removed
+  - the remaining residual difference is now mostly pixel-level typography/spacing polish, not homepage scene structure
+
+As of 2026-04-30:
+
+- response mode is now conversation-owned instead of global:
+  - each conversation stores its selected text/skill mode in conversation preferences
+  - empty conversations can still switch modes
+  - the first user message locks that conversation to its current mode
+  - append / regenerate / queued turn execution now reuse the conversation’s locked mode instead of a global flag
+- transcript and storage layers now understand per-conversation response mode:
+  - `src/services/chat-transcript/` exports response-mode normalization plus helpers for mutating/inferencing conversation mode
+  - chat-storage schema version is now `3`
+  - stored conversations backfill/infer response mode during load/migration when older records do not carry explicit mode metadata
+- validation passed through direct Node entrypoints on this Linux machine:
+  - `node node_modules/eslint/bin/eslint.js .`
+  - `node node_modules/typescript/bin/tsc -b`
+  - `node node_modules/vite/bin/vite.js build --configLoader native`
+- Android deploy of the current response-mode change now also succeeded on the physical phone:
+  - `node node_modules/@capacitor/cli/bin/capacitor sync android` passed
+  - debug APK rebuild succeeded through a temporary CRLF-stripped Gradle wrapper on this Linux machine
+  - `adb -s c3fec216 install --no-streaming -r android/app/build/outputs/apk/debug/app-debug.apk` succeeded
+  - `adb -s c3fec216 shell am start -n com.dandwan.chatroomai/.MainActivity` succeeded
+  - phone package state reports `versionName=1.5.0`, `versionCode=1500`, `lastUpdateTime=2026-04-30 20:48:52`
+- this machine’s local `npm run lint` / `npm run build` wrappers were blocked by missing execute bits on `node_modules/.bin/{eslint,tsc}`
+- this machine’s `vite build` also initially lacked the optional Rolldown native binding and was unblocked locally with:
+  - `npm install --no-save @rolldown/binding-linux-x64-gnu`
+- this machine’s tracked `android/gradlew` still carries CRLF line endings, so Linux-side Gradle execution needed a temporary `tr -d '\r'` wrapper instead of calling `./gradlew` directly
+
 As of 2026-04-28:
 
 - `npm run lint` passed
@@ -48,12 +115,25 @@ As of 2026-04-29:
 - `npm run build` passed
 - `npm run lint` passed
 - `node scripts/cap-sync-android.mjs` passed
-- debug Android build succeeded with local Gradle home `.gradle-local-v120`
+- debug Android build succeeded with local Gradle home `.gradle-local-v120` through `:app:assembleDebug`
+- the canonical `union-search` skill source package now exists at `codex-skills/union-search/`
+- `builtin-skills/union-search/` is now synced from that canonical source package instead of being hand-edited independently
+- `visit_url` now uses a Defuddle-based extraction path owned by the skill itself
+- `visit_url --extract browser` now works in desktop environments through local Chrome / Edge headless DOM capture without ChatroomAI / ActiChat host-specific extraction code
+- TypeScript host special-casing for `union-search` webpage visits has been removed
+- the old native browser extractor path and `browser-page-extractor.js` asset have been removed from the host codepath
+- built-in skill materialization now uses emitted asset URLs plus a materialization signature to avoid repeatedly rewriting the large synced `union-search` bundle
+- `npm run android:gradle -- assembleDebug` passed with local Gradle home `.gradle-local-v120`
+- `npm run android:gradle -- assembleRelease` passed with local Gradle home `.gradle-local-v120`
 - headless emulator launch plus `prepare-chatroomai.ps1` install/start succeeded on `emulator-5554`
 - phone install via `adb -s c3fec216 install --no-streaming -r android\\app\\build\\outputs\\apk\\debug\\app-debug.apk` succeeded
 - app start on phone `c3fec216` succeeded; if already running, Android simply brought the existing task to front
 - the latest debug APK was uploaded to the user's File Browser cloud root as `/ActiChat-v1.3.0-debug-20260429-105201.apk`
+- a fresh release APK from the current worktree was uploaded to the user's File Browser cloud root as `/ActiChat-v1.5.0-android-release-20260429-171520.apk`
+- a newer fixed release APK from the current worktree was uploaded to the user's File Browser cloud root as `/ActiChat-v1.5.0-android-release-20260429-174609.apk`
 - a signed `v1.5.0` Android release APK was built locally as `ActiChat-v1.5.0-android-release.apk`
+- phone install of the uploaded fixed release APK succeeded on `c3fec216` through `adb install --no-streaming -r`
+- app launch on phone `c3fec216` succeeded; Android reported that the existing task was brought to the front
 - GitHub branch `release-v1.5.0` was pushed
 - GitHub release `ActiChat v1.5.0` was published at `https://github.com/Dandwan/ChatroomAI/releases/tag/v1.5.0`
 - WebView DevTools smoke checks on `emulator-5554` proved native absolute-path support by:
@@ -63,6 +143,37 @@ As of 2026-04-29:
 - a local TS smoke script via temporary `npx --yes tsx` invocation verified:
   - `normalizeSkillAgentProtocolResponse(...)` parses `<edit>` and normalizes payloads back to `location`
   - `applyTextEdits(...)` enforces `expectedText` and returns preview snippets
+- a strict project-level requirement now exists for `union-search`: it must remain a Codex-native, host-independent skill that can run as a complete equivalent skill outside ChatroomAI / ActiChat; see `docs/union-search-skill-requirements.md`
+- a first implementation slice of the approved front-end redesign now exists in real app code:
+  - daily-cover settings model and bundled cover pool are wired into app settings
+  - the new-conversation empty state now uses an editorial full-bleed daily cover treatment
+  - homepage summary stats now use priority-based selection (`词元消耗` / `历史会话` / `工具调用`, then backups)
+  - assistant replies are now rendered in a lighter prose-first style instead of a heavy boxed card treatment
+  - settings and drawer surfaces now have a first-pass editorial restyle through a dedicated CSS overlay
+- Android UI validation for that redesign slice succeeded on `emulator-5554` after debug rebuild/reinstall
+- builtin skill loading is now isolated per skill:
+  - a builtin skill materialization failure no longer causes `listSkills()` to fail as a whole
+  - failed builtin skills now come back as disabled records with a `loadError`
+  - the settings UI now marks those skills as failed, shows the error in the description area, and disables their enable/config controls
+- `npm run build` passed after the per-skill failure-isolation change
+- `npm run android:gradle -- assembleDebug` passed after removing invalid `.gitkeep` placeholders from `android/capacitor-cordova-android-plugins/src/main/{java,res}/`
+- the latest physical-phone reinstall for this failure-isolation change succeeded:
+  - `adb -s c3fec216 install --no-streaming -r android\\app\\build\\outputs\\apk\\debug\\app-debug.apk`
+  - app launch succeeded; Android brought the existing task to the front
+
+## Union Search Current State
+
+- `union-search` now satisfies the core portability direction at the skill-package level:
+  - it has a canonical Codex-native source package
+  - the skill itself owns webpage extraction
+  - the host no longer carries `union-search`-specific browser-extraction logic
+- Android verification is now partially unblocked:
+  - a fresh debug build was assembled successfully
+  - the resulting debug APK installed and started on `emulator-5554`
+  - a full in-app `union-search` conversation smoke has still not been replayed end-to-end through the normal chat loop
+- browser mode is now desktop-skill-driven rather than host-driven:
+  - browser mode depends on a local Chrome / Edge executable when requested
+  - built-in app defaults intentionally prefer `html` mode so the synced skill remains usable on the current packaged Node runtime path
 
 ## Android Install Quirk
 
@@ -154,6 +265,17 @@ Verification after the fix:
 
 ## Remaining Follow-Up Work
 
+- continue the front-end redesign beyond the first shipped slice:
+  - refine the new-conversation hero typography and density further if needed
+  - verify and polish active-chat, settings, and drawer states on-device
+  - decide whether the homepage mode toggle should stay as a separate strip or be integrated more tightly into the cover surface
+- if homepage visual parity with the prototype must become pixel-tight rather than “same first-look structure,” continue adjusting only:
+  - lower hero/composer overlap spacing
+  - homepage stat-card density
+  - model-row vertical placement inside the cover
+- if future product requirements add more per-conversation runtime behavior, extend conversation preferences in transcript/storage instead of reintroducing global mode flags
+- investigate why repeated Android debug rebuilds after `cap sync` can intermittently hit duplicate asset merge errors under `public/builtin-skills/union-search/...`; a `clean` followed by `assembleDebug` cleared the latest occurrence
+
 - Replay the phone UI flow end-to-end in the active old-page conversation after the latest Node-path fix, instead of relying only on direct native/WebView invocation.
 - run one full in-app skill-agent conversation that naturally emits `<read location="...">` and `<edit location="...">`, so the parser/executor/native bridge path is validated as one continuous loop instead of split smoke tests
 - if desired, install the latest debug APK again on the physical phone after the prompt-field split so the on-device settings UI exactly matches the latest build
@@ -162,4 +284,4 @@ Verification after the fix:
 - Add or source an x86_64-compatible Node runtime if x86_64 emulator testing must execute `union-search` for real, not merely validate prompt/action selection.
 - Investigate why `ChatroomAI_API_35_ARM64` failed to attach to `adb` on this machine during the latest headless and manual launch attempts.
 - If future requirements demand actual Zhihu正文 extraction instead of graceful degraded output, that will require a stronger browser/session strategy than static headers alone.
-- Revisit emulator-side browser-mode extraction verification; recent hidden-WebView extraction wiring compiles, but the latest direct emulator checks did not yet produce a clean successful assertion payload.
+- Run one fresh emulator or phone-side verification against the newly synced `union-search` built-in skill through the normal chat loop, not only through direct desktop Node entrypoints and install/start smoke.

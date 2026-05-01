@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ActiChat · Active Chat</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Noto+Serif+SC:wght@300;400;500&family=Space+Grotesk:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="sheet-head">
+        <div>
+          <span class="eyebrow"><span class="num">02</span><span class="bar"></span><span>Active Chat</span></span>
+          <h1 class="sheet-title">对话中的消息流</h1>
+          <p class="sheet-copy">
+            进入消息流后，封面必须降级。它可以留在顶部做一张安静的摘要卡，但不应该继续统治整个界面。这里的第一优先级是可读性。
+          </p>
+        </div>
+        <nav class="sheet-links">
+          <a class="sheet-link" href="./new-conversation.html">Prev</a>
+          <a class="sheet-link is-active" href="./active-chat.html">Active Chat</a>
+          <a class="sheet-link" href="./drawer.html">Next</a>
+        </nav>
+      </header>
+
+      <section class="artboard">
+        <div class="device">
+          <div class="screen">
+            <div class="statusbar">
+              <span>08:16</span>
+              <div class="statusbar__icons"><span>5G</span><span>WiFi</span><span class="battery">100</span></div>
+            </div>
+            <div class="app-header">
+              <div class="header-pill">
+                <span class="menu-icon"><span></span><span></span><span></span></span>
+                <div class="title-line">动话 · <em>讲讲微积分</em></div>
+                <span style="opacity:.58;">✎</span>
+              </div>
+              <div class="stats-row">
+                <span>轮次 6</span>
+                <span>输入 812</span>
+                <span>输出 356</span>
+                <span>总计 1168</span>
+              </div>
+            </div>
+
+            <div class="screen-body">
+              <div class="message-stack">
+                <div class="chat-cover-banner">
+                  <img data-cover-image alt="会话封面摘要" />
+                  <div class="copy">
+                    <div class="small">Today's cover · bundled fallback</div>
+                    <h4 data-cover-title></h4>
+                    <p>封面在进入消息流后退化成低存在感摘要卡，而不是继续主导整个聊天页。</p>
+                  </div>
+                </div>
+
+                <div class="message user">
+                  <div class="message-head">You</div>
+                  <div class="bubble">我想让首页空白态先有一张每天变化的风景图，但进入对话后不要太喧宾夺主。</div>
+                </div>
+
+                <div class="message assistant">
+                  <div class="assistant-panel">
+                    <div class="assistant-title"><span>Assistant</span><span>·</span><strong>gpt-5.4</strong></div>
+                    <div class="assistant-copy">
+                      可以。最合理的做法是把风景封面限定在“冷启动新对话空白态”，进入消息流后只保留一张缩减版封面摘要卡。
+                    </div>
+                    <div class="skill-card">
+                      <div class="top"><span>Skill step</span><span>Completed</span></div>
+                      <div class="body">读取封面设置，命中本地默认图池；若自定义每日一图 API 可用，则用当天结果覆盖，并保留本地回退。</div>
+                    </div>
+                    <div class="metrics">
+                      <span>输入 812</span>
+                      <span>输出 356</span>
+                      <span>总计 1168</span>
+                      <span>首 token 1.2s</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <footer class="composer">
+              <div class="composer-row">
+                <div class="composer-input">输入消息</div>
+                <div class="composer-send">发送</div>
+              </div>
+              <div class="composer-tools">
+                <div class="composer-model"><span>gpt-5.4</span><span>▾</span></div>
+                <button type="button">▣</button>
+                <button type="button">◎</button>
+              </div>
+            </footer>
+          </div>
+        </div>
+
+        <div class="notes">
+          <article class="note-card">
+            <div class="note-kicker">Core rule</div>
+            <h2 class="note-title">消息流里，视觉要让位给阅读。</h2>
+            <p class="note-copy">
+              这页不是“好看就行”，而是要真实服务你的 Skill steps、Reasoning panels、Markdown 内容、图像附件和模型指标。换句话说，聊天态的审美要克制。
+            </p>
+          </article>
+          <article class="note-card">
+            <div class="note-kicker">Targeted suggestions</div>
+            <div class="spec-grid">
+              <div class="spec">
+                <strong>封面退化成摘要卡</strong>
+                <span>只保留一张短横幅，用来延续“今日风景”的上下文，不再占满背景。</span>
+              </div>
+              <div class="spec">
+                <strong>Assistant 直接读正文</strong>
+                <span>Assistant 回复不再装进方框，改成正文式排版，阅读负担更低。</span>
+              </div>
+              <div class="spec">
+                <strong>技能步骤像批注</strong>
+                <span>Skill step / reasoning panel 应该更像编辑批注和过程注脚，而不是另一套大卡片系统。</span>
+              </div>
+              <div class="spec">
+                <strong>输入区保持熟悉</strong>
+                <span>模型选择、图片入口和发送区结构尽量不变，避免引入学习成本。</span>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+    <script src="./script.js"></script>
+  </body>
+</html>

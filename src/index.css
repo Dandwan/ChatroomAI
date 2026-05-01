@@ -1,3 +1,67 @@
+@font-face {
+  font-family: 'Acti Manrope';
+  src: url('./assets/fonts/acti-manrope-400.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Acti Manrope';
+  src: url('./assets/fonts/acti-manrope-500.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Acti Manrope';
+  src: url('./assets/fonts/acti-manrope-700.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Acti Noto Sans SC';
+  src: url('./assets/fonts/acti-noto-sans-sc-400.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Acti Noto Sans SC';
+  src: url('./assets/fonts/acti-noto-sans-sc-500.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Acti Noto Serif SC';
+  src: url('./assets/fonts/acti-noto-serif-sc-400.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Acti Noto Serif SC';
+  src: url('./assets/fonts/acti-noto-serif-sc-500.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Acti Newsreader';
+  src: url('./assets/fonts/acti-newsreader-italic-400.woff2') format('woff2');
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+}
+
 :root,
 :root[data-theme='light'] {
   --native-top-inset: 0px;
@@ -64,6 +128,25 @@
     var(--center-light-glow-color),
     rgba(255, 255, 255, 0) 56%
   );
+  --editorial-display-font:
+    'Acti Noto Serif SC',
+    'Source Han Serif SC',
+    'Songti SC',
+    'STSong',
+    'SimSun',
+    serif;
+  --editorial-ui-font:
+    'Acti Manrope',
+    'Acti Noto Sans SC',
+    'Noto Sans CJK SC',
+    'PingFang SC',
+    'Segoe UI',
+    sans-serif;
+  --editorial-italic-font:
+    'Acti Newsreader',
+    'Acti Noto Serif SC',
+    'Source Han Serif SC',
+    serif;
 
   font-family:
     'Plus Jakarta Sans',

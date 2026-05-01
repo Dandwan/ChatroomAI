@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ActiChat · Settings Home</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Noto+Serif+SC:wght@300;400;500&family=Space+Grotesk:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="sheet-head">
+        <div>
+          <span class="eyebrow"><span class="num">04</span><span class="bar"></span><span>Settings Home</span></span>
+          <h1 class="sheet-title">设置首页</h1>
+          <p class="sheet-copy">
+            这页必须对齐你的真实项目结构，而不是另起炉灶。服务商、模型、Skills、运行时、权限和显示选项仍然都在，只是统一到新的视觉语言里。
+          </p>
+        </div>
+        <nav class="sheet-links">
+          <a class="sheet-link" href="./drawer.html">Prev</a>
+          <a class="sheet-link is-active" href="./settings-home.html">Settings Home</a>
+          <a class="sheet-link" href="./settings-daily-cover.html">Next</a>
+        </nav>
+      </header>
+
+      <section class="artboard">
+        <div class="device">
+          <div class="screen">
+            <div class="statusbar">
+              <span>08:16</span>
+              <div class="statusbar__icons"><span>5G</span><span>WiFi</span><span class="battery">100</span></div>
+            </div>
+
+            <div class="screen-body" style="inset:54px 0 18px;">
+              <div class="settings-page">
+                <section class="settings-section">
+                  <div class="label">Settings</div>
+                  <h3>动话设置</h3>
+                  <p>保持你现在的设置信息架构，只把它从“功能堆叠”变成“章节清楚的长表面”。</p>
+                  <div class="settings-card settings-hero-card">
+                    <img data-cover-image alt="当前风景封面预览" />
+                    <div class="content-wrap">
+                      <div class="small">Today’s cover</div>
+                      <h5 data-cover-title></h5>
+                      <p>封面系统不只作用于首页，也会在设置中有自己的入口和预览位置。</p>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="settings-section">
+                  <div class="label">Provider</div>
+                  <h4>服务商配置</h4>
+                  <div class="settings-card settings-list">
+                    <div class="row"><span>API Base URL</span><span>https://api.example.com/v1</span></div>
+                    <div class="row"><span>Current model</span><span>gpt-5.4 · Provider A</span></div>
+                  </div>
+                </section>
+
+                <section class="settings-section">
+                  <div class="label">Daily cover</div>
+                  <h4>首页每日风景封面</h4>
+                  <div class="settings-card settings-list">
+                    <div class="row"><span>显示位置</span><span>新对话空白态</span></div>
+                    <div class="row"><span>进入消息流后</span><span>退化为摘要卡</span></div>
+                    <div class="row"><span>失败回退</span><span>默认本地图池</span></div>
+                  </div>
+                </section>
+
+                <section class="settings-section">
+                  <div class="label">Extensions</div>
+                  <h4>Skills 与运行时</h4>
+                  <div class="settings-card settings-list">
+                    <div class="row"><span>Installed skills</span><span>8</span></div>
+                    <div class="row"><span>Runtimes</span><span>Node · Python</span></div>
+                    <div class="row"><span>Default runtime</span><span>Node aarch64</span></div>
+                  </div>
+                </section>
+
+                <section class="settings-section">
+                  <div class="label">Permissions</div>
+                  <h4>权限设置</h4>
+                  <div class="settings-card">
+                    <div class="row"><span>位置权限</span><span class="mini-switch on"></span></div>
+                    <div class="row"><span>相机权限</span><span class="mini-switch"></span></div>
+                    <div class="row"><span>通知权限</span><span class="mini-switch on"></span></div>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="notes">
+          <article class="note-card">
+            <div class="note-kicker">Real mapping</div>
+            <h2 class="note-title">不删结构，只重排层级。</h2>
+            <p class="note-copy">
+              你的设置页已经装了很多真实能力，所以重构的重点不是“变简洁到失能”，而是让用户更容易读懂每一层，并且把新的每日封面配置自然插进去。
+            </p>
+          </article>
+          <article class="note-card">
+            <div class="note-kicker">Targeted suggestions</div>
+            <div class="spec-grid">
+              <div class="spec">
+                <strong>章节更清楚</strong>
+                <span>按 Provider / Generation / Daily Cover / Extensions / Permissions 做一级分组。</span>
+              </div>
+              <div class="spec">
+                <strong>字段更像文档</strong>
+                <span>设置页视觉借一点“长文档”感，而不是每个字段都像厚厚的独立卡片。</span>
+              </div>
+              <div class="spec">
+                <strong>每日封面是正式模块</strong>
+                <span>它不是美化开关，而是产品的新入口系统，所以必须有自己的详情页。</span>
+              </div>
+              <div class="spec">
+                <strong>保留暗色上下文</strong>
+                <span>真实 App 内的设置页仍然建议保持暗色，与聊天壳层一体，不必强行切浅色。</span>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+    <script src="./script.js"></script>
+  </body>
+</html>

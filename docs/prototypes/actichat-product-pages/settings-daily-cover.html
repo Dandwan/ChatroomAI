@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ActiChat · Daily Cover Settings</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Noto+Serif+SC:wght@300;400;500&family=Space+Grotesk:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="sheet-head">
+        <div>
+          <span class="eyebrow"><span class="num">05</span><span class="bar"></span><span>Daily Cover Settings</span></span>
+          <h1 class="sheet-title">每日风景封面设置页</h1>
+          <p class="sheet-copy">
+            这是新增页面。它要解决的不是“选张好看图”，而是明确默认图池、每日一图 API、自定义字段映射、失败回退和显示策略。
+          </p>
+        </div>
+        <nav class="sheet-links">
+          <a class="sheet-link" href="./settings-home.html">Prev</a>
+          <a class="sheet-link is-active" href="./settings-daily-cover.html">Daily Cover Settings</a>
+          <a class="sheet-link" href="./index.html">All Pages</a>
+        </nav>
+      </header>
+
+      <section class="artboard">
+        <div class="device">
+          <div class="screen">
+            <div class="statusbar">
+              <span>08:16</span>
+              <div class="statusbar__icons"><span>5G</span><span>WiFi</span><span class="battery">100</span></div>
+            </div>
+
+            <div class="screen-body" style="inset:54px 0 18px;">
+              <div class="settings-page">
+                <section class="settings-section">
+                  <div class="label">Daily cover</div>
+                  <h3>首页每日风景封面</h3>
+                  <p>默认图池保证稳定，自定义 API 负责增强；失败时永远回退到本地内置图池。</p>
+                  <div class="settings-card settings-hero-card">
+                    <img data-cover-image alt="当前封面预览" />
+                    <div class="content-wrap">
+                      <div class="small">Current daily cover</div>
+                      <h5><span data-cover-title></span> · <span data-cover-photographer></span></h5>
+                      <p data-cover-description></p>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="settings-section">
+                  <div class="label">Display rules</div>
+                  <h4>显示策略</h4>
+                  <div class="settings-card settings-list">
+                    <div class="row"><span>冷启动新对话时显示封面</span><span class="mini-switch on"></span></div>
+                    <div class="row"><span>进入消息流后退化为摘要卡</span><span class="mini-switch on"></span></div>
+                    <div class="row"><span>失败时回退到默认图池</span><span class="mini-switch on"></span></div>
+                  </div>
+                </section>
+
+                <section class="settings-section">
+                  <div class="label">Bundled pool</div>
+                  <h4>默认图池</h4>
+                  <div class="settings-card">
+                    <div class="content">建议正式版本内置 12 到 24 张精选风景图。当前演示使用 4 张本地样图。</div>
+                    <div id="settingsThumbs" class="thumb-grid"></div>
+                  </div>
+                </section>
+
+                <section class="settings-section">
+                  <div class="label">Daily image API</div>
+                  <h4>自定义每日一图接口</h4>
+                  <div class="settings-card">
+                    <div class="api-lines">
+                      <div class="api-line"><strong>Endpoint</strong><span>https://example.com/api/daily-cover?date={YYYY-MM-DD}</span></div>
+                      <div class="api-line"><strong>Authorization</strong><span>Bearer YOUR_TOKEN</span></div>
+                      <div class="api-line"><strong>Image path</strong><span>data.image.url</span></div>
+                      <div class="api-line"><strong>Title path</strong><span>data.image.title</span></div>
+                      <div class="api-line"><strong>Credit path</strong><span>data.image.credit.name</span></div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="notes">
+          <article class="note-card">
+            <div class="note-kicker">Why a dedicated page</div>
+            <h2 class="note-title">这不是一个小开关，所以不该埋在“显示选项”里结束。</h2>
+            <p class="note-copy">
+              每日风景封面影响的是产品的进入方式、缓存策略、来源合法性、失败回退和视觉一致性。它值得一个单独详情页。
+            </p>
+          </article>
+          <article class="note-card">
+            <div class="note-kicker">Targeted suggestions</div>
+            <div class="spec-grid">
+              <div class="spec">
+                <strong>本地池优先</strong>
+                <span>默认图池是基础设施，不应被 API 成功与否绑架。</span>
+              </div>
+              <div class="spec">
+                <strong>通用 API 模型</strong>
+                <span>不要写死某一家，正式实现时支持 endpoint + auth + field mapping。</span>
+              </div>
+              <div class="spec">
+                <strong>显示策略要明确</strong>
+                <span>这里把“只在冷启动新对话强展示”讲清楚，避免以后产品行为飘掉。</span>
+              </div>
+              <div class="spec">
+                <strong>来源说明低干扰</strong>
+                <span>摄影师和来源信息应该存在，但放在这里和封面信息层里，不打断聊天主流程。</span>
+              </div>
+            </div>
+          </article>
+          <article class="note-card">
+            <div class="note-kicker">Prototype control</div>
+            <label class="note-copy" for="demoDate" style="display:block; margin-top:0;">切换日期可以同步预览当前会选中的默认封面。</label>
+            <input id="demoDate" style="width:100%; margin-top:12px; border:none; border-bottom:1px solid var(--rule); background:transparent; padding:0 0 10px; outline:none;" type="date" />
+            <div id="collectionThumbs" class="thumb-grid" style="margin-top:16px;"></div>
+          </article>
+        </div>
+      </section>
+    </main>
+    <script src="./script.js"></script>
+  </body>
+</html>
