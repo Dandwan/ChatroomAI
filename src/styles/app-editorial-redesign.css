@@ -14,12 +14,13 @@
   --homepage-field-radius: 4px;
   --homepage-field-border: rgba(244, 247, 251, 0.12);
   --homepage-field-bg: rgba(10, 12, 18, 0.88);
-  --homepage-footer-bottom-offset: calc(var(--homepage-footer-gap) + env(safe-area-inset-bottom));
+  --homepage-footer-bottom-offset: var(--homepage-footer-gap);
   --homepage-footer-reserved-space: 156px;
   width: 100%;
   max-width: none;
   padding-left: 0;
   padding-right: 0;
+  padding-bottom: env(safe-area-inset-bottom);
   gap: 10px;
   position: relative;
   isolation: isolate;
@@ -940,7 +941,7 @@
   .app-shell.is-homepage-empty {
     --homepage-header-inline-inset: 20px;
     --homepage-footer-gap: 8px;
-    --homepage-footer-bottom-offset: calc(var(--homepage-footer-gap) + env(safe-area-inset-bottom));
+    --homepage-footer-bottom-offset: var(--homepage-footer-gap);
     --homepage-footer-reserved-space: 164px;
   }
 
