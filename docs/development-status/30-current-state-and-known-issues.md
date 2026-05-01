@@ -26,6 +26,7 @@ As of 2026-05-01:
   - the homepage composer model trigger keeps showing the selected model id plus the current mode, while the homepage model popover keeps response-mode switching at the bottom
   - the homepage model popover styling was revalidated on-device in the open state, while non-homepage pages still keep the shared existing composer behavior
   - the homepage composer and model row are now rendered through a dedicated homepage footer slot inside the scene, rather than by globally overlaying the shared footer with large negative margins
+  - the homepage bottom composer geometry now uses the prototype-aligned square/rectangular control language instead of the old shared pill geometry
   - the homepage daily-cover image is now elevated to a real scene-level background layer for the empty homepage state instead of remaining a large rounded card background
 - local self-hosted free commercial fonts are now wired into the real app homepage styling:
   - `Noto Serif SC`
@@ -56,7 +57,8 @@ As of 2026-05-01:
   - the homepage first-look is now much closer to `docs/prototypes/actichat-product-pages/new-conversation.html`
   - the homepage open-state model popover also now reads much closer to the approved prototype on `emulator-5554`
   - the previous structural mismatch where the image looked like a rounded content card instead of a real background layer has been removed
-  - the remaining residual difference is now mostly minor pixel-level typography/spacing polish plus the unavoidable real-app provider grouping inside the model popover, not homepage scene structure
+  - the previous bottom-bar mismatch where the real app still used pill geometry instead of the prototype’s square control language has been removed
+  - the remaining residual difference is now mostly minor pixel-level typography/spacing polish, the unavoidable real-app provider grouping inside the model popover, and the current white system-bar background still visible on emulator screenshots
 
 As of 2026-04-30:
 

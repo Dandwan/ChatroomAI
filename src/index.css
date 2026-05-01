@@ -243,6 +243,17 @@ body {
   background: var(--app-background);
 }
 
+body.homepage-empty-active {
+  background:
+    linear-gradient(180deg, rgba(8, 10, 16, 0.14) 0%, rgba(8, 10, 16, 0.02) 22%, rgba(8, 10, 16, 0.12) 56%, rgba(8, 10, 16, 0.56) 100%),
+    linear-gradient(90deg, rgba(8, 10, 16, 0.22) 0%, rgba(8, 10, 16, 0.08) 42%, rgba(8, 10, 16, 0.02) 100%),
+    var(--homepage-body-cover-image),
+    #080d1d;
+  background-position: center top;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
 button,
 input,
 select,
