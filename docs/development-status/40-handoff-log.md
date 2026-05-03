@@ -1,5 +1,56 @@
 # Handoff Log
 
+## 2026-05-03 08:14 +08:00
+
+### Scope
+
+- audit the current repository for stale temporary files and generated build outputs
+- delete only the safe-to-remove root temp captures, copied APKs, and generated build directories
+- remove the historical root debug captures / XML dumps that were no longer referenced anywhere in the repo
+- add ignore rules so the same root temp artifacts are less likely to pollute the worktree again
+
+### Current High-Signal State
+
+- removed `133` untracked root `.tmp-*` captures, about `150 MB`
+- removed `2` untracked root release APK copies, about `410 MB`
+- removed `19` historical root debug capture / XML files from the working tree, about `8 MB`
+- removed the current generated output directories:
+  - `dist/`
+  - `android/app/build/`
+  - `android/build/`
+  - `android/app/src/main/assets/public/`
+  - `android/capacitor-cordova-android-plugins/`
+  - `android/.gradle/`
+- intentionally kept large local caches that may still be useful for future local work:
+  - `.gradle-local-v120/`
+  - `node_modules/`
+  - `.local/`
+- `.gitignore` now ignores root `/.tmp-*` captures plus timestamped local `ActiChat` / `ChatroomAI` APK copy names
+- proposal-and-confirmation gate status:
+  - completed earlier in this turn before deletion work
+- commit note:
+  - a self-only cleanup commit will be created for this turn after the status docs are updated
+  - the commit scope is limited to `.gitignore` plus the repo-tracked status docs for this cleanup
+
+### Validation Snapshot
+
+- `git status --short`
+- `git ls-files *.png *.xml *.apk`
+- `git ls-files -o --exclude-standard`
+- `rg -n "temp|tmp|apk|screenshot|dist|node_modules|cleanup|清理" docs/development-status`
+- explicit PowerShell path checks plus `Remove-Item` deletion for:
+  - root `.tmp-*` captures
+  - root copied release APKs
+  - generated build directories under the repo root
+- explicit removal of the historical root debug captures / XML dumps from the repo root
+- post-cleanup `git status --short`
+
+### Open Follow-Up
+
+- if the user later wants a more aggressive disk cleanup, review `.gradle-local-v120/` separately because it is large but currently still useful for Android builds on this machine
+- if future handoffs still need screenshot references, save them under a deliberate docs or assets location instead of the repo root
+- if a future clean self-only commit is needed for repository hygiene, isolate it only after the broader in-flight worktree changes are either committed or explicitly split
+
 ## 2026-05-03 19:35 +08:00
 
 ### Scope

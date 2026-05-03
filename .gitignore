@@ -24,6 +24,11 @@ dist-ssr
 *.sw?
 app-debug.apk
 app-release*.apk
+/ActiChat-v*-android-release-*.apk
+/ActiChat-v*-debug-*.apk
+/ChatroomAI-v*-android-release-*.apk
+/ChatroomAI-v*-debug-*.apk
+/.tmp-*
 android/gradle/gradle-8.14.3-all.zip
 .codex
 .gradle-local*/
