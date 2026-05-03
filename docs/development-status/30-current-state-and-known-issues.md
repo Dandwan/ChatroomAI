@@ -5,7 +5,9 @@
 The repository is very dirty.
 
 - There are many unrelated modified files.
-- There are many untracked temp screenshots, XML dumps, APKs, and investigation artifacts.
+- The previously accumulated root temp screenshots, XML dumps, copied APKs, historical debug captures, and generated build directories were cleaned on 2026-05-03 at the user's request.
+- Large local caches still remain under `.gradle-local-v120/`, `node_modules/`, and `.local/` by intent because they are expensive or annoying to regenerate.
+- `.gitignore` now covers root `/.tmp-*` captures plus timestamped local `ActiChat` / `ChatroomAI` APK copy names.
 - Do not use broad cleanup or revert commands unless the user explicitly asks for that cleanup.
 
 ## Latest First-Send Chat Transition State
