@@ -82,15 +82,21 @@ As of 2026-05-02:
 
 ## Latest Phone Install State
 
-As of 2026-05-02:
+As of 2026-05-03:
 
-- the current debug APK at `android/app/build/outputs/apk/debug/app-debug.apk` was reinstalled onto the physical phone `c3fec216`
+- the current debug APK at `android/app/build/outputs/apk/debug/app-debug.apk` was rebuilt and reinstalled onto the physical phone `c3fec216`
 - this handoff used the repo's already-known reliable install path for that phone:
   - `adb -s c3fec216 install --no-streaming -r ...`
+- the Linux host build/install path for this handoff required local environment workarounds, not source changes:
+  - restore execute bits on local wrapper scripts with `chmod +x node_modules/.bin/*`
+  - restore the missing local Rolldown binding with `npm install --no-save @rolldown/binding-linux-x64-gnu@1.0.0-rc.15`
+  - run Gradle with `JAVA_HOME=/opt/android-studio/jbr` because the system default `java` is OpenJDK 26 and the Android build currently needed JDK 21
+  - set `ANDROID_HOME=/home/dandwan/Android/Sdk` and `ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk`
+  - use a temporary Gradle init script that rewrote Google Maven to `https://maven.aliyun.com/repository/google` because direct JBR TLS handshakes to `dl.google.com` failed on this host
 - the installed phone package currently reports:
   - `versionName=1.5.0`
   - `versionCode=1500`
-  - `lastUpdateTime=2026-05-02 21:01:49`
+  - `lastUpdateTime=2026-05-03 14:01:20`
 
 ## Latest Release Artifact State
 

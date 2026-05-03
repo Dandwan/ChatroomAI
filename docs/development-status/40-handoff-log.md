@@ -1,5 +1,59 @@
 # Handoff Log
 
+## 2026-05-03 14:02 +08:00
+
+### Scope
+
+- rebuild the current Android debug APK from the existing dirty worktree on this Linux host
+- install that debug APK onto the connected physical phone `c3fec216` through `adb`
+- verify that the installed phone package reflects the newly rebuilt app
+
+### Current High-Signal State
+
+- debug APK rebuild succeeded again and produced:
+  - `android/app/build/outputs/apk/debug/app-debug.apk`
+  - size about `207 MB` (`216324445` bytes transferred during adb install)
+- phone install succeeded on `c3fec216` through:
+  - `adb -s c3fec216 install --no-streaming -r android/app/build/outputs/apk/debug/app-debug.apk`
+- post-install package verification reports:
+  - `versionName=1.5.0`
+  - `versionCode=1500`
+  - `lastUpdateTime=2026-05-03 14:01:20`
+- this Linux host still has multiple local Android-build environment quirks that were worked around without changing tracked source:
+  - `node_modules/.bin/*` had missing execute bits and needed local `chmod +x`
+  - the local `rolldown` optional native binding was missing and needed `npm install --no-save @rolldown/binding-linux-x64-gnu@1.0.0-rc.15`
+  - the tracked `android/gradlew` file still carries CRLF line endings, so Linux execution needed a temporary LF-normalized wrapper instead of direct `./gradlew`
+  - the Android build needed `JAVA_HOME=/opt/android-studio/jbr` and `ANDROID_HOME=/home/dandwan/Android/Sdk`
+  - direct JBR TLS access to `https://dl.google.com/dl/android/maven2` still failed on this host, so Gradle dependency resolution was temporarily redirected to `https://maven.aliyun.com/repository/google`
+- proposal-and-confirmation gate status:
+  - completed in this turn before execution after reading the repo-tracked development-status docs
+- commit note:
+  - these repo-tracked status docs were clean before this handoff, so a self-only status-doc commit is safe for this turn
+  - commit creation happens immediately after this log update
+
+### Validation Snapshot
+
+- `adb devices -l`
+- `npm run android:build:debug`
+  - initially blocked by local execute-bit issues on `node_modules/.bin/*`
+  - initially blocked by a missing local `@rolldown/binding-linux-x64-gnu`
+  - web build and Capacitor sync then passed
+- temporary Linux-side Gradle execution through a CRLF-stripped wrapper with:
+  - `JAVA_HOME=/opt/android-studio/jbr`
+  - `ANDROID_HOME=/home/dandwan/Android/Sdk`
+  - `ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk`
+  - a temporary Gradle init script rewriting Google Maven to the Aliyun mirror
+- `adb kill-server`
+- `adb start-server`
+- `adb -s c3fec216 install --no-streaming -r android/app/build/outputs/apk/debug/app-debug.apk`
+- `adb -s c3fec216 shell dumpsys package com.dandwan.chatroomai | rg "versionCode=|versionName=|lastUpdateTime=|firstInstallTime="`
+
+### Open Follow-Up
+
+- if future Linux-side Android builds on this machine should be routine instead of one-off, normalize the local environment instead of repeating the current wrapper/mirror workarounds each handoff
+- if the user wants the freshly installed app brought to the foreground immediately on phone, run:
+  - `adb -s c3fec216 shell am start -n com.dandwan.chatroomai/.MainActivity`
+
 ## 2026-05-03 08:14 +08:00
 
 ### Scope
