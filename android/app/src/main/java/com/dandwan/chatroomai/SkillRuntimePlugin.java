@@ -1,24 +1,12 @@
 package com.dandwan.chatroomai;
 
 import android.Manifest;
-import android.graphics.Bitmap;
 import android.content.pm.PackageManager;
 import android.location.Location;
 import android.location.LocationManager;
 import android.os.Build;
-import android.os.Handler;
-import android.os.Looper;
 import android.util.Log;
 import android.view.View;
-import android.view.ViewGroup;
-import android.webkit.CookieManager;
-import android.webkit.ValueCallback;
-import android.webkit.WebChromeClient;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebResourceResponse;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -43,13 +31,10 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.ZipEntry;
@@ -57,14 +42,12 @@ import java.util.zip.ZipInputStream;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
-import org.json.JSONTokener;
 
 @CapacitorPlugin(name = "SkillRuntime")
 public class SkillRuntimePlugin extends Plugin {
     private static final String TAG = "SkillRuntimePlugin";
     private final ExecutorService ioExecutor = Executors.newCachedThreadPool();
     private final Map<String, RunSession> runSessions = new ConcurrentHashMap<>();
-    private volatile String browserPageExtractorScript;
 
     @PluginMethod
     public void preparePath(PluginCall call) {
@@ -355,37 +338,6 @@ public class SkillRuntimePlugin extends Plugin {
     }
 
     @PluginMethod
-    public void extractWebPage(PluginCall call) {
-        execute(() -> {
-            try {
-                String url = normalizeOptionalText(call.getString("url"));
-                if (url == null) {
-                    call.reject("url is required");
-                    return;
-                }
-
-                BrowserExtractionOptions options = new BrowserExtractionOptions(
-                    url,
-                    getNonNegativeLongOption(call, "timeoutMs", 20000L),
-                    getNonNegativeLongOption(call, "maxContentChars", 24000L),
-                    getNonNegativeLongOption(call, "maxLinks", 40L),
-                    getNonNegativeLongOption(call, "maxImages", 20L),
-                    getNonNegativeLongOption(call, "maxHeadings", 32L),
-                    call.getBoolean("includeMetadata", true),
-                    call.getBoolean("includeHeadings", true),
-                    call.getBoolean("includeLinkIndex", true),
-                    call.getBoolean("includeImageIndex", true)
-                );
-
-                JSObject result = extractWebPageInternal(options);
-                call.resolve(result);
-            } catch (Exception ex) {
-                call.reject(ex.getMessage(), ex);
-            }
-        });
-    }
-
-    @PluginMethod
     public void listAbsoluteDirectory(PluginCall call) {
         execute(() -> {
             try {
@@ -602,361 +554,6 @@ public class SkillRuntimePlugin extends Plugin {
                 call.reject(ex.getMessage(), ex);
             }
         });
-    }
-
-    private JSObject extractWebPageInternal(BrowserExtractionOptions options) throws Exception {
-        if (getActivity() == null) {
-            throw new IOException("Activity is unavailable for browser page extraction");
-        }
-        Log.d(TAG, "extractWebPageInternal start url=" + options.url + " timeoutMs=" + options.timeoutMs);
-
-        CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<JSObject> resultRef = new AtomicReference<>();
-        AtomicReference<Exception> errorRef = new AtomicReference<>();
-
-        getActivity().runOnUiThread(() ->
-            startBrowserExtraction(options, resultRef, errorRef, latch)
-        );
-
-        long waitMs = Math.max(1000L, options.timeoutMs + 5000L);
-        boolean completed = latch.await(waitMs, TimeUnit.MILLISECONDS);
-        if (!completed) {
-            Log.w(TAG, "extractWebPageInternal timeout url=" + options.url + " waitedMs=" + waitMs);
-            throw new IOException("browser page extraction timed out");
-        }
-        if (errorRef.get() != null) {
-            Log.w(TAG, "extractWebPageInternal error url=" + options.url, errorRef.get());
-            throw errorRef.get();
-        }
-        if (resultRef.get() == null) {
-            Log.w(TAG, "extractWebPageInternal empty result url=" + options.url);
-            throw new IOException("browser page extraction returned no result");
-        }
-        Log.d(TAG, "extractWebPageInternal success url=" + options.url);
-        return resultRef.get();
-    }
-
-    private void startBrowserExtraction(
-        BrowserExtractionOptions options,
-        AtomicReference<JSObject> resultRef,
-        AtomicReference<Exception> errorRef,
-        CountDownLatch latch
-    ) {
-        Handler mainHandler = new Handler(Looper.getMainLooper());
-        AtomicBoolean finished = new AtomicBoolean(false);
-        AtomicInteger lastMainFrameStatus = new AtomicInteger(0);
-        AtomicReference<String> lastUrl = new AtomicReference<>(options.url);
-        AtomicReference<String> phaseRef = new AtomicReference<>("created");
-        AtomicReference<ViewGroup> hostViewRef = new AtomicReference<>();
-        WebView webView = new WebView(getContext());
-
-        Runnable cleanup = () -> {
-            Log.d(TAG, "browser extraction cleanup url=" + lastUrl.get());
-            mainHandler.removeCallbacksAndMessages(webView);
-            try {
-                webView.stopLoading();
-            } catch (Exception ignored) {
-            }
-            try {
-                webView.setWebChromeClient(null);
-                webView.setWebViewClient(null);
-                webView.loadUrl("about:blank");
-            } catch (Exception ignored) {
-            }
-            ViewGroup hostView = hostViewRef.get();
-            if (hostView != null) {
-                try {
-                    hostView.removeView(webView);
-                } catch (Exception ignored) {
-                }
-            }
-            try {
-                webView.destroy();
-            } catch (Exception ignored) {
-            }
-        };
-
-        Runnable finishSuccess = () -> {
-            if (!finished.compareAndSet(false, true)) {
-                return;
-            }
-            Log.d(TAG, "browser extraction finishSuccess url=" + lastUrl.get());
-            cleanup.run();
-            latch.countDown();
-        };
-
-        java.util.function.Consumer<Exception> finishError = (error) -> {
-            if (!finished.compareAndSet(false, true)) {
-                return;
-            }
-            Log.w(TAG, "browser extraction finishError url=" + lastUrl.get(), error);
-            errorRef.set(error);
-            cleanup.run();
-            latch.countDown();
-        };
-
-        Runnable extractRunnable = new Runnable() {
-            @Override
-            public void run() {
-                if (finished.get()) {
-                    return;
-                }
-
-                try {
-                    phaseRef.set("evaluate_javascript_start");
-                    Log.d(TAG, "browser extraction evaluateJavascript start url=" + lastUrl.get());
-                    JSONObject extractionOptions = options.toJson(lastMainFrameStatus.get());
-                    String script =
-                        "window.__CHATROOMAI_BROWSER_EXTRACTOR_OPTIONS=" +
-                        extractionOptions.toString() +
-                        ";\n" +
-                        loadBrowserPageExtractorScript();
-
-                    webView.evaluateJavascript(script, new ValueCallback<String>() {
-                        @Override
-                        public void onReceiveValue(String value) {
-                            if (finished.get()) {
-                                return;
-                            }
-                            try {
-                                phaseRef.set("evaluate_javascript_callback");
-                                Log.d(
-                                    TAG,
-                                    "browser extraction evaluateJavascript callback url=" +
-                                    lastUrl.get() +
-                                    " rawLength=" +
-                                    (value == null ? 0 : value.length())
-                                );
-                                String payloadText = unwrapJavascriptStringResult(value);
-                                if (payloadText == null || payloadText.trim().isEmpty()) {
-                                    finishError.accept(new IOException("browser extractor returned empty payload"));
-                                    return;
-                                }
-                                resultRef.set(toJSObject(new JSONObject(payloadText)));
-                                finishSuccess.run();
-                            } catch (Exception ex) {
-                                finishError.accept(ex);
-                            }
-                        }
-                    });
-                } catch (Exception ex) {
-                    finishError.accept(ex);
-                }
-            }
-        };
-
-        Runnable timeoutRunnable = () -> {
-            if (finished.get()) {
-                return;
-            }
-            Log.w(TAG, "browser extraction timeoutRunnable url=" + lastUrl.get());
-            finishError.accept(
-                new IOException(
-                    "browser page extraction timed out at phase=" +
-                    phaseRef.get() +
-                    " url=" +
-                    lastUrl.get()
-                )
-            );
-        };
-
-        try {
-            ViewGroup hostView = (ViewGroup) getActivity().findViewById(android.R.id.content);
-            hostViewRef.set(hostView);
-            if (hostView != null) {
-                hostView.addView(
-                    webView,
-                    new ViewGroup.LayoutParams(1, 1)
-                );
-            }
-            webView.setVisibility(View.INVISIBLE);
-            phaseRef.set("webview_created");
-            Log.d(TAG, "browser extraction WebView created url=" + options.url);
-
-            WebSettings settings = webView.getSettings();
-            settings.setJavaScriptEnabled(true);
-            settings.setDomStorageEnabled(true);
-            settings.setDatabaseEnabled(true);
-            settings.setLoadsImagesAutomatically(true);
-            settings.setAllowFileAccess(false);
-            settings.setAllowContentAccess(false);
-            settings.setJavaScriptCanOpenWindowsAutomatically(false);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
-            }
-            if (getBridge() != null && getBridge().getWebView() != null) {
-                try {
-                    String userAgent = getBridge().getWebView().getSettings().getUserAgentString();
-                    if (userAgent != null && !userAgent.trim().isEmpty()) {
-                        settings.setUserAgentString(userAgent);
-                    }
-                } catch (Exception ignored) {
-                }
-            }
-
-            CookieManager cookieManager = CookieManager.getInstance();
-            cookieManager.setAcceptCookie(true);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                cookieManager.setAcceptThirdPartyCookies(webView, true);
-            }
-
-            webView.setWebChromeClient(new WebChromeClient());
-            webView.setWebViewClient(new WebViewClient() {
-                @Override
-                public void onPageStarted(WebView view, String url, Bitmap favicon) {
-                    lastUrl.set(url == null ? options.url : url);
-                    phaseRef.set("page_started");
-                    Log.d(TAG, "browser extraction onPageStarted url=" + lastUrl.get());
-                    super.onPageStarted(view, url, favicon);
-                }
-
-                @Override
-                public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                    if (request == null || request.getUrl() == null) {
-                        return false;
-                    }
-                    String scheme = request.getUrl().getScheme();
-                    if (scheme == null) {
-                        return false;
-                    }
-                    String lowerScheme = scheme.toLowerCase();
-                    if (!lowerScheme.equals("http") && !lowerScheme.equals("https")) {
-                        Log.d(TAG, "browser extraction blocked non-http scheme=" + lowerScheme + " url=" + request.getUrl());
-                    }
-                    return !lowerScheme.equals("http") && !lowerScheme.equals("https");
-                }
-
-                @Override
-                public void onPageFinished(WebView view, String url) {
-                    lastUrl.set(url == null ? options.url : url);
-                    phaseRef.set("page_finished");
-                    Log.d(TAG, "browser extraction onPageFinished url=" + lastUrl.get());
-                    if (!finished.get()) {
-                        mainHandler.removeCallbacksAndMessages(webView);
-                        mainHandler.postAtTime(extractRunnable, webView, System.currentTimeMillis() + 1500L);
-                        mainHandler.postAtTime(timeoutRunnable, webView, System.currentTimeMillis() + options.timeoutMs);
-                    }
-                    super.onPageFinished(view, url);
-                }
-
-                @Override
-                public void onReceivedHttpError(
-                    WebView view,
-                    WebResourceRequest request,
-                    WebResourceResponse errorResponse
-                ) {
-                    if (request != null && request.isForMainFrame() && errorResponse != null) {
-                        lastMainFrameStatus.set(errorResponse.getStatusCode());
-                        Log.d(
-                            TAG,
-                            "browser extraction onReceivedHttpError url=" +
-                            request.getUrl() +
-                            " status=" +
-                            errorResponse.getStatusCode()
-                        );
-                        phaseRef.set("http_error_" + errorResponse.getStatusCode());
-                    }
-                    super.onReceivedHttpError(view, request, errorResponse);
-                }
-
-                @Override
-                public void onReceivedError(
-                    WebView view,
-                    WebResourceRequest request,
-                    android.webkit.WebResourceError error
-                ) {
-                    if (error != null) {
-                        String description = String.valueOf(error.getDescription());
-                        if (description.contains("ERR_UNKNOWN_URL_SCHEME")) {
-                            Log.d(TAG, "browser extraction ignore unknown scheme url=" + lastUrl.get());
-                            return;
-                        }
-                    }
-                    if (request != null && request.isForMainFrame() && !finished.get()) {
-                        phaseRef.set("page_error");
-                        finishError.accept(
-                            new IOException(
-                                "browser page load failed: " + error.getDescription()
-                            )
-                        );
-                        return;
-                    }
-                    super.onReceivedError(view, request, error);
-                }
-            });
-
-            Log.d(TAG, "browser extraction loadUrl url=" + options.url);
-            phaseRef.set("load_url");
-            webView.loadUrl(options.url);
-            mainHandler.postAtTime(timeoutRunnable, webView, System.currentTimeMillis() + options.timeoutMs);
-        } catch (Exception ex) {
-            finishError.accept(ex);
-        }
-    }
-
-    private String loadBrowserPageExtractorScript() throws IOException {
-        if (browserPageExtractorScript != null) {
-            return browserPageExtractorScript;
-        }
-
-        try (
-            InputStream stream = getContext().getAssets().open("browser-page-extractor.js");
-            InputStreamReader reader = new InputStreamReader(stream, StandardCharsets.UTF_8);
-            BufferedReader buffered = new BufferedReader(reader)
-        ) {
-            StringBuilder builder = new StringBuilder();
-            String line;
-            while ((line = buffered.readLine()) != null) {
-                builder.append(line).append('\n');
-            }
-            browserPageExtractorScript = builder.toString();
-            return browserPageExtractorScript;
-        }
-    }
-
-    private String unwrapJavascriptStringResult(String rawValue) throws JSONException {
-        if (rawValue == null) {
-            return null;
-        }
-        Object parsed = new JSONTokener(rawValue).nextValue();
-        if (parsed == JSONObject.NULL) {
-            return null;
-        }
-        if (parsed instanceof String) {
-            return (String) parsed;
-        }
-        if (parsed instanceof JSONObject || parsed instanceof JSONArray) {
-            return parsed.toString();
-        }
-        return String.valueOf(parsed);
-    }
-
-    private JSObject toJSObject(JSONObject source) throws JSONException {
-        JSObject result = new JSObject();
-        Iterator<String> keys = source.keys();
-        while (keys.hasNext()) {
-            String key = keys.next();
-            result.put(key, convertJsonValue(source.get(key)));
-        }
-        return result;
-    }
-
-    private Object convertJsonValue(Object value) throws JSONException {
-        if (value == null || value == JSONObject.NULL) {
-            return JSONObject.NULL;
-        }
-        if (value instanceof JSONObject) {
-            return toJSObject((JSONObject) value);
-        }
-        if (value instanceof JSONArray) {
-            JSArray array = new JSArray();
-            JSONArray source = (JSONArray) value;
-            for (int index = 0; index < source.length(); index += 1) {
-                array.put(convertJsonValue(source.get(index)));
-            }
-            return array;
-        }
-        return value;
     }
 
     private File resolveFlexiblePath(String path) throws IOException {
@@ -1833,61 +1430,6 @@ public class SkillRuntimePlugin extends Plugin {
             this.stdout = stdout;
             this.stderr = stderr;
             this.elapsedMs = elapsedMs;
-        }
-    }
-
-    private static class BrowserExtractionOptions {
-        final String url;
-        final long timeoutMs;
-        final long maxContentChars;
-        final long maxLinks;
-        final long maxImages;
-        final long maxHeadings;
-        final boolean includeMetadata;
-        final boolean includeHeadings;
-        final boolean includeLinkIndex;
-        final boolean includeImageIndex;
-
-        BrowserExtractionOptions(
-            String url,
-            long timeoutMs,
-            long maxContentChars,
-            long maxLinks,
-            long maxImages,
-            long maxHeadings,
-            boolean includeMetadata,
-            boolean includeHeadings,
-            boolean includeLinkIndex,
-            boolean includeImageIndex
-        ) {
-            this.url = url;
-            this.timeoutMs = timeoutMs;
-            this.maxContentChars = maxContentChars;
-            this.maxLinks = maxLinks;
-            this.maxImages = maxImages;
-            this.maxHeadings = maxHeadings;
-            this.includeMetadata = includeMetadata;
-            this.includeHeadings = includeHeadings;
-            this.includeLinkIndex = includeLinkIndex;
-            this.includeImageIndex = includeImageIndex;
-        }
-
-        JSONObject toJson(int httpStatus) throws JSONException {
-            JSONObject object = new JSONObject();
-            object.put("requestedUrl", url);
-            object.put("timeoutMs", timeoutMs);
-            object.put("maxContentChars", maxContentChars);
-            object.put("maxLinks", maxLinks);
-            object.put("maxImages", maxImages);
-            object.put("maxHeadings", maxHeadings);
-            object.put("includeMetadata", includeMetadata);
-            object.put("includeHeadings", includeHeadings);
-            object.put("includeLinkIndex", includeLinkIndex);
-            object.put("includeImageIndex", includeImageIndex);
-            if (httpStatus > 0) {
-                object.put("httpStatus", httpStatus);
-            }
-            return object;
         }
     }
 

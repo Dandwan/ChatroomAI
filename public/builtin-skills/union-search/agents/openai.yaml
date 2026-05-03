@@ -1,0 +1,4 @@
+interface:
+  display_name: "Union Search"
+  short_description: "Search fresh sources and fetch webpages as Markdown."
+  default_prompt: "Use $union-search to search multiple sources and visit the best candidate URL as readable Markdown."

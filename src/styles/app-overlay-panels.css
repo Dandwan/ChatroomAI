@@ -627,6 +627,15 @@
   margin-right: auto;
 }
 
+.settings-inline-toggle.is-disabled {
+  opacity: 0.55;
+}
+
+.settings-entity-card.is-load-error {
+  border-color: rgba(248, 113, 113, 0.28);
+  background: rgba(248, 113, 113, 0.06);
+}
+
 .settings-code-editor {
   min-height: 260px;
   font-family:
@@ -1233,6 +1242,86 @@
 .toggle-switch:checked {
   background: var(--toggle-on-bg);
   border-color: var(--toggle-on-border);
+}
+
+.conversation-delete-button {
+  top: 50%;
+  right: 0;
+  bottom: auto;
+  width: 28px;
+  height: 28px;
+  transform: translateY(-50%) scale(0.82);
+  border: 1px solid rgba(213, 152, 145, 0.22);
+  border-radius: 2px;
+  background: rgba(142, 73, 66, 0.12) !important;
+  color: var(--status-danger);
+}
+
+.conversation-item-row.delete-mode .conversation-delete-button {
+  transform: translateY(-50%) scale(1);
+}
+
+.delete-dialog-overlay {
+  background: rgba(4, 5, 8, 0.68);
+}
+
+.delete-dialog {
+  width: min(100%, 420px);
+  border-radius: 0;
+  border-color: rgba(244, 239, 231, 0.12);
+  background: rgba(8, 10, 16, 0.96);
+  box-shadow: 0 24px 48px rgba(3, 7, 18, 0.22);
+  padding: 18px 18px 16px;
+}
+
+.delete-dialog h3 {
+  font-family: var(--editorial-display-font);
+  font-size: 24px;
+  line-height: 1.02;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  color: #f4efe7;
+}
+
+.delete-dialog-text {
+  margin-top: 12px;
+  color: rgba(244, 239, 231, 0.88);
+  font-family: var(--editorial-ui-font);
+  font-size: 14px;
+  line-height: 1.7;
+  text-wrap: pretty;
+}
+
+.delete-dialog-hint {
+  margin-top: 10px;
+  color: rgba(244, 239, 231, 0.6);
+  font-family: var(--editorial-ui-font);
+  font-size: 12px;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.delete-dialog-actions {
+  margin-top: 18px;
+}
+
+.delete-dialog-actions button {
+  min-height: 40px;
+  border-radius: 2px;
+  border-color: rgba(244, 239, 231, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: none;
+  font-family: var(--editorial-ui-font);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(244, 239, 231, 0.88);
+}
+
+.toggle-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 

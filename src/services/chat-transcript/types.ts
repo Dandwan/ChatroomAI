@@ -1,6 +1,11 @@
 import type { AssistantFlowNode } from '../../utils/assistant-flow'
 
 export type TranscriptRole = 'user' | 'assistant'
+export type TranscriptConversationResponseMode = 'tool' | 'text'
+
+export interface TranscriptConversationPreferences {
+  responseMode?: TranscriptConversationResponseMode
+}
 
 export interface TranscriptTokenUsage {
   promptTokens: number
@@ -88,6 +93,7 @@ export interface TranscriptConversation {
   title: string
   titleManuallyEdited: boolean
   transcript: TranscriptEvent[]
+  preferences?: TranscriptConversationPreferences
   createdAt: number
   updatedAt: number
 }

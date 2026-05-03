@@ -9,7 +9,6 @@ import {
   readSkillConfig,
   resolveSkillRoot,
 } from './host'
-import { executeBrowserVisit, shouldUseBrowserVisitMode } from './browser-visit'
 import { executeDeviceInfoSkillCall } from './device-info'
 import { parseRunSimpleCommand } from './run-parser'
 import { resolveRunLaunch } from './run-resolver'
@@ -280,43 +279,6 @@ const tryExecuteDeviceInfoRun = async (action: RunAction): Promise<SkillExecutio
   return executeDeviceInfoSkillCall(legacyAction)
 }
 
-const tryExecuteUnionSearchBrowserVisitRun = async (
-  action: RunAction,
-  conversationId: string,
-): Promise<{
-  execution: SkillExecutionResult
-  resolvedCwd: string
-  waitedMs: number
-} | null> => {
-  if (action.root !== 'skill' || action.skill !== 'union-search' || !action.command?.trim()) {
-    return null
-  }
-
-  const parsed = parseRunSimpleCommand(action.command)
-  const skillConfig = await readSkillConfig('union-search')
-  if (!shouldUseBrowserVisitMode(parsed.argv, skillConfig)) {
-    return null
-  }
-
-  const { cwdAbsolutePath } = await resolveRunContext(action, conversationId)
-  const target = parsed.argv[0].replace(/^\.\/+/, '')
-  const targetName: 'visit_url' | 'fetch_url' =
-    target === 'fetch_url' || target === 'scripts/fetch_url' ? 'fetch_url' : 'visit_url'
-  const timeoutMs = Math.max(20000, normalizeWaitMs(action.waitMs))
-
-  return {
-    execution: await executeBrowserVisit({
-      targetName,
-      commandArgv: parsed.argv,
-      skillConfig,
-      cwdAbsolutePath,
-      timeoutMs,
-    }),
-    resolvedCwd: cwdAbsolutePath,
-    waitedMs: timeoutMs,
-  }
-}
-
 export const executeRunAction = async (
   action: RunAction,
   conversationId: string,
@@ -341,28 +303,6 @@ export const executeRunAction = async (
       resolvedCommand: deviceInfoExecution.resolvedCommand,
       resolvedCwd: effectiveAction.cwd?.trim() || '.',
       inferredRuntime: deviceInfoExecution.inferredRuntime,
-      updatedAt: Date.now(),
-      completedAt: Date.now(),
-    }
-  }
-
-  const browserVisitExecution = await tryExecuteUnionSearchBrowserVisitRun(
-    effectiveAction,
-    conversationId,
-  )
-  if (browserVisitExecution) {
-    return {
-      ok: browserVisitExecution.execution.ok,
-      running: false,
-      session,
-      stdout: browserVisitExecution.execution.stdout,
-      stderr: browserVisitExecution.execution.stderr,
-      exitCode: browserVisitExecution.execution.exitCode,
-      elapsedMs: Math.round(browserVisitExecution.execution.elapsedMs),
-      waitedMs: browserVisitExecution.waitedMs,
-      resolvedCommand: browserVisitExecution.execution.resolvedCommand,
-      resolvedCwd: browserVisitExecution.resolvedCwd,
-      inferredRuntime: browserVisitExecution.execution.inferredRuntime,
       updatedAt: Date.now(),
       completedAt: Date.now(),
     }

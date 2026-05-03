@@ -106,6 +106,14 @@
 - Markdown / KaTeX
 - GPT 兼容 API
 
+## Skill 工程要求
+
+`union-search` 后续必须严格按“可原样放入 Codex 中、可作为完整等价 skill 直接运行”的标准演进，不能再把 ChatroomAI / ActiChat 私有宿主能力当作它的基础依赖。
+
+强制要求与迁移方案见：
+
+- [docs/union-search-skill-requirements.md](./docs/union-search-skill-requirements.md)
+
 ### 本地运行
 
 ```bash

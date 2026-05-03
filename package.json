@@ -4,8 +4,9 @@
   "version": "1.5.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build --configLoader native",
+    "skill:sync:union-search": "node scripts/sync-union-search-skill.mjs",
+    "dev": "npm run skill:sync:union-search && vite",
+    "build": "npm run skill:sync:union-search && tsc -b && vite build --configLoader native",
     "lint": "eslint .",
     "preview": "vite preview",
     "test:api": "node scripts/api-smoke-test.mjs",

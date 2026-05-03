@@ -31,20 +31,27 @@ import {
   loadLegacyImageDataUrl,
 } from './legacy'
 import {
+  inferConversationResponseModeFromTranscript,
+  normalizeConversationResponseMode,
   projectConversationMessages,
   transcriptFromLegacyMessages,
 } from '../chat-transcript'
 import type {
   AssignedImageStorageKey,
   ChatStorageConversation,
+  ChatStorageConversationSummary,
   ChatStorageContentPart,
+  ChatStorageHistoryStats,
   ChatStorageImageAttachment,
+  ChatStorageIndexState,
+  ChatStoragePersistState,
   ChatStorageState,
   ChatStorageTokenUsage,
+  LoadedChatStorageConversation,
   PersistChatStorageResult,
 } from './types'
 
-const SCHEMA_VERSION = 2
+const SCHEMA_VERSION = 4
 const META_PATH = joinRelativePath(CHAT_STORAGE_DIRECTORIES.root, 'meta.json')
 const INDEX_PATH = joinRelativePath(CHAT_STORAGE_DIRECTORIES.conversations, 'index.json')
 
@@ -53,24 +60,11 @@ interface ChatStorageMeta {
   activeConversationId?: string
 }
 
-interface ConversationIndexEntry {
-  id: string
-  title: string
-  titleManuallyEdited: boolean
-  createdAt: number
-  updatedAt: number
-  messageCount: number
-  fileCount: number
-  draftTextLength: number
-  draftAttachmentCount: number
-  lastMessagePreview: string
-  lastMessageRole?: 'user' | 'assistant'
-}
-
 interface ConversationIndexFile {
   schemaVersion: number
   updatedAt: number
-  conversations: ConversationIndexEntry[]
+  historyStats: ChatStorageHistoryStats
+  conversations: ChatStorageConversationSummary[]
 }
 
 interface PersistedConversationFileRecord {
@@ -85,6 +79,10 @@ interface PersistedConversationFileRecord {
 interface PersistedConversationDraft {
   text: string
   attachmentIds: string[]
+}
+
+interface PersistedConversationPreferences {
+  responseMode?: 'tool' | 'text'
 }
 
 interface PersistedTranscriptTextPart {
@@ -173,6 +171,7 @@ interface PersistedConversationRecord {
   createdAt: number
   updatedAt: number
   draft: PersistedConversationDraft
+  preferences?: PersistedConversationPreferences
   transcript?: PersistedConversationEvent[]
   messages?: PersistedConversationMessage[]
   files: PersistedConversationFileRecord[]
@@ -314,17 +313,178 @@ const isConversationPersistable = (
 ): boolean =>
   conversation.transcript.length > 0 || conversation.titleManuallyEdited || (draftText?.trim().length ?? 0) > 0
 
-const createStateSignature = (state: ChatStorageState): string =>
+const isConversationSummaryPersistable = (
+  summary: ChatStorageConversationSummary,
+): boolean =>
+  summary.messageCount > 0 ||
+  summary.titleManuallyEdited ||
+  summary.draftTextLength > 0 ||
+  summary.draftAttachmentCount > 0
+
+const EMPTY_HISTORY_STATS: ChatStorageHistoryStats = {
+  totalConversationCount: 0,
+  totalMessageCount: 0,
+  totalPhotoCount: 0,
+  totalTokenCount: 0,
+  totalToolCallCount: 0,
+}
+
+const normalizeHistoryStats = (value: unknown): ChatStorageHistoryStats => {
+  if (!isRecord(value)) {
+    return EMPTY_HISTORY_STATS
+  }
+
+  return {
+    totalConversationCount: Math.max(0, Math.round(toFiniteNumber(value.totalConversationCount) ?? 0)),
+    totalMessageCount: Math.max(0, Math.round(toFiniteNumber(value.totalMessageCount) ?? 0)),
+    totalPhotoCount: Math.max(0, Math.round(toFiniteNumber(value.totalPhotoCount) ?? 0)),
+    totalTokenCount: Math.max(0, Math.round(toFiniteNumber(value.totalTokenCount) ?? 0)),
+    totalToolCallCount: Math.max(0, Math.round(toFiniteNumber(value.totalToolCallCount) ?? 0)),
+  }
+}
+
+const normalizeConversationSummary = (
+  value: unknown,
+): ChatStorageConversationSummary | null => {
+  if (!isRecord(value) || typeof value.id !== 'string') {
+    return null
+  }
+
+  return {
+    id: value.id,
+    title: typeof value.title === 'string' && value.title.trim() ? value.title.trim() : '新对话',
+    titleManuallyEdited: value.titleManuallyEdited === true,
+    createdAt: Math.round(toFiniteNumber(value.createdAt) ?? Date.now()),
+    updatedAt: Math.round(toFiniteNumber(value.updatedAt) ?? Date.now()),
+    preferences: normalizePersistedConversationPreferences(value.preferences),
+    messageCount: Math.max(0, Math.round(toFiniteNumber(value.messageCount) ?? 0)),
+    userMessageCount: Math.max(0, Math.round(toFiniteNumber(value.userMessageCount) ?? 0)),
+    fileCount: Math.max(0, Math.round(toFiniteNumber(value.fileCount) ?? 0)),
+    imageCount: Math.max(0, Math.round(toFiniteNumber(value.imageCount) ?? 0)),
+    assistantTokenCount: Math.max(0, Math.round(toFiniteNumber(value.assistantTokenCount) ?? 0)),
+    toolCallCount: Math.max(0, Math.round(toFiniteNumber(value.toolCallCount) ?? 0)),
+    draftTextLength: Math.max(0, Math.round(toFiniteNumber(value.draftTextLength) ?? 0)),
+    draftAttachmentCount: Math.max(0, Math.round(toFiniteNumber(value.draftAttachmentCount) ?? 0)),
+    lastMessagePreview: typeof value.lastMessagePreview === 'string' ? value.lastMessagePreview : '',
+    lastMessageRole: value.lastMessageRole === 'user' || value.lastMessageRole === 'assistant'
+      ? value.lastMessageRole
+      : undefined,
+  }
+}
+
+const normalizeConversationIndexFile = (
+  value: unknown,
+): ConversationIndexFile | null => {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const conversations = Array.isArray(value.conversations)
+    ? value.conversations
+        .map((entry) => normalizeConversationSummary(entry))
+        .filter((entry): entry is ChatStorageConversationSummary => entry !== null)
+    : []
+
+  return {
+    schemaVersion: Math.round(toFiniteNumber(value.schemaVersion) ?? SCHEMA_VERSION),
+    updatedAt: Math.round(toFiniteNumber(value.updatedAt) ?? Date.now()),
+    historyStats: normalizeHistoryStats(value.historyStats),
+    conversations,
+  }
+}
+
+export const buildConversationSummary = (
+  conversation: ChatStorageConversation,
+  draftText: string,
+): ChatStorageConversationSummary => {
+  const projectedMessages = projectConversationMessages(conversation)
+  const lastMessage = projectedMessages[projectedMessages.length - 1]
+  const userMessageCount = projectedMessages.filter((message) => message.role === 'user').length
+  const imageCount = conversation.transcript.reduce((count, event) => {
+    if (event.kind !== 'user_message') {
+      return count
+    }
+    return count + event.content.filter((part) => part.type === 'image').length
+  }, 0)
+  const assistantTokenCount = projectedMessages.reduce(
+    (sum, message) => sum + (message.role === 'assistant' ? message.usage?.totalTokens ?? 0 : 0),
+    0,
+  )
+  const toolCallCount = conversation.transcript.reduce((count, event) => {
+    if (event.kind !== 'host_message') {
+      return count
+    }
+
+    switch (event.category) {
+      case 'read_result':
+      case 'read_error':
+      case 'edit_result':
+      case 'edit_error':
+      case 'run_result':
+      case 'run_error':
+      case 'skill_result':
+      case 'skill_error':
+        return count + 1
+      default:
+        return count
+    }
+  }, 0)
+
+  return {
+    id: conversation.id,
+    title: conversation.title,
+    titleManuallyEdited: conversation.titleManuallyEdited,
+    createdAt: conversation.createdAt,
+    updatedAt: conversation.updatedAt,
+    preferences: conversation.preferences,
+    messageCount: projectedMessages.length,
+    userMessageCount,
+    fileCount: imageCount,
+    imageCount,
+    assistantTokenCount,
+    toolCallCount,
+    draftTextLength: draftText.length,
+    draftAttachmentCount: 0,
+    lastMessagePreview: typeof lastMessage?.text === 'string' ? lastMessage.text.slice(0, 120) : '',
+    lastMessageRole: lastMessage?.role,
+  }
+}
+
+export const buildHistoryStatsFromSummaries = (
+  summaries: ChatStorageConversationSummary[],
+): ChatStorageHistoryStats =>
+  summaries.reduce<ChatStorageHistoryStats>(
+    (stats, summary) => ({
+      totalConversationCount: stats.totalConversationCount + 1,
+      totalMessageCount: stats.totalMessageCount + summary.userMessageCount,
+      totalPhotoCount: stats.totalPhotoCount + summary.imageCount,
+      totalTokenCount: stats.totalTokenCount + summary.assistantTokenCount,
+      totalToolCallCount: stats.totalToolCallCount + summary.toolCallCount,
+    }),
+    EMPTY_HISTORY_STATS,
+  )
+
+const createStateSignature = (state: ChatStoragePersistState): string =>
   JSON.stringify({
     activeConversationId: state.activeConversationId,
-    draftsByConversation: state.draftsByConversation,
     conversations: state.conversations.map((conversation) => ({
-      id: conversation.id,
-      title: conversation.title,
-      titleManuallyEdited: conversation.titleManuallyEdited,
-      createdAt: conversation.createdAt,
-      updatedAt: conversation.updatedAt,
-      transcript: conversation.transcript,
+      kind: conversation.kind,
+      ...(conversation.kind === 'hydrated'
+        ? {
+            draftText: conversation.draftText,
+            conversation: {
+              id: conversation.conversation.id,
+              title: conversation.conversation.title,
+              titleManuallyEdited: conversation.conversation.titleManuallyEdited,
+              createdAt: conversation.conversation.createdAt,
+              updatedAt: conversation.conversation.updatedAt,
+              preferences: conversation.conversation.preferences,
+              transcript: conversation.conversation.transcript,
+            },
+          }
+        : {
+            summary: conversation.summary,
+          }),
     })),
   })
 
@@ -418,6 +578,21 @@ const normalizePersistedTranscriptContent = (
   return normalized
 }
 
+const normalizePersistedConversationPreferences = (
+  value: unknown,
+): ChatStorageConversation['preferences'] | undefined => {
+  if (!isRecord(value)) {
+    return undefined
+  }
+
+  const responseMode = normalizeConversationResponseMode(value.responseMode)
+  return responseMode
+    ? {
+        responseMode,
+      }
+    : undefined
+}
+
 const normalizePersistedTranscriptEvent = (
   event: PersistedConversationEvent,
   conversationId: string,
@@ -492,6 +667,7 @@ const normalizePersistedConversationDocument = (
           : [],
       }
     : { text: '', attachmentIds: [] }
+  const preferences = normalizePersistedConversationPreferences(conversation.preferences)
 
   return {
     schemaVersion: Math.round(toFiniteNumber(raw.schemaVersion) ?? SCHEMA_VERSION),
@@ -502,6 +678,7 @@ const normalizePersistedConversationDocument = (
       createdAt: Math.round(toFiniteNumber(conversation.createdAt) ?? Date.now()),
       updatedAt: Math.round(toFiniteNumber(conversation.updatedAt) ?? Date.now()),
       draft,
+      preferences,
       transcript,
       messages,
       files,
@@ -514,44 +691,30 @@ const readConversationDocument = async (conversationId: string): Promise<Persist
   return normalizePersistedConversationDocument(raw)
 }
 
+const readConversationIndexFile = async (): Promise<ConversationIndexFile | null> => {
+  const raw = await readJsonFile<unknown>(INDEX_PATH, null)
+  return normalizeConversationIndexFile(raw)
+}
+
 const listConversationIdsFromDirectories = async (): Promise<string[]> => {
   const entries = await listDirectory(CHAT_STORAGE_DIRECTORIES.conversations)
   return entries.filter((entry) => entry.name !== 'index.json').map((entry) => entry.name)
 }
 
-const buildIndexEntry = (conversation: ChatStorageConversation, draftText: string): ConversationIndexEntry => {
-  const projectedMessages = projectConversationMessages(conversation)
-  const lastMessage = projectedMessages[projectedMessages.length - 1]
-  return {
-    id: conversation.id,
-    title: conversation.title,
-    titleManuallyEdited: conversation.titleManuallyEdited,
-    createdAt: conversation.createdAt,
-    updatedAt: conversation.updatedAt,
-    messageCount: projectedMessages.length,
-    fileCount: conversation.transcript.reduce((count, event) => {
-      if (event.kind !== 'user_message') {
-        return count
-      }
-      return count + event.content.filter((part) => part.type === 'image').length
-    }, 0),
-    draftTextLength: draftText.length,
-    draftAttachmentCount: 0,
-    lastMessagePreview: typeof lastMessage?.text === 'string' ? lastMessage.text.slice(0, 120) : '',
-    lastMessageRole: lastMessage?.role,
-  }
-}
+const sortConversationSummaries = (
+  conversations: ChatStorageConversationSummary[],
+): ChatStorageConversationSummary[] =>
+  [...conversations].sort((left, right) => right.updatedAt - left.updatedAt)
 
 const writeIndexFile = async (
-  conversations: ChatStorageConversation[],
-  draftsByConversation: Record<string, string>,
+  conversations: ChatStorageConversationSummary[],
 ): Promise<void> => {
+  const sortedConversations = sortConversationSummaries(conversations)
   const index: ConversationIndexFile = {
     schemaVersion: SCHEMA_VERSION,
     updatedAt: Date.now(),
-    conversations: conversations
-      .map((conversation) => buildIndexEntry(conversation, draftsByConversation[conversation.id] ?? ''))
-      .sort((left, right) => right.updatedAt - left.updatedAt),
+    historyStats: buildHistoryStatsFromSummaries(sortedConversations),
+    conversations: sortedConversations,
   }
   await writeJsonFile(INDEX_PATH, index)
 }
@@ -564,9 +727,82 @@ const writeMetaFile = async (activeConversationId?: string): Promise<void> => {
   await writeJsonFile(META_PATH, meta)
 }
 
+const hydrateConversationDocument = (
+  document: PersistedConversationDocument,
+): LoadedChatStorageConversation & {
+  needsMigration: boolean
+} => {
+  const filesById = new Map(document.conversation.files.map((file) => [file.id, file]))
+  const transcript =
+    (document.conversation.transcript ?? [])
+      .map((event) => normalizePersistedTranscriptEvent(event, document.conversation.id, filesById))
+      .filter((event): event is ChatStorageConversation['transcript'][number] => event !== null) ??
+    []
+  const inferredTranscriptResponseMode = inferConversationResponseModeFromTranscript(transcript)
+  const transcriptResponseMode =
+    document.conversation.preferences?.responseMode ?? inferredTranscriptResponseMode
+  const transcriptPreferences = transcriptResponseMode
+    ? {
+        responseMode: transcriptResponseMode,
+      }
+    : undefined
+  const draftText = document.conversation.draft.text.trim()
+    ? document.conversation.draft.text
+    : ''
+
+  if (transcript.length > 0) {
+    return {
+      conversation: {
+        id: document.conversation.id,
+        title: document.conversation.title,
+        titleManuallyEdited: document.conversation.titleManuallyEdited,
+        createdAt: document.conversation.createdAt,
+        updatedAt: document.conversation.updatedAt,
+        preferences: transcriptPreferences,
+        transcript,
+      },
+      draftText,
+      needsMigration:
+        document.schemaVersion !== SCHEMA_VERSION ||
+        !Array.isArray(document.conversation.transcript) ||
+        (!document.conversation.preferences?.responseMode && Boolean(transcriptPreferences?.responseMode)),
+    }
+  }
+
+  const legacyMessages = (document.conversation.messages ?? []).map((message) =>
+    normalizeLegacyPersistedMessage(message, document.conversation.id, filesById),
+  )
+  const legacyTranscript = transcriptFromLegacyMessages(legacyMessages)
+  const legacyResponseMode = inferConversationResponseModeFromTranscript(legacyTranscript)
+  const legacyPreferences =
+    document.conversation.preferences ??
+    (legacyResponseMode
+      ? {
+          responseMode: legacyResponseMode,
+        }
+      : undefined)
+
+  return {
+    conversation: {
+      id: document.conversation.id,
+      title: document.conversation.title,
+      titleManuallyEdited: document.conversation.titleManuallyEdited,
+      createdAt: document.conversation.createdAt,
+      updatedAt: document.conversation.updatedAt,
+      preferences: legacyPreferences,
+      transcript: legacyTranscript,
+    },
+    draftText,
+    needsMigration:
+      document.schemaVersion !== SCHEMA_VERSION ||
+      !Array.isArray(document.conversation.transcript) ||
+      (!document.conversation.preferences?.responseMode && Boolean(legacyPreferences?.responseMode)),
+  }
+}
+
 const loadConversationsFromNewStorage = async (): Promise<ChatStorageState> => {
   const meta = await readJsonFile<ChatStorageMeta | null>(META_PATH, null)
-  const index = await readJsonFile<ConversationIndexFile | null>(INDEX_PATH, null)
+  const index = await readConversationIndexFile()
   const indexedIds =
     index && Array.isArray(index.conversations)
       ? index.conversations
@@ -599,7 +835,7 @@ const loadConversationsFromNewStorage = async (): Promise<ChatStorageState> => {
   const missingIds = documents
     .map((document) => document.conversation.id)
     .filter((id) => !indexedIds.includes(id))
-  const needsConversationMigration = documents.some(
+  let needsConversationMigration = documents.some(
     (document) => document.schemaVersion !== SCHEMA_VERSION || !Array.isArray(document.conversation.transcript),
   )
   if (!meta || meta.schemaVersion !== SCHEMA_VERSION) {
@@ -607,39 +843,16 @@ const loadConversationsFromNewStorage = async (): Promise<ChatStorageState> => {
   }
 
   const draftsByConversation: Record<string, string> = {}
-  const conversations = documents.map((document) => {
-    if (document.conversation.draft.text.trim()) {
-      draftsByConversation[document.conversation.id] = document.conversation.draft.text
+  const loadedConversations = documents.map((document) => hydrateConversationDocument(document))
+  for (const loaded of loadedConversations) {
+    if (loaded.draftText.trim()) {
+      draftsByConversation[loaded.conversation.id] = loaded.draftText
     }
-    const filesById = new Map(document.conversation.files.map((file) => [file.id, file]))
-    const transcript =
-      (document.conversation.transcript ?? [])
-        .map((event) => normalizePersistedTranscriptEvent(event, document.conversation.id, filesById))
-        .filter((event): event is ChatStorageConversation['transcript'][number] => event !== null) ??
-      []
-    if (transcript.length > 0) {
-      return {
-        id: document.conversation.id,
-        title: document.conversation.title,
-        titleManuallyEdited: document.conversation.titleManuallyEdited,
-        createdAt: document.conversation.createdAt,
-        updatedAt: document.conversation.updatedAt,
-        transcript,
-      }
+    if (loaded.needsMigration) {
+      needsConversationMigration = true
     }
-
-    const legacyMessages = (document.conversation.messages ?? []).map((message) =>
-      normalizeLegacyPersistedMessage(message, document.conversation.id, filesById),
-    )
-    return {
-      id: document.conversation.id,
-      title: document.conversation.title,
-      titleManuallyEdited: document.conversation.titleManuallyEdited,
-      createdAt: document.conversation.createdAt,
-      updatedAt: document.conversation.updatedAt,
-      transcript: transcriptFromLegacyMessages(legacyMessages),
-    }
-  })
+  }
+  const conversations = loadedConversations.map((loaded) => loaded.conversation)
 
   if (needsConversationMigration) {
     for (const conversation of conversations) {
@@ -654,7 +867,11 @@ const loadConversationsFromNewStorage = async (): Promise<ChatStorageState> => {
   }
 
   if (missingIds.length > 0 || !index || index.schemaVersion !== SCHEMA_VERSION || needsConversationMigration) {
-    await writeIndexFile(conversations, draftsByConversation)
+    await writeIndexFile(
+      conversations.map((conversation) =>
+        buildConversationSummary(conversation, draftsByConversation[conversation.id] ?? ''),
+      ),
+    )
   }
 
   const validActiveConversationId =
@@ -1004,6 +1221,7 @@ const serializeConversation = async (
           text: draftText,
           attachmentIds: [],
         },
+        preferences: conversation.preferences,
         transcript,
         files,
       },
@@ -1051,31 +1269,38 @@ const migrateLegacyStorage = async (): Promise<void> => {
   await ensureDirectory(CHAT_STORAGE_DIRECTORIES.conversations)
 
   for (const conversation of persistedConversations) {
+    const migratedTranscript = await Promise.all(
+      conversation.transcript.map(async (event) => {
+        if (event.kind !== 'user_message') {
+          return event
+        }
+        return {
+          ...event,
+          content: await Promise.all(
+            event.content.map(async (part) =>
+              part.type !== 'image'
+                ? part
+                : {
+                    type: 'image' as const,
+                    image: {
+                      ...part.image,
+                      dataUrl: await loadLegacyImageDataUrl(part.image),
+                    },
+                  },
+            ),
+          ),
+        }
+      }),
+    )
+    const migratedResponseMode = inferConversationResponseModeFromTranscript(migratedTranscript)
     const migratedConversation: ChatStorageConversation = {
       ...conversation,
-      transcript: await Promise.all(
-        conversation.transcript.map(async (event) => {
-          if (event.kind !== 'user_message') {
-            return event
+      preferences: migratedResponseMode
+        ? {
+            responseMode: migratedResponseMode,
           }
-          return {
-            ...event,
-            content: await Promise.all(
-              event.content.map(async (part) =>
-                part.type !== 'image'
-                  ? part
-                  : {
-                      type: 'image' as const,
-                      image: {
-                        ...part.image,
-                        dataUrl: await loadLegacyImageDataUrl(part.image),
-                      },
-                    },
-              ),
-            ),
-          }
-        }),
-      ),
+        : undefined,
+      transcript: migratedTranscript,
     }
     const serialized = await serializeConversation(
       migratedConversation,
@@ -1087,7 +1312,11 @@ const migrateLegacyStorage = async (): Promise<void> => {
     await writeJsonFile(buildConversationDocumentPath(conversation.id), serialized.document)
   }
 
-  await writeIndexFile(persistedConversations, legacyState.draftsByConversation)
+  await writeIndexFile(
+    persistedConversations.map((conversation) =>
+      buildConversationSummary(conversation, legacyState.draftsByConversation[conversation.id] ?? ''),
+    ),
+  )
   const activeConversationId =
     persistedConversations.some((conversation) => conversation.id === legacyState.activeConversationId)
       ? legacyState.activeConversationId
@@ -1148,6 +1377,103 @@ export const loadChatState = async (): Promise<ChatStorageState> => {
   return loadConversationsFromNewStorage()
 }
 
+const buildIndexStateFromChatState = (
+  state: ChatStorageState,
+): ChatStorageIndexState => {
+  const conversations = sortConversationSummaries(
+    state.conversations.map((conversation) =>
+      buildConversationSummary(conversation, state.draftsByConversation[conversation.id] ?? ''),
+    ),
+  )
+
+  return {
+    conversations,
+    activeConversationId:
+      state.activeConversationId && conversations.some((conversation) => conversation.id === state.activeConversationId)
+        ? state.activeConversationId
+        : '',
+    historyStats: buildHistoryStatsFromSummaries(conversations),
+  }
+}
+
+export const loadChatIndex = async (): Promise<ChatStorageIndexState> => {
+  await initializeChatStorage()
+
+  const meta = await readJsonFile<ChatStorageMeta | null>(META_PATH, null)
+  const index = await readConversationIndexFile()
+  const directoryNames = await listConversationIdsFromDirectories()
+  const directoryNameSet = new Set(directoryNames)
+
+  if (!index || index.schemaVersion !== SCHEMA_VERSION) {
+    const rebuiltState = buildIndexStateFromChatState(await loadConversationsFromNewStorage())
+    await writeIndexFile(rebuiltState.conversations)
+    return rebuiltState
+  }
+
+  const indexedDirectoryNames = new Set(index.conversations.map((conversation) => sanitizePathSegment(conversation.id)))
+  const nextConversations = index.conversations.filter((conversation) =>
+    directoryNameSet.has(sanitizePathSegment(conversation.id)),
+  )
+  const missingDirectoryNames = directoryNames.filter((directoryName) => !indexedDirectoryNames.has(directoryName))
+
+  if (missingDirectoryNames.length > 0) {
+    for (const directoryName of missingDirectoryNames) {
+      const document = await readConversationDocument(directoryName)
+      if (!document) {
+        continue
+      }
+      const loaded = hydrateConversationDocument(document)
+      nextConversations.push(buildConversationSummary(loaded.conversation, loaded.draftText))
+    }
+  }
+
+  const sortedConversations = sortConversationSummaries(nextConversations)
+  const rebuiltHistoryStats = buildHistoryStatsFromSummaries(sortedConversations)
+  const needsIndexRewrite =
+    sortedConversations.length !== index.conversations.length ||
+    missingDirectoryNames.length > 0 ||
+    !directoryNames.every((directoryName) => indexedDirectoryNames.has(directoryName)) ||
+    JSON.stringify(index.historyStats) !== JSON.stringify(rebuiltHistoryStats)
+
+  if (needsIndexRewrite) {
+    await writeIndexFile(sortedConversations)
+  }
+
+  return {
+    conversations: sortedConversations,
+    activeConversationId:
+      typeof meta?.activeConversationId === 'string' &&
+      sortedConversations.some((conversation) => conversation.id === meta.activeConversationId)
+        ? meta.activeConversationId
+        : '',
+    historyStats: rebuiltHistoryStats,
+  }
+}
+
+export const loadConversationState = async (
+  conversationId: string,
+): Promise<LoadedChatStorageConversation | null> => {
+  await initializeChatStorage()
+  const document = await readConversationDocument(conversationId)
+  if (!document) {
+    return null
+  }
+
+  const loaded = hydrateConversationDocument(document)
+
+  if (loaded.needsMigration) {
+    const serialized = await serializeConversation(loaded.conversation, loaded.draftText)
+    await ensureDirectory(buildConversationDirectory(conversationId))
+    await ensureDirectory(buildConversationFilesDirectory(conversationId))
+    await writeJsonFile(buildConversationDocumentPath(conversationId), serialized.document)
+  }
+
+  return {
+    conversation: loaded.conversation,
+    draftText: loaded.draftText,
+  }
+}
+
 export const loadStoredAttachmentDataUrl = async (
   storageKey: string,
   mimeType: string,
@@ -1163,43 +1489,56 @@ export const loadStoredAttachmentDataUrl = async (
   }
 }
 
-export const persistChatState = async (state: ChatStorageState): Promise<PersistChatStorageResult> => {
+export const persistChatState = async (state: ChatStoragePersistState): Promise<PersistChatStorageResult> => {
   await initializeChatStorage()
 
   const persistedConversations = state.conversations.filter((conversation) =>
-    isConversationPersistable(conversation, state.draftsByConversation[conversation.id]),
+    conversation.kind === 'hydrated'
+      ? isConversationPersistable(conversation.conversation, conversation.draftText)
+      : isConversationSummaryPersistable(conversation.summary),
   )
-  const keepConversationIds = new Set(persistedConversations.map((conversation) => sanitizePathSegment(conversation.id)))
+  const keepConversationIds = new Set(
+    persistedConversations.map((conversation) =>
+      sanitizePathSegment(conversation.kind === 'hydrated' ? conversation.conversation.id : conversation.summary.id),
+    ),
+  )
   const assignedImageStorageKeys: AssignedImageStorageKey[] = []
+  const nextSummaries: ChatStorageConversationSummary[] = []
 
   for (const conversation of persistedConversations) {
-    const previousDocument = await readConversationDocument(conversation.id)
+    if (conversation.kind === 'summary') {
+      nextSummaries.push(conversation.summary)
+      continue
+    }
+
+    const previousDocument = await readConversationDocument(conversation.conversation.id)
     const serialized = await serializeConversation(
-      conversation,
-      state.draftsByConversation[conversation.id] ?? '',
+      conversation.conversation,
+      conversation.draftText,
     )
-    await ensureDirectory(buildConversationDirectory(conversation.id))
-    await ensureDirectory(buildConversationFilesDirectory(conversation.id))
-    await writeJsonFile(buildConversationDocumentPath(conversation.id), serialized.document)
-    await cleanupConversationFiles(conversation.id, previousDocument, serialized.document)
+    await ensureDirectory(buildConversationDirectory(conversation.conversation.id))
+    await ensureDirectory(buildConversationFilesDirectory(conversation.conversation.id))
+    await writeJsonFile(buildConversationDocumentPath(conversation.conversation.id), serialized.document)
+    await cleanupConversationFiles(conversation.conversation.id, previousDocument, serialized.document)
     assignedImageStorageKeys.push(...serialized.assignedImageStorageKeys)
+    nextSummaries.push(buildConversationSummary(conversation.conversation, conversation.draftText))
   }
 
   await cleanupDeletedConversations(keepConversationIds)
-  await writeIndexFile(persistedConversations, state.draftsByConversation)
+  await writeIndexFile(nextSummaries)
 
-  const persistedConversationIdSet = new Set(persistedConversations.map((conversation) => conversation.id))
+  const persistedConversationIdSet = new Set(
+    persistedConversations.map((conversation) =>
+      conversation.kind === 'hydrated' ? conversation.conversation.id : conversation.summary.id,
+    ),
+  )
   await writeMetaFile(
     persistedConversationIdSet.has(state.activeConversationId) ? state.activeConversationId : undefined,
   )
 
   return {
     assignedImageStorageKeys,
-    signature: createStateSignature({
-      conversations: state.conversations,
-      activeConversationId: state.activeConversationId,
-      draftsByConversation: state.draftsByConversation,
-    }),
+    signature: createStateSignature(state),
   }
 }
 

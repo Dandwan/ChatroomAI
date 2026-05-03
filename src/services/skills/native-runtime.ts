@@ -1,6 +1,5 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 import type {
-  BrowserVisitResult,
   ReadListEntry,
   RunExecutionResult,
   RuntimeType,
@@ -50,19 +49,6 @@ interface ExecuteRunOptions {
   pythonExecutablePath?: string
   nodeExecutablePath?: string
   inferredRuntime?: string
-}
-
-interface ExtractWebPageOptions {
-  url: string
-  timeoutMs?: number
-  maxContentChars?: number
-  maxLinks?: number
-  maxImages?: number
-  maxHeadings?: number
-  includeMetadata?: boolean
-  includeHeadings?: boolean
-  includeLinkIndex?: boolean
-  includeImageIndex?: boolean
 }
 
 interface AbsoluteDirectoryEntry {
@@ -136,7 +122,6 @@ interface NativeRuntimePlugin {
   inspectRuntime(options: InspectRuntimeOptions): Promise<InspectRuntimeResult>
   executeProcess(options: ExecuteProcessOptions): Promise<SkillExecutionResult>
   executeRun(options: ExecuteRunOptions): Promise<RunExecutionResult>
-  extractWebPage(options: ExtractWebPageOptions): Promise<BrowserVisitResult>
   listAbsoluteDirectory(options: ListAbsoluteDirectoryOptions): Promise<ListAbsoluteDirectoryResult>
   statAbsolutePath(options: StatAbsolutePathOptions): Promise<StatAbsolutePathResult>
   readAbsoluteTextFile(options: ReadAbsoluteTextFileOptions): Promise<ReadAbsoluteTextFileResult>
@@ -163,9 +148,6 @@ const NativeRuntime = registerPlugin<NativeRuntimePlugin>('SkillRuntime', {
     },
     async executeRun() {
       throw new Error('当前平台不支持 run 执行。')
-    },
-    async extractWebPage() {
-      throw new Error('当前平台不支持浏览器模式网页访问。')
     },
     async listAbsoluteDirectory() {
       throw new Error('当前平台不支持系统根目录访问。')
@@ -231,10 +213,6 @@ export const nativeExecuteProcess = async (
 export const nativeExecuteRun = async (
   options: ExecuteRunOptions,
 ): Promise<RunExecutionResult> => NativeRuntime.executeRun(options)
-
-export const nativeExtractWebPage = async (
-  options: ExtractWebPageOptions,
-): Promise<BrowserVisitResult> => NativeRuntime.extractWebPage(options)
 
 export const nativeListAbsoluteDirectory = async (
   absolutePath: string,

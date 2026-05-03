@@ -1,8 +1,12 @@
 export {
+  buildConversationSummary,
+  buildHistoryStatsFromSummaries,
   deleteConversationStorage,
   getChatStatePersistenceSignature,
   initializeChatStorage,
+  loadChatIndex,
   loadChatState,
+  loadConversationState,
   loadStoredAttachmentDataUrl,
   persistChatState,
 } from './repository'
@@ -10,9 +14,15 @@ export type {
   AssignedImageStorageKey,
   ChatStorageContentPart,
   ChatStorageConversation,
+  ChatStorageConversationSummary,
+  ChatStorageHistoryStats,
   ChatStorageImageAttachment,
+  ChatStorageIndexState,
+  ChatStoragePersistConversation,
+  ChatStoragePersistState,
   ChatStorageState,
   ChatStorageTokenUsage,
   ChatStorageTranscriptEvent,
+  LoadedChatStorageConversation,
   PersistChatStorageResult,
 } from './types'

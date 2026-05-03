@@ -39,7 +39,13 @@ Current fields:
 
 ### `chat-data/conversations/index.json`
 
-Conversation summary cache for fast list rendering.
+Conversation summary cache for fast list rendering and cold-start homepage metrics.
+
+Cold-start contract:
+
+- App startup reads `meta.json` and `index.json` first.
+- History list rendering must come from `index.json`, not from eagerly reading every `conversation.json`.
+- Opening a historical conversation may then read that conversation's `conversation.json` on demand.
 
 Current fields per entry:
 
@@ -48,12 +54,25 @@ Current fields per entry:
 - `titleManuallyEdited`
 - `createdAt`
 - `updatedAt`
+- `preferences`
 - `messageCount`
+- `userMessageCount`
 - `fileCount`
+- `imageCount`
+- `assistantTokenCount`
+- `toolCallCount`
 - `draftTextLength`
 - `draftAttachmentCount`
 - `lastMessagePreview`
 - `lastMessageRole`
+
+Current top-level aggregate fields:
+
+- `historyStats.totalConversationCount`
+- `historyStats.totalMessageCount`
+- `historyStats.totalPhotoCount`
+- `historyStats.totalTokenCount`
+- `historyStats.totalToolCallCount`
 
 `index.json` is rebuildable. `conversation.json` remains the source of truth.
 
@@ -69,8 +88,11 @@ Current fields:
 - `createdAt`
 - `updatedAt`
 - `draft`
-- `messages`
+- `preferences`
+- `transcript`
 - `files`
+
+Legacy `messages` payloads may still appear in older records during migration, but new writes should persist `transcript`.
 
 ### `chat-data/conversations/<conversation-id>/files/`
 

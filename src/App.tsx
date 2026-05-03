@@ -125,6 +125,7 @@ import type {
 import ChatInputBox from './components/ChatInputBox'
 import ImageViewer, { type ImageViewerItem } from './components/ImageViewer'
 import NewConversationShowcase from './components/NewConversationShowcase'
+import SettingsPopoverSelect from './components/SettingsPopoverSelect'
 import SkillConfigJsonEditor, { type JsonObjectValue } from './components/SkillConfigJsonEditor'
 import {
   BUNDLED_DAILY_COVER_POOL,
@@ -152,11 +153,17 @@ import {
   type AssistantFlowSkillNode,
 } from './utils/assistant-flow'
 import {
+  buildConversationSummary,
+  buildHistoryStatsFromSummaries,
   deleteConversationStorage,
   getChatStatePersistenceSignature,
-  loadChatState as loadStoredChatState,
+  loadChatIndex,
+  loadConversationState,
   loadStoredAttachmentDataUrl,
   persistChatState,
+  type ChatStorageConversationSummary,
+  type ChatStorageHistoryStats,
+  type ChatStoragePersistState,
 } from './services/chat-storage'
 import { compressImageDataUrl, createImageAttachments } from './utils/images'
 import './App.css'
@@ -164,6 +171,15 @@ import './styles/app-editorial-redesign.css'
 
 type ModelHealth = 'untested' | 'testing' | 'ok' | 'error'
 type ThemeMode = 'light' | 'dark' | 'system'
+const THEME_MODE_OPTIONS = [
+  { value: 'system', label: '跟随系统' },
+  { value: 'dark', label: '深色' },
+  { value: 'light', label: '浅色' },
+] satisfies Array<{ value: ThemeMode; label: string }>
+const DAILY_COVER_API_METHOD_OPTIONS = [
+  { value: 'GET', label: 'GET' },
+  { value: 'POST', label: 'POST' },
+] as const
 type TagPromptSettingKey =
   | 'topLevelTagSystemPrompt'
   | 'generalTagSystemPrompt'
@@ -227,8 +243,15 @@ type TokenUsage = TranscriptTokenUsage
 type SkillStepKind = AssistantFlowSkillKind
 
 type ChatMessage = ProjectedConversationMessage
-type Conversation = TranscriptConversation
+type ConversationData = TranscriptConversation
 type ConversationResponseMode = TranscriptConversationResponseMode
+type ConversationLoadState = 'hydrated' | 'summary' | 'hydrating' | 'error'
+
+interface Conversation extends ConversationData {
+  storageLoadState: ConversationLoadState
+  storedSummary: ChatStorageConversationSummary
+  storageLoadError?: string
+}
 
 interface ConversationGroup {
   id: string
@@ -394,6 +417,23 @@ interface RectSnapshot {
   height: number
 }
 
+interface ChatSummarySnapshot {
+  rounds: number
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  estimatedCount: number
+}
+
+interface HomepageSendTransitionState {
+  cover: ResolvedDailyCover | null
+  showcaseRect: RectSnapshot
+  summaryRect?: RectSnapshot
+  highlightStats: HomepageHighlightStat[]
+  responseModeLabel: string
+  summary: ChatSummarySnapshot
+}
+
 type TitleTransitionPhase = 'opening' | 'closing'
 
 interface PendingTitleTransition {
@@ -452,6 +492,7 @@ interface LoadedChatState {
   conversations: Conversation[]
   activeConversationId: string
   draftsByConversation: Record<string, string>
+  historyStats: ChatStorageHistoryStats
 }
 
 interface ActiveProviderRequestSettings extends RequestSettings {
@@ -499,16 +540,6 @@ const DEFAULT_DELETE_CONFIRM_GRACE_SECONDS = 30
 const DEFAULT_CONVERSATION_GROUP_GAP_MINUTES = 30
 const DEFAULT_AUTO_COLLAPSE_CONVERSATIONS = true
 const DEFAULT_EMPTY_STATE_STATS_MIN_CONVERSATIONS = 3
-const TOOL_CALL_HOST_MESSAGE_CATEGORIES = new Set<HostMessageTranscriptEvent['category']>([
-  'read_result',
-  'read_error',
-  'edit_result',
-  'edit_error',
-  'run_result',
-  'run_error',
-  'skill_result',
-  'skill_error',
-])
 const SWIPE_DELETE_TOGGLE_THRESHOLD_PX = 72
 const SWIPE_DELETE_MAX_OFFSET_PX = 96
 const LONG_PRESS_DELETE_MODE_MS = 520
@@ -530,7 +561,15 @@ const MESSAGE_LIST_SMOOTH_SCROLL_MIN_STEP_PX = 10
 const DRAWER_TO_SETTINGS_OPEN_DELAY_MS = 220
 const SETTINGS_PERSIST_DEBOUNCE_MS = 320
 const CHAT_STATE_PERSIST_DEBOUNCE_MS = 1200
+const HOMEPAGE_SEND_TRANSITION_DURATION_MS = 920
 const DEFAULT_RESPONSE_MODE: ConversationResponseMode = 'tool'
+const EMPTY_HISTORY_STATS: ChatStorageHistoryStats = {
+  totalConversationCount: 0,
+  totalMessageCount: 0,
+  totalPhotoCount: 0,
+  totalTokenCount: 0,
+  totalToolCallCount: 0,
+}
 
 const getResponseModeLabel = (mode: ConversationResponseMode): string =>
   mode === 'tool' ? '技能模式' : '文本模式'
@@ -543,6 +582,20 @@ const buildHomepageModelTriggerLabel = (
   const modeLabel = getResponseModeLabel(responseMode)
   return trimmedModelId ? `${trimmedModelId} · ${modeLabel}` : `选择模型 · ${modeLabel}`
 }
+
+const createViewportRectSnapshot = (): RectSnapshot => ({
+  top: 0,
+  left: 0,
+  width: window.innerWidth,
+  height: window.innerHeight,
+})
+
+const rectToSnapshot = (rect: DOMRect): RectSnapshot => ({
+  top: rect.top,
+  left: rect.left,
+  width: rect.width,
+  height: rect.height,
+})
 
 const hasConversationStarted = (
   conversation: Pick<Conversation, 'transcript'>,
@@ -876,9 +929,15 @@ const dateFormatter = new Intl.DateTimeFormat('zh-CN', {
   hour: '2-digit',
   minute: '2-digit',
 })
-const CHAT_DAY_START_HOUR = 6
-const CHAT_DAY_MS_OFFSET = CHAT_DAY_START_HOUR * 60 * 60 * 1000
-
+const drawerGroupDateFormatter = new Intl.DateTimeFormat('zh-CN', {
+  month: '2-digit',
+  day: '2-digit',
+})
+const drawerGroupTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+})
 const createId = (): string => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID()
@@ -929,6 +988,27 @@ const clamp = (value: number, minimum: number, maximum: number): number =>
   Math.min(Math.max(value, minimum), maximum)
 
 const createProviderModelKey = (providerId: string, modelId: string): string => `${providerId}::${modelId}`
+
+const startOfLocalDay = (time: number): number => {
+  const next = new Date(time)
+  next.setHours(0, 0, 0, 0)
+  return next.getTime()
+}
+
+const formatDrawerGroupLabel = (time: number, referenceTime = Date.now()): string => {
+  const currentDay = startOfLocalDay(referenceTime)
+  const targetDay = startOfLocalDay(time)
+
+  if (targetDay === currentDay) {
+    return `TODAY · ${drawerGroupTimeFormatter.format(time)}`
+  }
+
+  if (targetDay === currentDay - 24 * 60 * 60 * 1000) {
+    return `YESTERDAY · ${drawerGroupTimeFormatter.format(time)}`
+  }
+
+  return `${drawerGroupDateFormatter.format(time)} · ${drawerGroupTimeFormatter.format(time)}`
+}
 
 const createProviderNameCandidate = (providers: ProviderConfig[]): string => {
   const usedNames = new Set(providers.map((provider) => provider.name.trim()).filter(Boolean))
@@ -1025,10 +1105,6 @@ const normalizeDailyCoverSettings = (value: unknown): DailyCoverSettings => {
   return {
     enabled:
       typeof value.enabled === 'boolean' ? value.enabled : DEFAULT_DAILY_COVER_SETTINGS.enabled,
-    showChatBanner:
-      typeof value.showChatBanner === 'boolean'
-        ? value.showChatBanner
-        : DEFAULT_DAILY_COVER_SETTINGS.showChatBanner,
     useApi:
       typeof value.useApi === 'boolean' ? value.useApi : DEFAULT_DAILY_COVER_SETTINGS.useApi,
     apiEndpoint:
@@ -1209,26 +1285,6 @@ const resolveProviderRequestSettings = (settings: AppSettings): ActiveProviderRe
     frequencyPenalty: provider.frequencyPenalty ?? settings.frequencyPenalty,
     maxModelRetryCount: provider.maxModelRetryCount ?? settings.maxModelRetryCount,
   }
-}
-
-const padTwoDigits = (value: number): string => String(value).padStart(2, '0')
-
-const getChatDayReferenceDate = (timestamp: number): Date => new Date(timestamp - CHAT_DAY_MS_OFFSET)
-
-const getChatDayStartTimestamp = (timestamp: number): number => {
-  const date = getChatDayReferenceDate(timestamp)
-  date.setHours(0, 0, 0, 0)
-  return date.getTime()
-}
-
-const getCalendarDayKey = (timestamp: number): string => {
-  const date = new Date(timestamp)
-  return `${date.getFullYear()}-${padTwoDigits(date.getMonth() + 1)}-${padTwoDigits(date.getDate())}`
-}
-
-const getChatDayTimeRank = (timestamp: number): number => {
-  const date = new Date(timestamp)
-  return (date.getHours() * 60 + date.getMinutes() - CHAT_DAY_START_HOUR * 60 + 1440) % 1440
 }
 
 const formatCompactCount = (value: number): string => {
@@ -1689,15 +1745,90 @@ const parseActionExecutionPayload = (
   }
 }
 
+const toHydratedConversation = (
+  conversation: ConversationData,
+  draftText = '',
+): Conversation => ({
+  ...conversation,
+  storageLoadState: 'hydrated',
+  storedSummary: buildConversationSummary(conversation, draftText),
+  storageLoadError: undefined,
+})
+
+const createSummaryConversation = (
+  summary: ChatStorageConversationSummary,
+): Conversation => ({
+  id: summary.id,
+  title: summary.title,
+  titleManuallyEdited: summary.titleManuallyEdited,
+  createdAt: summary.createdAt,
+  updatedAt: summary.updatedAt,
+  preferences: summary.preferences,
+  transcript: [],
+  storageLoadState: 'summary',
+  storedSummary: summary,
+})
+
 const createConversation = (
   transcript: TranscriptEvent[] = [],
   responseMode: ConversationResponseMode = DEFAULT_RESPONSE_MODE,
 ): Conversation =>
-  createConversationFromTranscript(createId(), transcript, {
-    preferences: {
-      responseMode,
-    },
-  })
+  toHydratedConversation(
+    createConversationFromTranscript(createId(), transcript, {
+      preferences: {
+        responseMode,
+      },
+    }),
+  )
+
+const toConversationSummary = (
+  conversation: Conversation,
+  draftText: string,
+): ChatStorageConversationSummary =>
+  conversation.storageLoadState === 'hydrated'
+    ? buildConversationSummary(conversation, draftText)
+    : {
+        ...conversation.storedSummary,
+        title: conversation.title,
+        titleManuallyEdited: conversation.titleManuallyEdited,
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+        preferences: conversation.preferences,
+      }
+
+const isPersistedConversationSummary = (
+  summary: ChatStorageConversationSummary,
+): boolean =>
+  summary.messageCount > 0 ||
+  summary.titleManuallyEdited ||
+  summary.draftTextLength > 0 ||
+  summary.draftAttachmentCount > 0
+
+const withConversationRecordTranscript = (
+  conversation: Conversation,
+  transcript: TranscriptEvent[],
+  draftText: string,
+  options?: {
+    keepUpdatedAt?: boolean
+  },
+): Conversation =>
+  toHydratedConversation(
+    withConversationTranscript(conversation, transcript, options),
+    draftText,
+  )
+
+const withConversationRecordResponseMode = (
+  conversation: Conversation,
+  responseMode: ConversationResponseMode,
+  draftText: string,
+  options?: {
+    keepUpdatedAt?: boolean
+  },
+): Conversation =>
+  toHydratedConversation(
+    withConversationResponseMode(conversation, responseMode, options),
+    draftText,
+  )
 
 const buildUserTranscriptContent = (
   text: string,
@@ -2129,8 +2260,29 @@ const createInitialChatState = (defaultResponseMode: ConversationResponseMode): 
     conversations: [fallbackConversation],
     activeConversationId: fallbackConversation.id,
     draftsByConversation: {},
+    historyStats: EMPTY_HISTORY_STATS,
   }
 }
+
+const buildPersistChatState = (
+  conversations: Conversation[],
+  draftsByConversation: Record<string, string>,
+  activeConversationId: string,
+): ChatStoragePersistState => ({
+  conversations: conversations.map((conversation) =>
+    conversation.storageLoadState === 'hydrated'
+      ? {
+          kind: 'hydrated',
+          conversation,
+          draftText: draftsByConversation[conversation.id] ?? '',
+        }
+      : {
+          kind: 'summary',
+          summary: toConversationSummary(conversation, draftsByConversation[conversation.id] ?? ''),
+        },
+  ),
+  activeConversationId,
+})
 
 const MarkdownMessage = memo(({ text }: { text: string }) => {
   const normalizedText = useMemo(() => normalizeLatexDelimiters(text), [text])
@@ -2170,6 +2322,9 @@ function App() {
   )
   const [draftsByConversation, setDraftsByConversation] = useState<ConversationDrafts>(
     initialStateRef.current.draftsByConversation,
+  )
+  const [historyStats, setHistoryStats] = useState<ChatStorageHistoryStats>(
+    initialStateRef.current.historyStats,
   )
   const [chatStateLoadError, setChatStateLoadError] = useState<string | null>(null)
   const [chatStateLoaded, setChatStateLoaded] = useState(false)
@@ -2218,6 +2373,8 @@ function App() {
   const [deleteModeEnabled, setDeleteModeEnabled] = useState(false)
   const [deleteDialogConversationId, setDeleteDialogConversationId] = useState<string | null>(null)
   const [deleteDialogProviderId, setDeleteDialogProviderId] = useState<string | null>(null)
+  const [deleteDialogSkillId, setDeleteDialogSkillId] = useState<string | null>(null)
+  const [deleteDialogRuntimeId, setDeleteDialogRuntimeId] = useState<string | null>(null)
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editingText, setEditingText] = useState('')
   const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null)
@@ -2249,6 +2406,7 @@ function App() {
   const [resolvedDailyCover, setResolvedDailyCover] = useState<ResolvedDailyCover | null>(() =>
     resolveBundledDailyCover(getLocalDateKey()),
   )
+  const [homepageSendTransition, setHomepageSendTransition] = useState<HomepageSendTransitionState | null>(null)
   const [openPromptEditors, setOpenPromptEditors] = useState<Record<TagPromptEditorKey, boolean>>({
     systemPrompt: false,
     topLevelTagSystemPrompt: false,
@@ -2285,6 +2443,8 @@ function App() {
   const titleInputRef = useRef<HTMLInputElement | null>(null)
   const titleActionsRef = useRef<HTMLDivElement | null>(null)
   const messageListRef = useRef<HTMLElement | null>(null)
+  const homepageShowcaseRef = useRef<HTMLElement | null>(null)
+  const chatSummaryBarRef = useRef<HTMLElement | null>(null)
   const settingsPageRef = useRef<HTMLElement | null>(null)
   const conversationListRef = useRef<HTMLDivElement | null>(null)
   const messageEndRef = useRef<HTMLDivElement | null>(null)
@@ -2292,6 +2452,8 @@ function App() {
   const storageWarningShownRef = useRef(false)
   const conversationPersistTaskIdRef = useRef(0)
   const chatStateSignatureRef = useRef('')
+  const activeConversationIdRef = useRef(initialStateRef.current.activeConversationId)
+  const draftsByConversationRef = useRef<ConversationDrafts>(initialStateRef.current.draftsByConversation)
   const hydratingImageKeysRef = useRef<Set<string>>(new Set())
   const settingsScrollByViewRef = useRef<Record<SettingsView, number>>({
     main: 0,
@@ -2413,6 +2575,15 @@ function App() {
     },
     [],
   )
+
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversationId
+  }, [activeConversationId])
+
+  useEffect(() => {
+    draftsByConversationRef.current = draftsByConversation
+  }, [draftsByConversation])
+
   const skillConfigTarget = useMemo(
     () =>
       skillConfigTargetId
@@ -2435,6 +2606,20 @@ function App() {
         : null,
     [deleteDialogProviderId, settings.providers],
   )
+  const deleteDialogSkill = useMemo(
+    () =>
+      deleteDialogSkillId
+        ? skillRecords.find((skill) => skill.id === deleteDialogSkillId) ?? null
+        : null,
+    [deleteDialogSkillId, skillRecords],
+  )
+  const deleteDialogRuntime = useMemo(
+    () =>
+      deleteDialogRuntimeId
+        ? runtimeRecords.find((runtime) => runtime.id === deleteDialogRuntimeId) ?? null
+        : null,
+    [deleteDialogRuntimeId, runtimeRecords],
+  )
   const projectedMessagesByConversationId = useMemo(
     () =>
       new Map(
@@ -2446,13 +2631,41 @@ function App() {
     () => (activeConversation ? projectedMessagesByConversationId.get(activeConversation.id) ?? [] : []),
     [activeConversation, projectedMessagesByConversationId],
   )
-  const isHomepageEmptyState = chatStateLoaded && !chatStateLoadError && activeMessages.length === 0
-  const displayConversationTitle = isHomepageEmptyState
-    ? '动话 · 新对话'
-    : activeConversation?.title ?? '动话'
-  const homepageBackgroundStyle = isHomepageEmptyState && resolvedDailyCover
+  const conversationSummariesById = useMemo(
+    () =>
+      new Map(
+        conversations.map((conversation) => [
+          conversation.id,
+          toConversationSummary(conversation, draftsByConversation[conversation.id] ?? ''),
+        ]),
+      ),
+    [conversations, draftsByConversation],
+  )
+  const currentHistoryStats = useMemo(
+    () =>
+      buildHistoryStatsFromSummaries(
+        Array.from(conversationSummariesById.values()).filter((summary) => isPersistedConversationSummary(summary)),
+      ),
+    [conversationSummariesById],
+  )
+  const effectiveHistoryStats = chatStateLoaded ? currentHistoryStats : historyStats
+  const hasActiveMessages = activeMessages.length > 0
+  const isActiveConversationLoading =
+    activeConversation?.storageLoadState === 'summary' || activeConversation?.storageLoadState === 'hydrating'
+  const isActiveConversationLoadError = activeConversation?.storageLoadState === 'error'
+  const isHomepageEmptyState =
+    activeConversation?.storageLoadState === 'hydrated' &&
+    activeMessages.length === 0
+  const displayConversationTitle = activeConversation?.title ?? '新对话'
+  const shouldShowHomepageBackground = isHomepageEmptyState && resolvedDailyCover !== null
+  const homepageBackgroundStyle = shouldShowHomepageBackground && resolvedDailyCover
     ? ({ '--homepage-cover-image': `url("${resolvedDailyCover.imageUrl}")` } as CSSProperties)
     : undefined
+  const appShellStyle = {
+    '--homepage-send-transition-duration': `${HOMEPAGE_SEND_TRANSITION_DURATION_MS}ms`,
+    '--homepage-send-transition-easing': 'linear',
+    ...(homepageBackgroundStyle ?? {}),
+  } as CSSProperties
   const draft = activeConversation ? draftsByConversation[activeConversation.id] ?? '' : ''
   const imageViewerItems = useMemo(
     () => collectConversationImageViewerItems(activeMessages, pendingImages),
@@ -2462,6 +2675,7 @@ function App() {
     () =>
       conversations.filter(
         (conversation) =>
+          conversation.storageLoadState !== 'hydrated' ||
           !isTranscriptConversationWorkspacePlaceholder(conversation, draftsByConversation[conversation.id] ?? ''),
       ),
     [conversations, draftsByConversation],
@@ -2586,145 +2800,26 @@ function App() {
     () => activeMessages.filter((message) => message.role === 'user').length,
     [activeMessages],
   )
+  const chatSummarySnapshot = useMemo<ChatSummarySnapshot>(
+    () => ({
+      rounds,
+      promptTokens: tokenSummary.promptTokens,
+      completionTokens: tokenSummary.completionTokens,
+      totalTokens: tokenSummary.totalTokens,
+      estimatedCount: tokenSummary.estimatedCount,
+    }),
+    [rounds, tokenSummary],
+  )
 
   const emptyStateStats = useMemo(() => {
-    const totalConversationCount = visibleConversations.length
-    const allMessages = visibleConversations.flatMap(
-      (conversation) => projectedMessagesByConversationId.get(conversation.id) ?? [],
-    )
-    const userMessages = allMessages.filter((message) => message.role === 'user')
-    const assistantMessages = allMessages.filter((message) => message.role === 'assistant')
-    const totalPhotoCount = userMessages.reduce(
-      (sum, message) => sum + (message.images?.length ?? 0),
-      0,
-    )
-    const totalMessageCount = userMessages.length
-    const totalTokenCount = assistantMessages.reduce(
-      (sum, message) => sum + (message.usage?.totalTokens ?? 0),
-      0,
-    )
-    const totalToolCallCount = visibleConversations.reduce(
-      (sum, conversation) =>
-        sum +
-        conversation.transcript.filter(
-          (event) =>
-            event.kind === 'host_message' && TOOL_CALL_HOST_MESSAGE_CATEGORIES.has(event.category),
-        ).length,
-      0,
-    )
-
-    const earliestHistoryTimestamp = allMessages.reduce(
-      (minimum, message) => Math.min(minimum, message.createdAt),
-      Number.POSITIVE_INFINITY,
-    )
-    const daysSinceFirstConversation =
-      Number.isFinite(earliestHistoryTimestamp) && totalConversationCount > 0
-        ? Math.max(
-            1,
-            Math.round(
-              (getChatDayStartTimestamp(Date.now()) - getChatDayStartTimestamp(earliestHistoryTimestamp)) /
-                (24 * 60 * 60 * 1000),
-            ) + 1,
-          )
-        : 0
-
-    const currentYear = new Date().getFullYear()
-    const currentYearUserMessages = userMessages.filter(
-      (message) => getChatDayReferenceDate(message.createdAt).getFullYear() === currentYear,
-    )
-    const currentYearMessagesByChatDay = allMessages.filter(
-      (message) => getChatDayReferenceDate(message.createdAt).getFullYear() === currentYear,
-    )
-    const currentYearMessagesByCalendarDay = allMessages.filter(
-      (message) => new Date(message.createdAt).getFullYear() === currentYear,
-    )
-
-    const earliestTimeRecordCandidate = currentYearUserMessages.reduce<{
-      timestamp: number
-      rank: number
-    } | null>((best, message) => {
-      const rank = getChatDayTimeRank(message.createdAt)
-      if (!best || rank < best.rank || (rank === best.rank && message.createdAt < best.timestamp)) {
-        return { timestamp: message.createdAt, rank }
-      }
-      return best
-    }, null)
-
-    const latestTimeRecordCandidate = currentYearUserMessages.reduce<{
-      timestamp: number
-      rank: number
-    } | null>((best, message) => {
-      const rank = getChatDayTimeRank(message.createdAt)
-      if (!best || rank > best.rank || (rank === best.rank && message.createdAt < best.timestamp)) {
-        return { timestamp: message.createdAt, rank }
-      }
-      return best
-    }, null)
-
-    const earliestTimeRecord =
-      earliestTimeRecordCandidate && earliestTimeRecordCandidate.rank < 3 * 60
-        ? earliestTimeRecordCandidate
-        : null
-    const latestTimeRecord =
-      latestTimeRecordCandidate && latestTimeRecordCandidate.rank > 18 * 60
-        ? latestTimeRecordCandidate
-        : null
-
-    const activityByDay = new Map<
-      string,
-      {
-        timestamp: number
-        rounds: number
-        tokens: number
-      }
-    >()
-
-    for (const message of currentYearMessagesByCalendarDay) {
-      const key = getCalendarDayKey(message.createdAt)
-      const current =
-        activityByDay.get(key) ??
-        ({
-          timestamp: message.createdAt,
-          rounds: 0,
-          tokens: 0,
-        } as const)
-
-      activityByDay.set(key, {
-        timestamp: current.timestamp,
-        rounds: current.rounds + (message.role === 'user' ? 1 : 0),
-        tokens: current.tokens + (message.role === 'assistant' ? message.usage?.totalTokens ?? 0 : 0),
-      })
-    }
-
-    const busiestDay = Array.from(activityByDay.values())
-      .filter((day) => day.rounds > 0)
-      .sort((left, right) => {
-        if (right.rounds !== left.rounds) {
-          return right.rounds - left.rounds
-        }
-        if (right.tokens !== left.tokens) {
-          return right.tokens - left.tokens
-        }
-        return left.timestamp - right.timestamp
-      })[0] ?? null
-
-    const shouldShowMiddleSection =
-      totalConversationCount > 0 &&
-      totalConversationCount >= settings.emptyStateStatsMinConversations
-
     return {
-      totalConversationCount,
-      daysSinceFirstConversation,
-      totalPhotoCount,
-      totalMessageCount,
-      totalTokenCount,
-      totalToolCallCount,
-      earliestTimeRecord,
-      latestTimeRecord,
-      busiestDay: currentYearMessagesByChatDay.length > 0 ? busiestDay : null,
-      shouldShowMiddleSection,
+      totalConversationCount: effectiveHistoryStats.totalConversationCount,
+      totalPhotoCount: effectiveHistoryStats.totalPhotoCount,
+      totalMessageCount: effectiveHistoryStats.totalMessageCount,
+      totalTokenCount: effectiveHistoryStats.totalTokenCount,
+      totalToolCallCount: effectiveHistoryStats.totalToolCallCount,
     }
-  }, [projectedMessagesByConversationId, settings.emptyStateStatsMinConversations, visibleConversations])
+  }, [effectiveHistoryStats])
 
   const homepageHighlightStats = useMemo<HomepageHighlightStat[]>(
     () =>
@@ -2775,8 +2870,11 @@ function App() {
 
   const hasDraftText = draft.trim().length > 0
   const hasComposerPayload = hasDraftText || pendingImages.length > 0
-  const canSend = activeConversation !== null && hasComposerPayload && !isSending
+  const isComposerLocked =
+    activeConversation === null || isActiveConversationLoading || isActiveConversationLoadError
+  const canSend = !isComposerLocked && hasComposerPayload && !isSending
   const canAppendWhileSending =
+    !isComposerLocked &&
     activeConversationResponseMode === 'tool' &&
     isSending &&
     isRunningInActiveConversation &&
@@ -3148,11 +3246,7 @@ function App() {
     }
   }, [pushNotice])
 
-  const handleDeleteSkill = useCallback(async (skillId: string): Promise<void> => {
-    if (!window.confirm(`确认删除 skill "${skillId}" 吗？`)) {
-      return
-    }
-
+  const deleteSkillById = useCallback(async (skillId: string): Promise<void> => {
     try {
       await deleteSkill(skillId)
       if (skillConfigTargetId === skillId) {
@@ -3170,6 +3264,13 @@ function App() {
     }
   }, [pushNotice, refreshExtensions, skillConfigTargetId])
 
+  const requestDeleteSkill = useCallback((skillId: string): void => {
+    setDeleteDialogConversationId(null)
+    setDeleteDialogProviderId(null)
+    setDeleteDialogRuntimeId(null)
+    setDeleteDialogSkillId(skillId)
+  }, [])
+
   const handleSetRuntimeEnabled = useCallback(async (runtimeId: string, enabled: boolean): Promise<void> => {
     try {
       await setRuntimeEnabled(runtimeId, enabled)
@@ -3182,11 +3283,7 @@ function App() {
     }
   }, [pushNotice])
 
-  const handleDeleteRuntime = useCallback(async (runtimeId: string): Promise<void> => {
-    if (!window.confirm(`确认删除运行时 "${runtimeId}" 吗？`)) {
-      return
-    }
-
+  const deleteRuntimeById = useCallback(async (runtimeId: string): Promise<void> => {
     try {
       await deleteRuntime(runtimeId)
       await refreshExtensions(true)
@@ -3196,6 +3293,13 @@ function App() {
       pushNotice(`删除运行时失败：${message}`, 'error')
     }
   }, [pushNotice, refreshExtensions])
+
+  const requestDeleteRuntime = useCallback((runtimeId: string): void => {
+    setDeleteDialogConversationId(null)
+    setDeleteDialogProviderId(null)
+    setDeleteDialogSkillId(null)
+    setDeleteDialogRuntimeId(runtimeId)
+  }, [])
 
   const handleSetDefaultRuntime = useCallback(
     async (runtime: RuntimeRecord): Promise<void> => {
@@ -3450,6 +3554,8 @@ function App() {
   const requestDeleteProvider = useCallback((providerId: string): void => {
     setDeleteDialogConversationId(null)
     setDeleteDialogProviderId(providerId)
+    setDeleteDialogSkillId(null)
+    setDeleteDialogRuntimeId(null)
   }, [])
 
   const updateProviderField = useCallback(
@@ -3633,7 +3739,11 @@ function App() {
     setConversationsState((previous) =>
       previous.map((conversation) =>
         conversation.id === conversationId
-          ? withConversationTranscript(conversation, transcript)
+          ? withConversationRecordTranscript(
+              conversation,
+              transcript,
+              draftsByConversationRef.current[conversation.id] ?? '',
+            )
           : conversation,
       ),
     )
@@ -3644,7 +3754,11 @@ function App() {
       setConversationsState((previous) =>
         previous.map((conversation) =>
           conversation.id === conversationId
-            ? withConversationResponseMode(conversation, responseMode)
+            ? withConversationRecordResponseMode(
+                conversation,
+                responseMode,
+                draftsByConversationRef.current[conversation.id] ?? '',
+              )
             : conversation,
         ),
       )
@@ -3695,7 +3809,11 @@ function App() {
       setConversationsState((previous) =>
         previous.map((conversation) =>
           conversation.id === conversationId
-            ? withConversationTranscript(conversation, [...conversation.transcript, ...events])
+            ? withConversationRecordTranscript(
+                conversation,
+                [...conversation.transcript, ...events],
+                draftsByConversationRef.current[conversation.id] ?? '',
+              )
             : conversation,
         ),
       )
@@ -3730,7 +3848,13 @@ function App() {
             return nextEvent
           })
 
-          return hasUpdatedEvent ? withConversationTranscript(conversation, nextTranscript) : conversation
+          return hasUpdatedEvent
+            ? withConversationRecordTranscript(
+                conversation,
+                nextTranscript,
+                draftsByConversationRef.current[conversation.id] ?? '',
+              )
+            : conversation
         }),
       )
     },
@@ -4111,7 +4235,11 @@ function App() {
             error: undefined,
           }
         })
-        return withConversationTranscript(conversation, nextTranscript)
+        return withConversationRecordTranscript(
+          conversation,
+          nextTranscript,
+          draftsByConversationRef.current[conversation.id] ?? '',
+        )
       }),
     )
   }
@@ -5388,6 +5516,35 @@ function App() {
       return
     }
 
+    const maybeStartHomepageSendTransition = (): void => {
+      if (!isHomepageEmptyState || typeof window === 'undefined') {
+        return
+      }
+
+      const showcaseRect = homepageShowcaseRef.current?.getBoundingClientRect()
+      const messageListRect = messageListRef.current?.getBoundingClientRect()
+      const summaryRect = chatSummaryBarRef.current?.getBoundingClientRect()
+
+      const resolvedShowcaseRect =
+        showcaseRect && showcaseRect.width > 0 && showcaseRect.height > 0
+          ? rectToSnapshot(showcaseRect)
+          : messageListRect && messageListRect.width > 0 && messageListRect.height > 0
+            ? rectToSnapshot(messageListRect)
+            : createViewportRectSnapshot()
+
+      setHomepageSendTransition({
+        cover: resolvedDailyCover,
+        showcaseRect: resolvedShowcaseRect,
+        summaryRect:
+          summaryRect && summaryRect.width > 0 && summaryRect.height > 0
+            ? rectToSnapshot(summaryRect)
+            : undefined,
+        highlightStats: homepageHighlightStats,
+        responseModeLabel: getResponseModeLabel(activeConversationResponseMode),
+        summary: chatSummarySnapshot,
+      })
+    }
+
     const trimmedDraft = draft.trim()
     const normalizedDraftCommand = trimmedDraft.toLowerCase().replace(/\s+/g, '')
     const compactDraftCommand = normalizedDraftCommand.replace(/[^\w/:-]/g, '')
@@ -5413,6 +5570,7 @@ function App() {
       compactDraftCommand.includes('/debug_object_flow')
 
     if (isDebugLogClearCommand) {
+      maybeStartHomepageSendTransition()
       clearDebugLogEntries(DEBUG_SKILL_ROUND_LOG_STORAGE_KEY)
       clearDebugLogEntries(DEBUG_OBJECT_FLOW_LOG_STORAGE_KEY)
       lastSkillRoundLogKeyRef.current = ''
@@ -5431,6 +5589,7 @@ function App() {
     }
 
     if (isDebugLogExportCommand) {
+      maybeStartHomepageSendTransition()
       const roundLogs = readDebugLogEntries(DEBUG_SKILL_ROUND_LOG_STORAGE_KEY)
       const objectLogs = readDebugLogEntries(DEBUG_OBJECT_FLOW_LOG_STORAGE_KEY)
       const turnId = createId()
@@ -5447,6 +5606,7 @@ function App() {
     }
 
     if (isObjectFlowDebugCommand) {
+      maybeStartHomepageSendTransition()
       const turnId = createId()
       const userEvent = createUserMessageTranscriptEvent(
         turnId,
@@ -5472,6 +5632,7 @@ function App() {
       buildUserTranscriptContent(trimmedDraft, outgoingImages),
     )
     const historyTranscript = [...activeConversation.transcript, userEvent]
+    maybeStartHomepageSendTransition()
     appendConversationTranscriptEvents(activeConversation.id, [userEvent])
     resetComposerState(activeConversation.id)
     enqueueTurnExecution({
@@ -6163,6 +6324,7 @@ function App() {
 
   const switchConversation = (conversationId: string): void => {
     setActiveConversationId(conversationId)
+    hydrateConversationById(conversationId)
     closeDrawer()
     closeModelMenu()
     setDeleteModeEnabled(false)
@@ -6254,6 +6416,8 @@ function App() {
   const closeDeleteDialog = useCallback((): void => {
     setDeleteDialogConversationId(null)
     setDeleteDialogProviderId(null)
+    setDeleteDialogSkillId(null)
+    setDeleteDialogRuntimeId(null)
   }, [])
 
   const confirmDeleteConversation = (): void => {
@@ -6277,6 +6441,26 @@ function App() {
     deleteProvider(providerId)
   }
 
+  const confirmDeleteSkill = (): void => {
+    if (!deleteDialogSkillId) {
+      return
+    }
+
+    const skillId = deleteDialogSkillId
+    closeDeleteDialog()
+    void deleteSkillById(skillId)
+  }
+
+  const confirmDeleteRuntime = (): void => {
+    if (!deleteDialogRuntimeId) {
+      return
+    }
+
+    const runtimeId = deleteDialogRuntimeId
+    closeDeleteDialog()
+    void deleteRuntimeById(runtimeId)
+  }
+
   const requestDeleteConversation = (conversationId: string): void => {
     const now = Date.now()
     if (now <= deleteConfirmBypassUntilRef.current) {
@@ -6286,6 +6470,8 @@ function App() {
     }
 
     setDeleteDialogProviderId(null)
+    setDeleteDialogSkillId(null)
+    setDeleteDialogRuntimeId(null)
     setDeleteDialogConversationId(conversationId)
   }
 
@@ -6428,6 +6614,7 @@ function App() {
 
   const createNewConversation = (): void => {
     const existingPlaceholder = conversations.find((conversation) =>
+      conversation.storageLoadState === 'hydrated' &&
       isTranscriptConversationWorkspacePlaceholder(conversation, draftsByConversation[conversation.id] ?? ''),
     )
     const nextConversation =
@@ -6598,49 +6785,32 @@ function App() {
 
     void (async () => {
       try {
-        const loaded = await loadStoredChatState()
+        const loaded = await loadChatIndex()
         if (cancelled) {
           return
         }
 
-        const fallbackConversation = createConversation([], settingsRef.current.defaultResponseMode)
-        const persistedConversationIds = new Set(loaded.conversations.map((conversation) => conversation.id))
-        const nextDrafts = Object.fromEntries(
-          Object.entries(loaded.draftsByConversation).filter(
-            ([conversationId, draft]) => persistedConversationIds.has(conversationId) && draft.length > 0,
-          ),
-        )
+        const existingConversationIds = new Set(conversationsRef.current.map((conversation) => conversation.id))
         const nextConversations = [
-          fallbackConversation,
-          ...loaded.conversations.map((conversation) => {
-            if (conversation.preferences?.responseMode || !hasConversationStarted(conversation)) {
-              return conversation
-            }
-
-            return withConversationResponseMode(
-              conversation,
-              settingsRef.current.defaultResponseMode,
-              {
-                keepUpdatedAt: true,
-              },
-            )
-          }),
+          ...conversationsRef.current,
+          ...loaded.conversations
+            .filter((conversation) => !existingConversationIds.has(conversation.id))
+            .map((conversation) => createSummaryConversation(conversation)),
         ]
-        // Product invariant: a cold launch must always land in a fresh new conversation.
-        // History is restored below, but initial focus must never jump back to the last active thread.
-        const nextActiveConversationId = fallbackConversation.id
-
-        const nextState: LoadedChatState = {
-          conversations: nextConversations,
-          activeConversationId: nextActiveConversationId,
-          draftsByConversation: nextDrafts,
-        }
-
-        chatStateSignatureRef.current = getChatStatePersistenceSignature(nextState)
+        const nextDrafts = draftsByConversationRef.current
+        const nextActiveConversationId =
+          activeConversationIdRef.current ||
+          nextConversations[0]?.id ||
+          ''
+        const nextPersistState = buildPersistChatState(
+          nextConversations,
+          nextDrafts,
+          nextActiveConversationId,
+        )
+        chatStateSignatureRef.current = getChatStatePersistenceSignature(nextPersistState)
         startTransition(() => {
           setConversationsState(nextConversations)
-          setActiveConversationId(nextActiveConversationId)
-          setDraftsByConversation(nextDrafts)
+          setHistoryStats(loaded.historyStats)
           setChatStateLoadError(null)
           setChatStateLoaded(true)
         })
@@ -6650,6 +6820,7 @@ function App() {
         }
         const message = error instanceof Error ? error.message : '未知错误'
         setChatStateLoadError(`聊天记录加载失败：${message}`)
+        setNotice({ text: '历史对话索引加载失败，已暂停自动保存以避免覆盖现有记录。', type: 'error' })
         console.warn('Failed to load chat state', error)
       }
     })()
@@ -6658,6 +6829,93 @@ function App() {
       cancelled = true
     }
   }, [setConversationsState])
+
+  const hydrateConversationById = useCallback(
+    (conversationId: string): void => {
+      if (!chatStateLoaded) {
+        return
+      }
+
+      const targetConversation =
+        conversationsRef.current.find((conversation) => conversation.id === conversationId) ?? null
+      if (
+        !targetConversation ||
+        (targetConversation.storageLoadState !== 'summary' &&
+          targetConversation.storageLoadState !== 'error')
+      ) {
+        return
+      }
+
+      setConversationsState((previous) =>
+        previous.map((conversation) =>
+          conversation.id === conversationId
+            ? {
+                ...conversation,
+                storageLoadState: 'hydrating',
+                storageLoadError: undefined,
+              }
+            : conversation,
+        ),
+      )
+
+      void (async () => {
+        try {
+          const loaded = await loadConversationState(conversationId)
+          if (!loaded) {
+            throw new Error('未找到该历史对话')
+          }
+          if (!conversationsRef.current.some((conversation) => conversation.id === conversationId)) {
+            return
+          }
+
+          startTransition(() => {
+            setConversationsState((previous) =>
+              previous.map((conversation) =>
+                conversation.id === conversationId
+                  ? toHydratedConversation(loaded.conversation, loaded.draftText)
+                  : conversation,
+              ),
+            )
+            setDraftsByConversation((previous) => {
+              const nextDraft = loaded.draftText
+              if (!nextDraft.trim()) {
+                if (!Object.prototype.hasOwnProperty.call(previous, conversationId)) {
+                  return previous
+                }
+                const next = { ...previous }
+                delete next[conversationId]
+                return next
+              }
+              if (previous[conversationId] === nextDraft) {
+                return previous
+              }
+              return {
+                ...previous,
+                [conversationId]: nextDraft,
+              }
+            })
+          })
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '未知错误'
+          startTransition(() => {
+            setConversationsState((previous) =>
+              previous.map((conversation) =>
+                conversation.id === conversationId
+                  ? {
+                      ...conversation,
+                      storageLoadState: 'error',
+                      storageLoadError: message,
+                    }
+                  : conversation,
+              ),
+            )
+          })
+          console.warn('Failed to hydrate conversation', error)
+        }
+      })()
+    },
+    [chatStateLoaded, setConversationsState],
+  )
 
   useEffect(() => {
     if (!chatStateLoaded) {
@@ -6781,11 +7039,11 @@ function App() {
       return
     }
 
-    const nextState: LoadedChatState = {
+    const nextState = buildPersistChatState(
       conversations,
-      activeConversationId,
       draftsByConversation,
-    }
+      activeConversationId,
+    )
     const nextSignature = getChatStatePersistenceSignature(nextState)
     if (nextSignature === chatStateSignatureRef.current) {
       return
@@ -6801,18 +7059,18 @@ function App() {
             return
           }
           const nextConversationsWithStorageKeys = applyAssignedImageStorageKeys(
-            nextState.conversations,
+            conversations,
             persisted.assignedImageStorageKeys,
           )
-          const normalizedState: LoadedChatState = {
-            conversations: nextConversationsWithStorageKeys,
-            activeConversationId: nextState.activeConversationId,
-            draftsByConversation: nextState.draftsByConversation,
-          }
+          const normalizedState = buildPersistChatState(
+            nextConversationsWithStorageKeys,
+            draftsByConversation,
+            activeConversationId,
+          )
 
           chatStateSignatureRef.current = getChatStatePersistenceSignature(normalizedState)
 
-          if (nextConversationsWithStorageKeys !== nextState.conversations) {
+          if (nextConversationsWithStorageKeys !== conversations) {
             startTransition(() => {
               setConversationsState(nextConversationsWithStorageKeys)
             })
@@ -6852,7 +7110,7 @@ function App() {
     const body = document.body
     const coverImageUrl = resolvedDailyCover?.imageUrl?.trim() ?? ''
 
-    if (isHomepageEmptyState) {
+    if (shouldShowHomepageBackground) {
       body.classList.add('homepage-empty-active')
       if (coverImageUrl) {
         root.style.setProperty('--homepage-body-cover-image', `url("${coverImageUrl}")`)
@@ -6868,7 +7126,7 @@ function App() {
       body.classList.remove('homepage-empty-active')
       root.style.removeProperty('--homepage-body-cover-image')
     }
-  }, [isHomepageEmptyState, resolvedDailyCover?.imageUrl])
+  }, [resolvedDailyCover?.imageUrl, shouldShowHomepageBackground])
 
   useEffect(() => {
     void refreshExtensions()
@@ -6909,7 +7167,12 @@ function App() {
         closeImageViewer()
         return
       }
-      if (deleteDialogConversationId || deleteDialogProviderId) {
+      if (
+        deleteDialogConversationId ||
+        deleteDialogProviderId ||
+        deleteDialogSkillId ||
+        deleteDialogRuntimeId
+      ) {
         closeDeleteDialog()
         return
       }
@@ -6951,6 +7214,8 @@ function App() {
     closeModelMenu,
     deleteDialogConversationId,
     deleteDialogProviderId,
+    deleteDialogSkillId,
+    deleteDialogRuntimeId,
     drawerMounted,
     handleSettingsBack,
     imageViewerMounted,
@@ -7148,6 +7413,26 @@ function App() {
   }, [deleteDialogProviderId, settings.providers])
 
   useEffect(() => {
+    if (!deleteDialogSkillId) {
+      return
+    }
+
+    if (!skillRecords.some((skill) => skill.id === deleteDialogSkillId)) {
+      setDeleteDialogSkillId(null)
+    }
+  }, [deleteDialogSkillId, skillRecords])
+
+  useEffect(() => {
+    if (!deleteDialogRuntimeId) {
+      return
+    }
+
+    if (!runtimeRecords.some((runtime) => runtime.id === deleteDialogRuntimeId)) {
+      setDeleteDialogRuntimeId(null)
+    }
+  }, [deleteDialogRuntimeId, runtimeRecords])
+
+  useEffect(() => {
     pendingImageCompressionTaskIdRef.current = {}
     setPendingImages([])
     cancelEdit()
@@ -7321,36 +7606,27 @@ function App() {
 
   const renderComposerTools = ({
     className = 'composer-tools',
-    homepageEmpty = false,
   }: {
     className?: string
-    homepageEmpty?: boolean
   } = {}) => (
     <div className={className}>
-      <div
-        className={`model-picker composer-model-picker ${homepageEmpty ? 'homepage-model-picker' : ''}`}
-        ref={modelMenuRef}
-      >
+      <div className="model-picker composer-model-picker homepage-model-picker" ref={modelMenuRef}>
         <button
           type="button"
-          className={`model-trigger composer-model-trigger ${homepageEmpty ? 'is-homepage-empty' : ''}`}
-          onClick={() =>
-            modelMenuVisible ? closeModelMenu() : openModelMenu()
-          }
+          className="model-trigger composer-model-trigger is-editorial-chat-shell"
+          onClick={() => (modelMenuVisible ? closeModelMenu() : openModelMenu())}
         >
           <span className="model-trigger-label">
-            {homepageEmpty
-              ? buildHomepageModelTriggerLabel(settings.currentModel, activeConversationResponseMode)
-              : settings.currentModel || '选择模型'}
+            {buildHomepageModelTriggerLabel(settings.currentModel, activeConversationResponseMode)}
           </span>
           <span className={`arrow ${modelMenuVisible ? 'open' : ''}`}>▾</span>
         </button>
 
         {modelMenuMounted ? (
           <div
-            className={`model-popover composer-model-popover frosted-surface ${
-              homepageEmpty ? 'homepage-model-popover' : ''
-            } ${modelMenuVisible ? 'is-open' : 'is-closing'}`}
+            className={`model-popover composer-model-popover homepage-model-popover frosted-surface ${
+              modelMenuVisible ? 'is-open' : 'is-closing'
+            }`}
             style={{ top: 'auto', bottom: 'calc(100% + 8px)', transformOrigin: 'center bottom' }}
           >
             {enabledModelOptions.length === 0 ? (
@@ -7398,7 +7674,7 @@ function App() {
               ))
             )}
 
-            {homepageEmpty && enabledModelOptions.length > 0 ? (
+            {enabledModelOptions.length > 0 ? (
               <div className="homepage-model-mode-footer">
                 <span className="homepage-model-mode-label">Response mode</span>
                 <div className="homepage-model-mode-actions" role="group" aria-label="选择首页响应模式">
@@ -7407,9 +7683,9 @@ function App() {
                     className={`homepage-model-mode-button ${
                       activeConversationResponseMode === 'tool' ? 'active' : ''
                     }`}
-                    disabled={activeConversationModeLocked || !activeConversation}
+                    disabled={activeConversationModeLocked || !activeConversation || isComposerLocked}
                     onClick={() => {
-                      if (!activeConversation || activeConversationModeLocked) {
+                      if (!activeConversation || activeConversationModeLocked || isComposerLocked) {
                         return
                       }
                       updateConversationResponseMode(activeConversation.id, 'tool')
@@ -7424,9 +7700,9 @@ function App() {
                     className={`homepage-model-mode-button ${
                       activeConversationResponseMode === 'text' ? 'active' : ''
                     }`}
-                    disabled={activeConversationModeLocked || !activeConversation}
+                    disabled={activeConversationModeLocked || !activeConversation || isComposerLocked}
                     onClick={() => {
-                      if (!activeConversation || activeConversationModeLocked) {
+                      if (!activeConversation || activeConversationModeLocked || isComposerLocked) {
                         return
                       }
                       updateConversationResponseMode(activeConversation.id, 'text')
@@ -7447,6 +7723,7 @@ function App() {
         type="button"
         className="icon-button"
         aria-label="选择图片"
+        disabled={isComposerLocked}
         onClick={() => fileInputRef.current?.click()}
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -7476,7 +7753,11 @@ function App() {
         type="button"
         className="icon-button"
         aria-label="拍照"
+        disabled={isComposerLocked}
         onClick={() => {
+          if (isComposerLocked) {
+            return
+          }
           if (!settings.permissionToggles.camera) {
             pushNotice('请先在权限设置中开启相机权限。', 'error')
             return
@@ -7509,12 +7790,8 @@ function App() {
     </div>
   )
 
-  const renderComposerFooter = ({
-    homepageEmpty = false,
-  }: {
-    homepageEmpty?: boolean
-  } = {}): ReactNode => (
-    <footer className={`composer ${homepageEmpty ? 'is-homepage-empty' : ''}`}>
+  const renderComposerFooter = (): ReactNode => (
+    <footer className="composer is-editorial-chat-shell">
       {scrollToBottomButtonMounted ? (
         <button
           type="button"
@@ -7595,8 +7872,9 @@ function App() {
               }
               updateConversationDraft(activeConversation.id, event.target.value)
             }}
-            placeholder="输入消息"
+            placeholder={isComposerLocked ? '请先等待历史对话载入完成' : '输入消息'}
             maxHeight={188}
+            disabled={isComposerLocked}
           />
 
           {isSending ? (
@@ -7625,7 +7903,7 @@ function App() {
           )}
         </div>
 
-        {renderComposerTools({ homepageEmpty })}
+        {renderComposerTools()}
       </div>
     </footer>
   )
@@ -7681,6 +7959,45 @@ function App() {
     </section>
   )
 
+  const renderSettingsPageIntro = ({
+    eyebrow,
+    title,
+    copy,
+  }: {
+    eyebrow: string
+    title: string
+    copy: string
+  }) => (
+    <header className="settings-page-intro">
+      <div className="settings-page-eyebrow">{eyebrow}</div>
+      <h2 className="settings-page-title">{title}</h2>
+      <p className="settings-page-copy">{copy}</p>
+    </header>
+  )
+
+  const renderSettingsSectionHeading = ({
+    label,
+    title,
+    copy,
+  }: {
+    label: string
+    title?: string
+    copy?: ReactNode
+  }) => (
+    <div className="settings-section-heading">
+      <div className="conversation-group-divider settings-section-divider">
+        <span className="conversation-group-label">{label}</span>
+        <span className="conversation-group-dash" aria-hidden="true" />
+      </div>
+      {title ? <h3 className="settings-section-title">{title}</h3> : null}
+      {copy ? <p className="settings-section-copy">{copy}</p> : null}
+    </div>
+  )
+
+  const renderSettingsMiniSwitch = (enabled: boolean) => (
+    <span className={`settings-mini-switch ${enabled ? 'is-on' : ''}`} aria-hidden="true" />
+  )
+
   const formatToggleStateLabel = (enabled: boolean): string => (enabled ? '已开启' : '已关闭')
 
   const renderInfoPromptToggleCard = ({
@@ -7732,11 +8049,6 @@ function App() {
   const renderDailyCoverSettings = () => (
     <div className="daily-cover-settings-page">
       <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">首页封面</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
-
         <div className="settings-static-card daily-cover-hero-card">
           {resolvedDailyCover ? <img src={resolvedDailyCover.imageUrl} alt={resolvedDailyCover.title} /> : null}
           <div className="daily-cover-kicker">
@@ -7745,15 +8057,9 @@ function App() {
               : 'Daily cover unavailable'}
           </div>
           <h3 className="daily-cover-title">
-            {resolvedDailyCover ? (
-              <>
-                {resolvedDailyCover.title}
-                <br />
-                <em>{resolvedDailyCover.photographer}</em>
-              </>
-            ) : (
-              'Daily Cover'
-            )}
+            {resolvedDailyCover
+              ? `${resolvedDailyCover.title} · ${resolvedDailyCover.photographer}`
+              : 'Daily Cover'}
           </h3>
           <p className="daily-cover-copy">
             {resolvedDailyCover?.description ?? '封面不可用时，界面会自动退回到安静的默认壳层。'}
@@ -7762,10 +8068,11 @@ function App() {
       </section>
 
       <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">显示策略</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
+        {renderSettingsSectionHeading({
+          label: 'Display rules',
+          title: '显示策略',
+          copy: '默认图池保证稳定，自定义 API 负责增强；失败时永远回退到本地内置图池。',
+        })}
 
         <div className="settings-static-card">
           <div className="daily-cover-field-list">
@@ -7776,16 +8083,6 @@ function App() {
                 type="checkbox"
                 checked={settings.dailyCover.enabled}
                 onChange={(event) => updateDailyCoverSetting('enabled', event.target.checked)}
-              />
-            </label>
-
-            <label className="daily-cover-field-row">
-              <span className="name">进入消息流后保留摘要横幅</span>
-              <input
-                className="toggle-switch"
-                type="checkbox"
-                checked={settings.dailyCover.showChatBanner}
-                onChange={(event) => updateDailyCoverSetting('showChatBanner', event.target.checked)}
               />
             </label>
 
@@ -7803,10 +8100,11 @@ function App() {
       </section>
 
       <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">默认图池</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
+        {renderSettingsSectionHeading({
+          label: 'Bundled pool',
+          title: '默认图池',
+          copy: '建议正式版本内置 12 到 24 张精选风景图。当前演示与真实设置都应把本地图池视为稳定回退层。',
+        })}
 
         <div className="settings-static-card">
           <p className="settings-entry-meta">
@@ -7824,10 +8122,11 @@ function App() {
       </section>
 
       <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">每日一图 API</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
+        {renderSettingsSectionHeading({
+          label: 'Daily image API',
+          title: '自定义每日一图接口',
+          copy: '不要把来源写死成某一家；正式实现时继续支持 endpoint、auth 和字段映射。',
+        })}
 
         <div className="settings-static-card">
           <label className="field">
@@ -7843,16 +8142,12 @@ function App() {
 
           <label className="field">
             <span>Request Method</span>
-            <select
-              className="theme-mode-select"
+            <SettingsPopoverSelect
               value={settings.dailyCover.apiMethod}
-              onChange={(event) =>
-                updateDailyCoverSetting('apiMethod', event.target.value === 'POST' ? 'POST' : 'GET')
-              }
-            >
-              <option value="GET">GET</option>
-              <option value="POST">POST</option>
-            </select>
+              options={[...DAILY_COVER_API_METHOD_OPTIONS]}
+              ariaLabel="选择每日一图请求方法"
+              onChange={(nextValue) => updateDailyCoverSetting('apiMethod', nextValue)}
+            />
           </label>
 
           <label className="field">
@@ -7914,371 +8209,461 @@ function App() {
     </div>
   )
 
-  const renderMainSettings = () => (
-    <>
-      <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">服务商配置</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
+  const renderMainSettings = () => {
+    const currentProvider =
+      settings.providers.find((provider) => provider.id === settings.currentProviderId) ?? null
+    const fallbackProvider = currentProvider ?? settings.providers[0] ?? null
+    const enabledSkillCount = skillRecords.filter((skill) => skill.enabled).length
+    const enabledRuntimeCount = runtimeRecords.filter((runtime) => runtime.enabled).length
+    const defaultRuntime =
+      runtimeRecords.find((runtime) => runtime.isDefault) ??
+      runtimeRecords.find((runtime) => runtime.type === 'node' || runtime.type === 'python') ??
+      null
+    const permissionPreviewKeys = (Object.keys(PERMISSION_LABELS) as AppPermissionKey[]).slice(0, 3)
 
-        <div className="settings-entry-list">
+    return (
+      <>
+        <section className="settings-section settings-section-emphasis">
           <button
             type="button"
-            className="settings-entry-button"
-            onClick={() => navigateSettingsView('providers')}
+            className="settings-entry-button settings-summary-button settings-hero-card"
+            onClick={() => navigateSettingsView('daily-cover')}
           >
-            <span className="settings-entry-title">服务商管理</span>
-            <span className="settings-entry-meta">
-              {settings.providers.length === 0
-                ? '暂无服务商，请先添加。'
-                : `已配置 ${settings.providers.length} 个服务商，已启用 ${enabledModelOptions.length} 个模型${
-                    settings.currentModel ? `，当前 ${settings.currentModel}` : ''
-                  }`}
-            </span>
+            {resolvedDailyCover ? <img src={resolvedDailyCover.imageUrl} alt={resolvedDailyCover.title} /> : null}
+            <div className="settings-hero-content">
+              <div className="settings-hero-kicker">Today&apos;s cover</div>
+              <div className="settings-hero-title">{resolvedDailyCover?.title ?? 'Daily Cover'}</div>
+              <div className="settings-hero-copy">
+                {`TODAY'S COVER · ${(resolvedDailyCover?.sourceLabel ?? 'Default pool').toUpperCase()}`}
+              </div>
+            </div>
           </button>
-        </div>
-      </section>
+        </section>
 
-      <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">提示词</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
-
-        <div className="settings-prompt-panels">
-          {renderPromptEditorPanel({
-            isOpen: openPromptEditors.systemPrompt,
-            onToggle: () => togglePromptEditor('systemPrompt'),
-            title: '系统提示词',
-            value: settings.systemPrompt,
-            onChange: (value) => updateSetting('systemPrompt', value),
-            placeholder: '你可以在此配置系统提示词',
-            actionLabel: '重置为默认提示词',
-            onAction: () => resetPromptToDefault('systemPrompt'),
-            actionDisabled: settings.systemPrompt === PROMPT_DEFAULTS.systemPrompt,
+        <section className="settings-section">
+          {renderSettingsSectionHeading({
+            label: 'Provider',
+            title: '服务商配置',
           })}
-        </div>
 
-        <div className="settings-entry-list">
-          <button
-            type="button"
-            className="settings-entry-button"
-            onClick={() => navigateSettingsView('tag-prompts')}
-          >
-            <span className="settings-entry-title">标签提示词</span>
-            <span className="settings-entry-meta">
-              {'分别配置一般标签、顶层标签、<read>、<run> 与 <edit>，并支持一键恢复默认。'}
-            </span>
-          </button>
-        </div>
-      </section>
+          <div className="settings-entry-list settings-entry-list-tight">
+            <button
+              type="button"
+              className="settings-entry-button settings-summary-button"
+              onClick={() => navigateSettingsView('providers')}
+            >
+              <div className="settings-summary-list">
+                <div className="settings-summary-row">
+                  <span className="settings-summary-row-label">API Base URL</span>
+                  <span className="settings-summary-row-value">
+                    {fallbackProvider?.apiBaseUrl.trim() || '尚未填写'}
+                  </span>
+                </div>
+                <div className="settings-summary-row">
+                  <span className="settings-summary-row-label">Current model</span>
+                  <span className="settings-summary-row-value">
+                    {settings.currentModel
+                      ? `${settings.currentModel}${currentProvider?.name?.trim() ? ` · ${currentProvider.name.trim()}` : ''}`
+                      : '尚未选择'}
+                  </span>
+                </div>
+              </div>
+              <span className="settings-entry-meta">
+                {settings.providers.length === 0
+                  ? '暂无服务商，请先添加。'
+                  : `已配置 ${settings.providers.length} 个服务商，已启用 ${enabledModelOptions.length} 个模型。`}
+              </span>
+            </button>
+          </div>
+        </section>
 
-      <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">生成参数</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
+        <section className="settings-section">
+          {renderSettingsSectionHeading({
+            label: 'Daily cover',
+            title: '首页每日风景封面',
+          })}
 
-        <div className="field-grid">
+          <div className="settings-entry-list settings-entry-list-tight">
+            <button
+              type="button"
+              className="settings-entry-button settings-summary-button"
+              onClick={() => navigateSettingsView('daily-cover')}
+            >
+              <div className="settings-summary-list">
+                <div className="settings-summary-row">
+                  <span className="settings-summary-row-label">显示位置</span>
+                  <span className="settings-summary-row-value">
+                    {settings.dailyCover.enabled ? '新对话空白态' : '已关闭'}
+                  </span>
+                </div>
+                <div className="settings-summary-row">
+                  <span className="settings-summary-row-label">进入消息流后</span>
+                  <span className="settings-summary-row-value">
+                    {settings.dailyCover.enabled ? '整页上滑退场' : '不适用'}
+                  </span>
+                </div>
+                <div className="settings-summary-row">
+                  <span className="settings-summary-row-label">失败回退</span>
+                  <span className="settings-summary-row-value">
+                    {settings.dailyCover.useApi ? '默认本地图池' : '仅使用默认图池'}
+                  </span>
+                </div>
+              </div>
+            </button>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          {renderSettingsSectionHeading({
+            label: 'Extensions',
+            title: 'Skills 与运行时',
+          })}
+
+          <div className="settings-static-card settings-summary-card">
+            <div className="settings-summary-list">
+              <div className="settings-summary-row">
+                <span className="settings-summary-row-label">Installed skills</span>
+                <span className="settings-summary-row-value">
+                  {isLoadingExtensions ? '加载中' : String(skillRecords.length)}
+                </span>
+              </div>
+              <div className="settings-summary-row">
+                <span className="settings-summary-row-label">Runtimes</span>
+                <span className="settings-summary-row-value">
+                  {isLoadingExtensions
+                    ? '加载中'
+                    : runtimeRecords.length === 0
+                      ? '尚未安装'
+                      : `已发现 ${runtimeRecords.length} 个，启用 ${enabledRuntimeCount} 个`}
+                </span>
+              </div>
+              <div className="settings-summary-row">
+                <span className="settings-summary-row-label">Default runtime</span>
+                <span className="settings-summary-row-value">
+                  {defaultRuntime?.displayName || defaultRuntime?.id || '尚未设置'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="settings-entry-list">
+            <button
+              type="button"
+              className="settings-entry-button"
+              onClick={() => navigateSettingsView('skills')}
+            >
+              <span className="settings-entry-title">Skills 管理</span>
+              <span className="settings-entry-meta">
+                {isLoadingExtensions ? '加载中...' : `已发现 ${skillRecords.length} 个 skill，启用 ${enabledSkillCount} 个`}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              className="settings-entry-button"
+              onClick={() => navigateSettingsView('runtimes')}
+            >
+              <span className="settings-entry-title">运行时设置</span>
+              <span className="settings-entry-meta">
+                {isLoadingExtensions
+                  ? '加载中...'
+                  : nativeRuntimeAvailable
+                    ? `已发现 ${runtimeRecords.length} 个运行时`
+                    : '当前平台不支持直接执行外部运行时'}
+              </span>
+            </button>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          {renderSettingsSectionHeading({
+            label: 'Permissions',
+            title: '权限设置',
+          })}
+
+          <div className="settings-entry-list settings-entry-list-tight">
+            <button
+              type="button"
+              className="settings-entry-button settings-summary-button"
+              onClick={() => navigateSettingsView('permissions')}
+            >
+              <div className="settings-summary-list">
+                {permissionPreviewKeys.map((key) => (
+                  <div key={key} className="settings-summary-row">
+                    <span className="settings-summary-row-label">{PERMISSION_LABELS[key]}</span>
+                    {renderSettingsMiniSwitch(settings.permissionToggles[key])}
+                  </div>
+                ))}
+              </div>
+              <span className="settings-entry-meta">
+                已开启 {Object.values(settings.permissionToggles).filter(Boolean).length} / {Object.keys(settings.permissionToggles).length}
+              </span>
+            </button>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          {renderSettingsSectionHeading({
+            label: 'Prompts',
+            title: '提示词',
+          })}
+
+          <div className="settings-prompt-panels">
+            {renderPromptEditorPanel({
+              isOpen: openPromptEditors.systemPrompt,
+              onToggle: () => togglePromptEditor('systemPrompt'),
+              title: '系统提示词',
+              value: settings.systemPrompt,
+              onChange: (value) => updateSetting('systemPrompt', value),
+              placeholder: '你可以在此配置系统提示词',
+              actionLabel: '重置为默认提示词',
+              onAction: () => resetPromptToDefault('systemPrompt'),
+              actionDisabled: settings.systemPrompt === PROMPT_DEFAULTS.systemPrompt,
+            })}
+          </div>
+
+          <div className="settings-entry-list">
+            <button
+              type="button"
+              className="settings-entry-button"
+              onClick={() => navigateSettingsView('tag-prompts')}
+            >
+              <span className="settings-entry-title">标签提示词</span>
+              <span className="settings-entry-meta">
+                {'分别配置一般标签、顶层标签、<read>、<run> 与 <edit>，并支持一键恢复默认。'}
+              </span>
+            </button>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          {renderSettingsSectionHeading({
+            label: 'Generation',
+            title: '生成参数',
+          })}
+
+          <div className="field-grid">
+            <label className="field">
+              <span>Temperature (0-2)</span>
+              <ChatInputBox
+                className="settings-chat-input settings-chat-input-compact"
+                value={numericSettingDrafts.temperature}
+                inputMode="decimal"
+                placeholder={String(DEFAULT_SETTINGS.temperature)}
+                onChange={(event) =>
+                  handleNumericSettingChange('temperature', event.target.value, 0, 2)
+                }
+                onBlur={() => finalizeNumericSettingDraft('temperature')}
+                maxHeight={140}
+              />
+            </label>
+
+            <label className="field">
+              <span>Top P (0-1)</span>
+              <ChatInputBox
+                className="settings-chat-input settings-chat-input-compact"
+                value={numericSettingDrafts.topP}
+                inputMode="decimal"
+                placeholder={String(DEFAULT_SETTINGS.topP)}
+                onChange={(event) => handleNumericSettingChange('topP', event.target.value, 0, 1)}
+                onBlur={() => finalizeNumericSettingDraft('topP')}
+                maxHeight={140}
+              />
+            </label>
+
+            <label className="field">
+              <span>Max Tokens</span>
+              <ChatInputBox
+                className="settings-chat-input settings-chat-input-compact"
+                value={numericSettingDrafts.maxTokens}
+                inputMode="numeric"
+                placeholder={String(DEFAULT_SETTINGS.maxTokens)}
+                onChange={(event) =>
+                  handleNumericSettingChange('maxTokens', event.target.value, 1, 8192, true)
+                }
+                onBlur={() => finalizeNumericSettingDraft('maxTokens')}
+                maxHeight={140}
+              />
+            </label>
+
+            <label className="field">
+              <span>Presence Penalty (-2~2)</span>
+              <ChatInputBox
+                className="settings-chat-input settings-chat-input-compact"
+                value={numericSettingDrafts.presencePenalty}
+                inputMode="decimal"
+                placeholder={String(DEFAULT_SETTINGS.presencePenalty)}
+                onChange={(event) =>
+                  handleNumericSettingChange('presencePenalty', event.target.value, -2, 2)
+                }
+                onBlur={() => finalizeNumericSettingDraft('presencePenalty')}
+                maxHeight={140}
+              />
+            </label>
+
+            <label className="field">
+              <span>Frequency Penalty (-2~2)</span>
+              <ChatInputBox
+                className="settings-chat-input settings-chat-input-compact"
+                value={numericSettingDrafts.frequencyPenalty}
+                inputMode="decimal"
+                placeholder={String(DEFAULT_SETTINGS.frequencyPenalty)}
+                onChange={(event) =>
+                  handleNumericSettingChange('frequencyPenalty', event.target.value, -2, 2)
+                }
+                onBlur={() => finalizeNumericSettingDraft('frequencyPenalty')}
+                maxHeight={140}
+              />
+            </label>
+
+            <label className="field">
+              <span>模型错误最大重试次数</span>
+              <ChatInputBox
+                className="settings-chat-input settings-chat-input-compact"
+                value={numericSettingDrafts.maxModelRetryCount}
+                inputMode="numeric"
+                placeholder={String(DEFAULT_SETTINGS.maxModelRetryCount)}
+                onChange={(event) =>
+                  handleNumericSettingChange('maxModelRetryCount', event.target.value, 0, 10, true)
+                }
+                onBlur={() => finalizeNumericSettingDraft('maxModelRetryCount')}
+                maxHeight={140}
+              />
+            </label>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          {renderSettingsSectionHeading({
+            label: 'Conversation',
+            title: '对话管理',
+          })}
+
+          <div className="field-grid">
+            <label className="field">
+              <span>删对话免提醒时长（秒）</span>
+              <ChatInputBox
+                className="settings-chat-input settings-chat-input-compact"
+                value={numericSettingDrafts.deleteConfirmGraceSeconds}
+                inputMode="numeric"
+                placeholder={String(DEFAULT_SETTINGS.deleteConfirmGraceSeconds)}
+                onChange={(event) =>
+                  handleNumericSettingChange(
+                    'deleteConfirmGraceSeconds',
+                    event.target.value,
+                    0,
+                    600,
+                    true,
+                  )
+                }
+                onBlur={() => finalizeNumericSettingDraft('deleteConfirmGraceSeconds')}
+                maxHeight={140}
+              />
+            </label>
+
+            <label className="field">
+              <span>对话分组时间间隔（分钟）</span>
+              <ChatInputBox
+                className="settings-chat-input settings-chat-input-compact"
+                value={numericSettingDrafts.conversationGroupGapMinutes}
+                inputMode="numeric"
+                placeholder={String(DEFAULT_SETTINGS.conversationGroupGapMinutes)}
+                onChange={(event) =>
+                  handleNumericSettingChange(
+                    'conversationGroupGapMinutes',
+                    event.target.value,
+                    0,
+                    120,
+                    true,
+                  )
+                }
+                onBlur={() => finalizeNumericSettingDraft('conversationGroupGapMinutes')}
+                maxHeight={140}
+              />
+            </label>
+
+            <label className="toggle-row">
+              <span>自动折叠对话</span>
+              <input
+                className="toggle-switch"
+                type="checkbox"
+                checked={settings.autoCollapseConversations}
+                onChange={(event) => updateSetting('autoCollapseConversations', event.target.checked)}
+              />
+            </label>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          {renderSettingsSectionHeading({
+            label: 'Display',
+            title: '显示选项',
+          })}
+
           <label className="field">
-            <span>Temperature (0-2)</span>
-            <ChatInputBox
-              className="settings-chat-input settings-chat-input-compact"
-              value={numericSettingDrafts.temperature}
-              inputMode="decimal"
-              placeholder={String(DEFAULT_SETTINGS.temperature)}
-              onChange={(event) =>
-                handleNumericSettingChange('temperature', event.target.value, 0, 2)
-              }
-              onBlur={() => finalizeNumericSettingDraft('temperature')}
-              maxHeight={140}
+            <span>主题模式</span>
+            <SettingsPopoverSelect
+              value={settings.themeMode}
+              options={THEME_MODE_OPTIONS}
+              ariaLabel="选择主题模式"
+              onChange={(nextValue) => updateSetting('themeMode', nextValue)}
             />
           </label>
 
           <label className="field">
-            <span>Top P (0-1)</span>
+            <span>空白页统计最少对话数</span>
             <ChatInputBox
               className="settings-chat-input settings-chat-input-compact"
-              value={numericSettingDrafts.topP}
-              inputMode="decimal"
-              placeholder={String(DEFAULT_SETTINGS.topP)}
-              onChange={(event) => handleNumericSettingChange('topP', event.target.value, 0, 1)}
-              onBlur={() => finalizeNumericSettingDraft('topP')}
-              maxHeight={140}
-            />
-          </label>
-
-          <label className="field">
-            <span>Max Tokens</span>
-            <ChatInputBox
-              className="settings-chat-input settings-chat-input-compact"
-              value={numericSettingDrafts.maxTokens}
+              value={numericSettingDrafts.emptyStateStatsMinConversations}
               inputMode="numeric"
-              placeholder={String(DEFAULT_SETTINGS.maxTokens)}
-              onChange={(event) =>
-                handleNumericSettingChange('maxTokens', event.target.value, 1, 8192, true)
-              }
-              onBlur={() => finalizeNumericSettingDraft('maxTokens')}
-              maxHeight={140}
-            />
-          </label>
-
-          <label className="field">
-            <span>Presence Penalty (-2~2)</span>
-            <ChatInputBox
-              className="settings-chat-input settings-chat-input-compact"
-              value={numericSettingDrafts.presencePenalty}
-              inputMode="decimal"
-              placeholder={String(DEFAULT_SETTINGS.presencePenalty)}
-              onChange={(event) =>
-                handleNumericSettingChange('presencePenalty', event.target.value, -2, 2)
-              }
-              onBlur={() => finalizeNumericSettingDraft('presencePenalty')}
-              maxHeight={140}
-            />
-          </label>
-
-          <label className="field">
-            <span>Frequency Penalty (-2~2)</span>
-            <ChatInputBox
-              className="settings-chat-input settings-chat-input-compact"
-              value={numericSettingDrafts.frequencyPenalty}
-              inputMode="decimal"
-              placeholder={String(DEFAULT_SETTINGS.frequencyPenalty)}
-              onChange={(event) =>
-                handleNumericSettingChange('frequencyPenalty', event.target.value, -2, 2)
-              }
-              onBlur={() => finalizeNumericSettingDraft('frequencyPenalty')}
-              maxHeight={140}
-            />
-          </label>
-
-          <label className="field">
-            <span>模型错误最大重试次数</span>
-            <ChatInputBox
-              className="settings-chat-input settings-chat-input-compact"
-              value={numericSettingDrafts.maxModelRetryCount}
-              inputMode="numeric"
-              placeholder={String(DEFAULT_SETTINGS.maxModelRetryCount)}
-              onChange={(event) =>
-                handleNumericSettingChange('maxModelRetryCount', event.target.value, 0, 10, true)
-              }
-              onBlur={() => finalizeNumericSettingDraft('maxModelRetryCount')}
-              maxHeight={140}
-            />
-          </label>
-        </div>
-      </section>
-
-      <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">扩展能力</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
-
-        <div className="settings-entry-list">
-          <button
-            type="button"
-            className="settings-entry-button"
-            onClick={() => navigateSettingsView('skills')}
-          >
-            <span className="settings-entry-title">Skills 管理</span>
-            <span className="settings-entry-meta">
-              {isLoadingExtensions
-                ? '加载中...'
-                : `已发现 ${skillRecords.length} 个 skill，启用 ${
-                    skillRecords.filter((skill) => skill.enabled).length
-                  } 个`}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            className="settings-entry-button"
-            onClick={() => navigateSettingsView('runtimes')}
-          >
-            <span className="settings-entry-title">运行时设置</span>
-            <span className="settings-entry-meta">
-              {isLoadingExtensions
-                ? '加载中...'
-                : nativeRuntimeAvailable
-                  ? `已发现 ${runtimeRecords.length} 个运行时`
-                  : '当前平台不支持直接执行外部运行时'}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            className="settings-entry-button"
-            onClick={() => navigateSettingsView('permissions')}
-          >
-            <span className="settings-entry-title">权限设置</span>
-            <span className="settings-entry-meta">
-              已开启 {Object.values(settings.permissionToggles).filter(Boolean).length} /{' '}
-              {Object.keys(settings.permissionToggles).length}
-            </span>
-          </button>
-        </div>
-      </section>
-
-      <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">对话管理</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
-
-        <div className="field-grid">
-          <label className="field">
-            <span>删对话免提醒时长（秒）</span>
-            <ChatInputBox
-              className="settings-chat-input settings-chat-input-compact"
-              value={numericSettingDrafts.deleteConfirmGraceSeconds}
-              inputMode="numeric"
-              placeholder={String(DEFAULT_SETTINGS.deleteConfirmGraceSeconds)}
+              placeholder={String(DEFAULT_SETTINGS.emptyStateStatsMinConversations)}
               onChange={(event) =>
                 handleNumericSettingChange(
-                  'deleteConfirmGraceSeconds',
+                  'emptyStateStatsMinConversations',
                   event.target.value,
                   0,
-                  600,
+                  MAX_EMPTY_STATE_STATS_MIN_CONVERSATIONS,
                   true,
                 )
               }
-              onBlur={() => finalizeNumericSettingDraft('deleteConfirmGraceSeconds')}
-              maxHeight={140}
-            />
-          </label>
-
-          <label className="field">
-            <span>对话分组时间间隔（分钟）</span>
-            <ChatInputBox
-              className="settings-chat-input settings-chat-input-compact"
-              value={numericSettingDrafts.conversationGroupGapMinutes}
-              inputMode="numeric"
-              placeholder={String(DEFAULT_SETTINGS.conversationGroupGapMinutes)}
-              onChange={(event) =>
-                handleNumericSettingChange(
-                  'conversationGroupGapMinutes',
-                  event.target.value,
-                  0,
-                  120,
-                  true,
-                )
-              }
-              onBlur={() => finalizeNumericSettingDraft('conversationGroupGapMinutes')}
+              onBlur={() => finalizeNumericSettingDraft('emptyStateStatsMinConversations')}
               maxHeight={140}
             />
           </label>
 
           <label className="toggle-row">
-            <span>自动折叠对话</span>
+            <span>显示思考过程</span>
             <input
               className="toggle-switch"
               type="checkbox"
-              checked={settings.autoCollapseConversations}
-              onChange={(event) => updateSetting('autoCollapseConversations', event.target.checked)}
+              checked={settings.showReasoning}
+              onChange={(event) => updateSetting('showReasoning', event.target.checked)}
             />
           </label>
-        </div>
-      </section>
 
-      <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">显示选项</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
+          <label className="toggle-row">
+            <span>删除模式振动</span>
+            <input
+              className="toggle-switch"
+              type="checkbox"
+              checked={settings.deleteModeHapticsEnabled}
+              onChange={(event) => updateSetting('deleteModeHapticsEnabled', event.target.checked)}
+            />
+          </label>
 
-        <label className="field">
-          <span>主题模式</span>
-          <select
-            className="theme-mode-select"
-            value={settings.themeMode}
-            onChange={(event) => updateSetting('themeMode', event.target.value as ThemeMode)}
-          >
-            <option value="light">浅色（可爱）</option>
-            <option value="dark">深色（现代）</option>
-            <option value="system">跟随系统</option>
-          </select>
-        </label>
-
-        <label className="field">
-          <span>空白页统计最少对话数</span>
-          <ChatInputBox
-            className="settings-chat-input settings-chat-input-compact"
-            value={numericSettingDrafts.emptyStateStatsMinConversations}
-            inputMode="numeric"
-            placeholder={String(DEFAULT_SETTINGS.emptyStateStatsMinConversations)}
-            onChange={(event) =>
-              handleNumericSettingChange(
-                'emptyStateStatsMinConversations',
-                event.target.value,
-                0,
-                MAX_EMPTY_STATE_STATS_MIN_CONVERSATIONS,
-                true,
-              )
-            }
-            onBlur={() => finalizeNumericSettingDraft('emptyStateStatsMinConversations')}
-            maxHeight={140}
-          />
-        </label>
-
-        <label className="toggle-row">
-          <span>显示思考过程</span>
-          <input
-            className="toggle-switch"
-            type="checkbox"
-            checked={settings.showReasoning}
-            onChange={(event) => updateSetting('showReasoning', event.target.checked)}
-          />
-        </label>
-
-        <label className="toggle-row">
-          <span>删除模式振动</span>
-          <input
-            className="toggle-switch"
-            type="checkbox"
-            checked={settings.deleteModeHapticsEnabled}
-            onChange={(event) => updateSetting('deleteModeHapticsEnabled', event.target.checked)}
-          />
-        </label>
-
-        <label className="toggle-row">
-          <span>首 Token 振动</span>
-          <input
-            className="toggle-switch"
-            type="checkbox"
-            checked={settings.firstTokenHapticsEnabled}
-            onChange={(event) => updateSetting('firstTokenHapticsEnabled', event.target.checked)}
-          />
-        </label>
-      </section>
-
-      <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">首页封面</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
-
-        <div className="settings-entry-list">
-          <button
-            type="button"
-            className="settings-entry-button"
-            onClick={() => navigateSettingsView('daily-cover')}
-          >
-            <span className="settings-entry-title">每日风景封面</span>
-            <span className="settings-entry-meta">
-              {settings.dailyCover.enabled
-                ? `${resolvedDailyCover?.title ?? '默认图池'} · ${
-                    settings.dailyCover.useApi ? '自定义 API 已启用' : '使用默认图池'
-                  }`
-                : '已关闭首页每日风景封面'}
-            </span>
-          </button>
-        </div>
-      </section>
-    </>
-  )
+          <label className="toggle-row">
+            <span>首 Token 振动</span>
+            <input
+              className="toggle-switch"
+              type="checkbox"
+              checked={settings.firstTokenHapticsEnabled}
+              onChange={(event) => updateSetting('firstTokenHapticsEnabled', event.target.checked)}
+            />
+          </label>
+        </section>
+      </>
+    )
+  }
 
   const renderTagPromptSettings = () => (
     <>
@@ -9070,7 +9455,7 @@ function App() {
                     <button
                       type="button"
                       className="tiny-button danger-button"
-                      onClick={() => void handleDeleteSkill(skill.id)}
+                      onClick={() => requestDeleteSkill(skill.id)}
                     >
                       删除
                     </button>
@@ -9281,7 +9666,7 @@ function App() {
                     <button
                       type="button"
                       className="tiny-button danger-button"
-                      onClick={() => void handleDeleteRuntime(runtime.id)}
+                      onClick={() => requestDeleteRuntime(runtime.id)}
                     >
                       删除
                     </button>
@@ -9331,44 +9716,84 @@ function App() {
   const renderSettingsPage = () => {
     const showBack = settingsView !== 'main'
     const shouldAnimateSettingsView = settingsView !== 'main'
-    let title = '动话 设置'
+    let pageChrome = {
+      eyebrow: 'Settings',
+      title: '动话设置',
+      copy: '保持你现在的设置信息架构，只把它从“功能堆叠”变成“章节清楚的长表面”。',
+    }
     let settingsContent = renderMainSettings()
 
     switch (settingsView) {
       case 'tag-prompts':
-        title = '标签提示词'
+        pageChrome = {
+          eyebrow: 'Tag prompts',
+          title: '标签提示词',
+          copy: '一般标签、顶层标签、<read>、<run> 与 <edit> 的规则仍然都在，只是从技术面板整理成更可读的长页。',
+        }
         settingsContent = renderTagPromptSettings()
         break
       case 'providers':
-        title = '服务商管理'
+        pageChrome = {
+          eyebrow: 'Providers',
+          title: '服务商管理',
+          copy: '服务商、模型和默认选择仍然全部保留；这页的目标是让配置关系更清楚，而不是减少能力。',
+        }
         settingsContent = renderProvidersSettings()
         break
       case 'provider-detail':
-        title = providerDetailTarget?.name?.trim() || '服务商配置'
+        pageChrome = {
+          eyebrow: 'Provider detail',
+          title: providerDetailTarget?.name?.trim() || '服务商配置',
+          copy: '接口配置、模型管理和覆盖项都保留；重点是把密集表单整理成更稳定、更容易读的层次。',
+        }
         settingsContent = renderProviderDetailSettings()
         break
       case 'provider-tag-prompts':
-        title = '标签提示词'
+        pageChrome = {
+          eyebrow: 'Provider prompts',
+          title: '标签提示词',
+          copy: '这里继续保留服务商级提示词覆盖；留空时仍然跟随全局默认设置。',
+        }
         settingsContent = renderProviderTagPromptSettings()
         break
       case 'skills':
-        title = 'Skills 管理'
+        pageChrome = {
+          eyebrow: 'Skills',
+          title: 'Skills 管理',
+          copy: '安装、启用、配置和删除都保留；只是把“工具清单”从厚卡片改成更清楚的长列表。',
+        }
         settingsContent = renderSkillsSettings()
         break
       case 'skill-config':
-        title = 'Skill 配置'
+        pageChrome = {
+          eyebrow: 'Skill config',
+          title: 'Skill 配置',
+          copy: '可视化配置和原始 JSON 双轨保留不变；这页只重做阅读与编辑的版面语言。',
+        }
         settingsContent = renderSkillConfigSettings()
         break
       case 'runtimes':
-        title = '运行时设置'
+        pageChrome = {
+          eyebrow: 'Runtimes',
+          title: '运行时设置',
+          copy: '运行时安装、启用、检测和默认设置保持原逻辑；重点是让状态、版本和动作更容易扫描。',
+        }
         settingsContent = renderRuntimeSettings()
         break
       case 'permissions':
-        title = '权限设置'
+        pageChrome = {
+          eyebrow: 'Permissions',
+          title: '权限设置',
+          copy: '默认关闭、按需申请的权限策略保持不变；这里只把权限表面整理得更直白、更稳定。',
+        }
         settingsContent = renderPermissionsSettings()
         break
       case 'daily-cover':
-        title = '首页每日风景封面'
+        pageChrome = {
+          eyebrow: 'Daily cover',
+          title: '首页每日风景封面',
+          copy: '默认图池保证稳定，自定义 API 负责增强；失败时永远回退到本地内置图池。',
+        }
         settingsContent = renderDailyCoverSettings()
         break
       default:
@@ -9378,13 +9803,12 @@ function App() {
     return (
       <section
         ref={settingsPageRef}
-        className="settings-page"
+        className={`settings-page settings-page-view-${settingsView}`}
         onScroll={(event) => {
           settingsScrollByViewRef.current[settingsView] = event.currentTarget.scrollTop
         }}
       >
-        <div className="settings-header">
-          <h2>{title}</h2>
+        <div className={`settings-header settings-header-nav-only ${showBack ? 'is-back' : 'is-close'}`}>
           <button
             type="button"
             className={`settings-nav-button ${showBack ? 'is-back' : 'is-close'}`}
@@ -9414,30 +9838,92 @@ function App() {
                 />
               </svg>
             )}
-            <span>{showBack ? '返回' : '关闭'}</span>
           </button>
         </div>
 
-        <div
-          key={settingsView}
-          className={`settings-view-content ${shouldAnimateSettingsView ? 'is-animated' : ''}`}
-        >
-          {settingsContent}
+        <div className="settings-page-shell">
+          {renderSettingsPageIntro(pageChrome)}
+          <div
+            key={settingsView}
+            className={`settings-view-content ${shouldAnimateSettingsView ? 'is-animated' : ''}`}
+          >
+            {settingsContent}
+          </div>
         </div>
       </section>
     )
   }
 
+  const homepageSendTransitionBackgroundStyle = homepageSendTransition?.cover
+    ? ({ '--homepage-transition-image': `url("${homepageSendTransition.cover.imageUrl}")` } as CSSProperties)
+    : undefined
+  const homepageSendTransitionShowcaseStyle = homepageSendTransition
+    ? ({
+        top: `${homepageSendTransition.showcaseRect.top}px`,
+        left: `${homepageSendTransition.showcaseRect.left}px`,
+        width: `${homepageSendTransition.showcaseRect.width}px`,
+        height: `${homepageSendTransition.showcaseRect.height}px`,
+      } as CSSProperties)
+    : undefined
+  const homepageSendTransitionSummaryStyle = homepageSendTransition?.summaryRect
+    ? ({
+        top: `${homepageSendTransition.summaryRect.top}px`,
+        left: `${homepageSendTransition.summaryRect.left}px`,
+        width: `${homepageSendTransition.summaryRect.width}px`,
+        height: `${homepageSendTransition.summaryRect.height}px`,
+      } as CSSProperties)
+    : undefined
+
   return (
     <div
-      className={`app-shell ${isHomepageEmptyState ? 'is-homepage-empty' : ''}`}
-      style={homepageBackgroundStyle}
+      className={`app-shell chat-page-shell ${isHomepageEmptyState ? 'is-homepage-empty' : ''} ${
+        hasActiveMessages ? 'has-active-messages' : ''
+      } ${homepageSendTransition ? 'is-homepage-send-transition-active' : ''}`}
+      style={appShellStyle}
     >
-      {isHomepageEmptyState ? (
+      {shouldShowHomepageBackground ? (
+        <div className={`homepage-empty-background ${resolvedDailyCover ? 'has-cover' : 'is-fallback'}`} aria-hidden="true" />
+      ) : null}
+
+      {hasActiveMessages ? (
+        <div className="chat-active-background" aria-hidden="true" />
+      ) : null}
+
+      {homepageSendTransition ? (
         <div
-          className={`homepage-empty-background ${resolvedDailyCover ? 'has-cover' : 'is-fallback'}`}
+          className="homepage-send-transition-layer"
           aria-hidden="true"
-        />
+          onAnimationEnd={() => setHomepageSendTransition(null)}
+        >
+          <div
+            className={`homepage-send-transition-background ${
+              homepageSendTransition.cover ? 'has-cover' : 'is-fallback'
+            }`}
+            style={homepageSendTransitionBackgroundStyle}
+          />
+          {homepageSendTransition.summaryRect ? (
+            <section
+              className="summary-bar chat-summary-bar homepage-send-transition-summary"
+              style={homepageSendTransitionSummaryStyle}
+            >
+              <span>轮次 {homepageSendTransition.summary.rounds}</span>
+              <span>输入 {numberFormatter.format(homepageSendTransition.summary.promptTokens)}</span>
+              <span>输出 {numberFormatter.format(homepageSendTransition.summary.completionTokens)}</span>
+              <span>总计 {numberFormatter.format(homepageSendTransition.summary.totalTokens)}</span>
+              {homepageSendTransition.summary.estimatedCount > 0 ? (
+                <span className="summary-muted">含 {homepageSendTransition.summary.estimatedCount} 条估算</span>
+              ) : null}
+            </section>
+          ) : null}
+          <div className="homepage-send-transition-showcase-shell" style={homepageSendTransitionShowcaseStyle}>
+            <NewConversationShowcase
+              cover={homepageSendTransition.cover}
+              highlightStats={homepageSendTransition.highlightStats}
+              responseModeLabel={homepageSendTransition.responseModeLabel}
+              className="is-transition-overlay"
+            />
+          </div>
+        </div>
       ) : null}
 
       {titleTransition ? (
@@ -9514,159 +10000,150 @@ function App() {
         </div>
       ) : null}
 
-      <header className={`app-header ${isHomepageEmptyState ? 'is-homepage-empty' : ''}`}>
-        <div
-          className={`header-card ${isEditingTitle ? 'is-editing-title' : ''} ${
-            isHomepageEmptyState ? 'is-homepage-empty' : ''
-          }`}
-        >
-          <button
-            type="button"
-            className="menu-button"
-            aria-label="打开会话菜单"
-            onClick={openDrawer}
-          >
-            <span />
-            <span />
-            <span />
-          </button>
+      <div className="app-shell-content">
+        <header className="app-header">
+          <div className={`header-card ${isEditingTitle ? 'is-editing-title' : ''}`}>
+            <button
+              type="button"
+              className="menu-button"
+              aria-label="打开会话菜单"
+              onClick={openDrawer}
+            >
+              <span />
+              <span />
+              <span />
+            </button>
 
-          <div className={`header-center ${isEditingTitle ? 'is-editing' : ''}`}>
-            {isEditingTitle && activeConversation ? (
-              <div className={`title-editor ${titleTransition ? 'is-hidden' : ''}`}>
-                <input
-                  ref={titleInputRef}
-                  value={titleDraft}
-                  onChange={(event) => setTitleDraft(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault()
-                      saveRenameConversation()
-                    }
-                    if (event.key === 'Escape') {
-                      event.preventDefault()
-                      cancelRenameConversation()
-                    }
-                  }}
-                />
-                <div ref={titleActionsRef} className="title-actions">
+            <div className={`header-center ${isEditingTitle ? 'is-editing' : ''}`}>
+              {isEditingTitle && activeConversation ? (
+                <div className={`title-editor ${titleTransition ? 'is-hidden' : ''}`}>
+                  <input
+                    ref={titleInputRef}
+                    value={titleDraft}
+                    onChange={(event) => setTitleDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        saveRenameConversation()
+                      }
+                      if (event.key === 'Escape') {
+                        event.preventDefault()
+                        cancelRenameConversation()
+                      }
+                    }}
+                  />
+                  <div ref={titleActionsRef} className="title-actions">
+                    <button
+                      type="button"
+                      className="tiny-button title-save-button"
+                      onClick={saveRenameConversation}
+                    >
+                      保存
+                    </button>
+                    <button
+                      type="button"
+                      className="tiny-button title-cancel-button"
+                      onClick={cancelRenameConversation}
+                    >
+                      取消
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className={`title-display ${titleTransition ? 'is-hidden' : ''}`}>
+                  <span ref={titleTextRef} className="title-text homepage-title-text conversation-title-shell">
+                    动话 · <em>{displayConversationTitle}</em>
+                  </span>
                   <button
+                    ref={titleRenameButtonRef}
                     type="button"
-                    className="tiny-button title-save-button"
-                    onClick={saveRenameConversation}
+                    className="icon-inline-button title-rename-button"
+                    aria-label="编辑对话名"
+                    onClick={beginRenameConversation}
                   >
-                    保存
-                  </button>
-                  <button
-                    type="button"
-                    className="tiny-button title-cancel-button"
-                    onClick={cancelRenameConversation}
-                  >
-                    取消
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M5.5 16.9V19h2.1l8.1-8.1-2.1-2.1-8.1 8.1Zm9-9 2.1 2.1 1.2-1.2a1.5 1.5 0 0 0 0-2.1l-1.2-1.2a1.5 1.5 0 0 0-2.1 0L13.3 6.7l1.2 1.2Z"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
                   </button>
                 </div>
-              </div>
-            ) : (
-              <div className={`title-display ${titleTransition ? 'is-hidden' : ''}`}>
-                {isHomepageEmptyState ? (
-                  <span ref={titleTextRef} className="title-text homepage-title-text">
-                    动话 · <em>新对话</em>
-                  </span>
-                ) : (
-                  <span ref={titleTextRef} className="title-text">
-                    {displayConversationTitle}
-                  </span>
-                )}
-                <button
-                  ref={titleRenameButtonRef}
-                  type="button"
-                  className="icon-inline-button title-rename-button"
-                  aria-label="编辑对话名"
-                  onClick={beginRenameConversation}
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      d="M5.5 16.9V19h2.1l8.1-8.1-2.1-2.1-8.1 8.1Zm9-9 2.1 2.1 1.2-1.2a1.5 1.5 0 0 0 0-2.1l-1.2-1.2a1.5 1.5 0 0 0-2.1 0L13.3 6.7l1.2 1.2Z"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </button>
-              </div>
-            )}
+              )}
+            </div>
+
+            <div className="header-spacer" />
           </div>
+        </header>
 
-          <div className="header-spacer" />
-        </div>
-      </header>
+        {notice ? (
+          <div className="chat-notice-layer">
+            <div className={`notice notice-${notice.type}`}>{notice.text}</div>
+          </div>
+        ) : null}
 
-      {notice ? <div className={`notice notice-${notice.type}`}>{notice.text}</div> : null}
-
-      {chatStateLoadError ? (
-        <main className="message-list page-transition">
-          <section className="empty-state">
-            <h2>聊天记录加载失败</h2>
-            <p className="empty-state-line">{chatStateLoadError}</p>
-          </section>
-        </main>
-      ) : !chatStateLoaded ? (
-        <main className="message-list page-transition">
-          <section className="empty-state">
-            <h2>动话</h2>
-            <p className="empty-state-line">正在加载聊天记录…</p>
-          </section>
-        </main>
-      ) : (
         <>
-          <section className="summary-bar">
-            <span>轮次 {rounds}</span>
-            <span>输入 {numberFormatter.format(tokenSummary.promptTokens)}</span>
-            <span>输出 {numberFormatter.format(tokenSummary.completionTokens)}</span>
-            <span>总计 {numberFormatter.format(tokenSummary.totalTokens)}</span>
-            {tokenSummary.estimatedCount > 0 ? (
-              <span className="summary-muted">含 {tokenSummary.estimatedCount} 条估算</span>
+          <section ref={chatSummaryBarRef} className="summary-bar chat-summary-bar">
+            <span>轮次 {chatSummarySnapshot.rounds}</span>
+            <span>输入 {numberFormatter.format(chatSummarySnapshot.promptTokens)}</span>
+            <span>输出 {numberFormatter.format(chatSummarySnapshot.completionTokens)}</span>
+            <span>总计 {numberFormatter.format(chatSummarySnapshot.totalTokens)}</span>
+            {chatSummarySnapshot.estimatedCount > 0 ? (
+              <span className="summary-muted">含 {chatSummarySnapshot.estimatedCount} 条估算</span>
             ) : null}
           </section>
 
           <main
             key={activeConversationId}
             ref={messageListRef}
-            className={`message-list page-transition ${isHomepageEmptyState ? 'is-homepage-empty' : ''}`}
+            className="message-list page-transition"
             onScroll={handleMessageListScroll}
             onPointerDownCapture={handleMessageListPointerDownCapture}
             onPointerUpCapture={handleMessageListPointerUpCapture}
             onPointerCancelCapture={handleMessageListPointerCancelCapture}
             onWheelCapture={handleMessageListWheelCapture}
           >
-            {activeMessages.length === 0 ? (
-              <NewConversationShowcase
-                cover={resolvedDailyCover}
-                highlightStats={homepageHighlightStats}
-                responseModeLabel={getResponseModeLabel(activeConversationResponseMode)}
-              />
-            ) : null}
+            <div
+              className={`chat-content-frame ${isHomepageEmptyState ? 'is-homepage-empty' : 'has-active-messages'}`}
+            >
+              {isActiveConversationLoadError ? (
+                <section className="empty-state">
+                  <h2>历史对话加载失败</h2>
+                  <p className="empty-state-line">
+                    {activeConversation?.storageLoadError ?? chatStateLoadError ?? '未知错误'}
+                  </p>
+                  <button
+                    type="button"
+                    className="tiny-button"
+                    onClick={() => {
+                      if (!activeConversation) {
+                        return
+                      }
+                      hydrateConversationById(activeConversation.id)
+                    }}
+                  >
+                    重试加载
+                  </button>
+                </section>
+              ) : isActiveConversationLoading ? (
+                <section className="empty-state">
+                  <h2>{displayConversationTitle}</h2>
+                  <p className="empty-state-line">正在载入这段历史对话…</p>
+                </section>
+              ) : activeMessages.length === 0 ? (
+                <NewConversationShowcase
+                  rootRef={homepageShowcaseRef}
+                  cover={resolvedDailyCover}
+                  highlightStats={homepageHighlightStats}
+                  responseModeLabel={getResponseModeLabel(activeConversationResponseMode)}
+                />
+              ) : null}
 
-            {activeMessages.length > 0 && settings.dailyCover.enabled && settings.dailyCover.showChatBanner && resolvedDailyCover ? (
-              <section className="chat-cover-summary">
-                <div className="chat-cover-summary-media" aria-hidden="true">
-                  <img src={resolvedDailyCover.imageUrl} alt="" />
-                </div>
-                <div className="chat-cover-summary-content">
-                  <span className="chat-cover-summary-kicker">
-                    today&apos;s cover
-                    <span className="chat-cover-summary-dot" />
-                    {resolvedDailyCover.sourceLabel}
-                  </span>
-                  <h3>{resolvedDailyCover.title}</h3>
-                  <p>{resolvedDailyCover.description}</p>
-                </div>
-              </section>
-            ) : null}
-
-            {activeMessages.map((message) => {
+              {!isActiveConversationLoadError && !isActiveConversationLoading ? activeMessages.map((message) => {
           const editing = editingMessageId === message.id
           const textValue = message.text.trim()
           const hasReasoning = Boolean(message.reasoning?.trim())
@@ -9727,9 +10204,11 @@ function App() {
             <article key={message.id} className={`message-card ${message.role}`}>
               <div className="message-meta">
                 {message.role === 'user' ? (
-                  <span>你</span>
+                  <span>YOU</span>
                 ) : (
-                  <span className="message-model">{message.model ?? '未标记模型'}</span>
+                  <span className="message-model">
+                    Assistant · {message.model ?? '未标记模型'}
+                  </span>
                 )}
               </div>
 
@@ -9865,14 +10344,26 @@ function App() {
                   ) : null}
 
                   <div className="message-actions">
-                    <button type="button" onClick={() => void copyMessageText(message.text)}>
+                    <button
+                      type="button"
+                      className="message-action-button"
+                      onClick={() => void copyMessageText(message.text)}
+                    >
                       复制
                     </button>
-                    <button type="button" onClick={() => beginEdit(message)}>
+                    <button
+                      type="button"
+                      className="message-action-button"
+                      onClick={() => beginEdit(message)}
+                    >
                       编辑
                     </button>
                     {message.role === 'assistant' ? (
-                      <button type="button" onClick={() => void regenerate(message.id)}>
+                      <button
+                        type="button"
+                        className="message-action-button"
+                        onClick={() => void regenerate(message.id)}
+                      >
                         重试
                       </button>
                     ) : null}
@@ -9881,63 +10372,63 @@ function App() {
               )}
             </article>
           )
-            })}
+              }) : null}
 
-            <div ref={messageEndRef} />
-          </main>
+                <div ref={messageEndRef} />
+              </div>
+            </main>
 
-          {isHomepageEmptyState ? (
-            <div className="homepage-footer-dock">{renderComposerFooter({ homepageEmpty: true })}</div>
-          ) : (
-            renderComposerFooter()
-          )}
+            <div className="homepage-footer-dock">{renderComposerFooter()}</div>
 
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            hidden
-            onChange={(event) => void handleImageSelect(event)}
-          />
-          <input
-            ref={cameraInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            hidden
-            onChange={(event) => void handleImageSelect(event)}
-          />
-          <input
-            ref={skillArchiveInputRef}
-            type="file"
-            accept=".zip,application/zip"
-            hidden
-            onChange={(event) => void handleSkillArchiveSelect(event)}
-          />
-          <input
-            ref={runtimeArchiveInputRef}
-            type="file"
-            accept=".zip,application/zip"
-            hidden
-            onChange={(event) => void handleRuntimeArchiveSelect(event)}
-          />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              onChange={(event) => void handleImageSelect(event)}
+            />
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              hidden
+              onChange={(event) => void handleImageSelect(event)}
+            />
+            <input
+              ref={skillArchiveInputRef}
+              type="file"
+              accept=".zip,application/zip"
+              hidden
+              onChange={(event) => void handleSkillArchiveSelect(event)}
+            />
+            <input
+              ref={runtimeArchiveInputRef}
+              type="file"
+              accept=".zip,application/zip"
+              hidden
+              onChange={(event) => void handleRuntimeArchiveSelect(event)}
+            />
         </>
-      )}
+      </div>
 
       {drawerMounted ? (
         <div
           className={`drawer-overlay ${drawerVisible ? 'is-open' : 'is-closing'}`}
           onClick={closeDrawer}
         >
-          <aside className="drawer-panel frosted-surface" onClick={(event) => event.stopPropagation()}>
-            <div className="drawer-header">
+          <aside
+            className="drawer-panel drawer-panel--editorial frosted-surface"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="drawer-header drawer-header--editorial">
               <h2>动话</h2>
             </div>
 
             <div
               ref={conversationListRef}
-              className="conversation-list"
+              className="conversation-list drawer-conversation-list"
               onScroll={(event) => {
                 drawerScrollTopRef.current = event.currentTarget.scrollTop
               }}
@@ -9950,27 +10441,28 @@ function App() {
                     ref={(node) => {
                       conversationGroupElementRefs.current[group.id] = node
                     }}
-                    className="conversation-group"
+                    className="conversation-group drawer-conversation-group"
                   >
-                    <div className="conversation-group-divider">
-                      <span className="conversation-group-label">{dateFormatter.format(group.labelTime)}</span>
-                      <span className="conversation-group-dash" aria-hidden="true" />
-                      <button
-                        type="button"
-                        className="conversation-group-toggle"
-                        aria-label={collapsed ? '展开分组' : '收起分组'}
-                        onClick={() => toggleConversationGroup(group.id)}
-                      >
-                        <span className={`arrow ${collapsed ? '' : 'open'}`}>▾</span>
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      className={`drawer-group-heading ${collapsed ? 'is-collapsed' : ''}`}
+                      aria-expanded={!collapsed}
+                      aria-label={collapsed ? '展开分组' : '收起分组'}
+                      onClick={() => toggleConversationGroup(group.id)}
+                    >
+                      <span className="drawer-group-heading-label">
+                        {formatDrawerGroupLabel(group.labelTime)}
+                      </span>
+                    </button>
 
-                    <div className={`conversation-group-content ${collapsed ? 'is-collapsed' : ''}`}>
-                      <div className="conversation-group-content-inner">
+                    <div className={`conversation-group-content drawer-group-content ${collapsed ? 'is-collapsed' : ''}`}>
+                      <div className="conversation-group-content-inner drawer-group-content-inner">
                         {group.conversations.map((conversation) => (
                           <div
                             key={conversation.id}
-                            className={`conversation-item-row ${deleteModeEnabled ? 'delete-mode' : ''} ${
+                            className={`conversation-item-row drawer-conversation-item-row ${
+                              deleteModeEnabled ? 'delete-mode' : ''
+                            } ${
                               swipingConversationId === conversation.id ? 'is-swiping' : ''
                             }`}
                             style={
@@ -9982,7 +10474,7 @@ function App() {
                             <button
                               type="button"
                               data-conversation-item="true"
-                              className={`conversation-item ${
+                              className={`conversation-item drawer-conversation-item ${
                                 conversation.id === activeConversationId ? 'active' : ''
                               } ${swipingConversationId === conversation.id ? 'is-swiping' : ''}`}
                               onPointerDown={(event) => handleConversationPointerDown(conversation.id, event)}
@@ -9997,12 +10489,17 @@ function App() {
                                 handleConversationClick(conversation.id)
                               }}
                             >
-                              <span className="conversation-item-title">{conversation.title}</span>
-                              <div className="conversation-item-times">
-                                <span className="conversation-item-time">
+                              <span className="conversation-item-title drawer-conversation-item-title">
+                                {conversation.title}
+                              </span>
+                              <div className="conversation-item-times drawer-conversation-item-times">
+                                <span className="conversation-item-time drawer-conversation-item-time">
                                   创建：{dateFormatter.format(conversation.createdAt)}
                                 </span>
-                                <span className="conversation-item-time">
+                                <span className="drawer-conversation-item-time-separator" aria-hidden="true">
+                                  ·
+                                </span>
+                                <span className="conversation-item-time drawer-conversation-item-time">
                                   更新：{dateFormatter.format(conversation.updatedAt)}
                                 </span>
                               </div>
@@ -10034,48 +10531,21 @@ function App() {
               })}
             </div>
 
-            <div className="drawer-footer">
+            <div className="drawer-footer drawer-footer--editorial">
               <button
                 type="button"
-                className="drawer-action-button drawer-settings-button"
+                className="drawer-action-button drawer-action-button--editorial drawer-settings-button"
                 aria-label="打开设置"
                 onClick={openSettingsFromDrawer}
               >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d="M12 8.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4Zm0-4v1.7m0 11v1.7m7.2-7.4h-1.7m-11 0H4.8m11.93 5.13-1.2-1.2M8.48 8.47 7.27 7.27m9.46 0-1.2 1.2m-7.05 7.06-1.2 1.2"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
                 <span>设置</span>
               </button>
               <button
                 type="button"
-                className="drawer-action-button drawer-new-chat-button"
+                className="drawer-action-button drawer-action-button--editorial drawer-new-chat-button"
                 aria-label="新增对话"
                 onClick={createNewConversation}
               >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d="M5.5 6.7h8a4 4 0 0 1 4 4v1.1a4 4 0 0 1-4 4h-3.8L6.2 18.9v-3.1a4 4 0 0 1-3.7-4v-1.1a4 4 0 0 1 3-3.9Z"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <path
-                    d="M12 8.9v4.2m-2.1-2.1h4.2"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                  />
-                </svg>
                 <span>新增对话</span>
               </button>
             </div>
@@ -10129,6 +10599,50 @@ function App() {
                 取消
               </button>
               <button type="button" className="danger-button" onClick={confirmDeleteProvider}>
+                删除
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {deleteDialogSkill ? (
+        <div className="delete-dialog-overlay" onClick={closeDeleteDialog}>
+          <section className="delete-dialog frosted-surface" onClick={(event) => event.stopPropagation()}>
+            <h3>删除提醒</h3>
+            <p className="delete-dialog-text">
+              确认删除 skill「{deleteDialogSkill.frontmatter.name || deleteDialogSkill.id}」吗？
+            </p>
+            <p className="delete-dialog-hint">
+              该 skill 的配置文件与启用状态都会一起移除。若它覆盖了同名内置 skill，删除后将回退到内置版本。
+            </p>
+            <div className="delete-dialog-actions">
+              <button type="button" className="ghost-button" onClick={closeDeleteDialog}>
+                取消
+              </button>
+              <button type="button" className="danger-button" onClick={confirmDeleteSkill}>
+                删除
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {deleteDialogRuntime ? (
+        <div className="delete-dialog-overlay" onClick={closeDeleteDialog}>
+          <section className="delete-dialog frosted-surface" onClick={(event) => event.stopPropagation()}>
+            <h3>删除提醒</h3>
+            <p className="delete-dialog-text">
+              确认删除运行时「{deleteDialogRuntime.displayName || deleteDialogRuntime.id}」吗？
+            </p>
+            <p className="delete-dialog-hint">
+              删除后，依赖该运行时的 skill 执行可能失败；如果它当前是默认运行时，也会失去默认指向。
+            </p>
+            <div className="delete-dialog-actions">
+              <button type="button" className="ghost-button" onClick={closeDeleteDialog}>
+                取消
+              </button>
+              <button type="button" className="danger-button" onClick={confirmDeleteRuntime}>
                 删除
               </button>
             </div>

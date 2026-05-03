@@ -22,6 +22,7 @@ export interface SkillRecord {
   source: SkillSource
   installedAt: number
   enabled: boolean
+  loadError?: string
   folderName: string
   overrideBuiltin: boolean
   frontmatter: SkillFrontmatter
@@ -91,60 +92,6 @@ export interface RunExecutionResult {
   startedAt?: number
   updatedAt: number
   completedAt?: number
-}
-
-export interface BrowserVisitHeading {
-  level: number
-  text: string
-}
-
-export interface BrowserVisitLink {
-  text: string
-  url: string
-  title?: string
-}
-
-export interface BrowserVisitImage {
-  alt?: string
-  url: string
-  title?: string
-}
-
-export interface BrowserVisitMetadata {
-  requestedUrl?: string
-  finalUrl?: string
-  title?: string
-  description?: string
-  lang?: string
-  canonicalUrl?: string
-  siteName?: string
-  author?: string
-  publishedAt?: string
-  modifiedAt?: string
-  keywords?: string
-  contentType?: string
-  status?: number
-  blockedBy?: string
-  questionId?: string
-  challengeScriptUrl?: string
-  [key: string]: unknown
-}
-
-export interface BrowserVisitResult {
-  title: string
-  url: string
-  finalUrl?: string
-  description?: string
-  content: string
-  contentFormat: 'markdown'
-  contentText?: string
-  engine: string
-  headings?: BrowserVisitHeading[]
-  links?: BrowserVisitLink[]
-  images?: BrowserVisitImage[]
-  metadata?: BrowserVisitMetadata
-  warnings?: string[]
-  truncated?: boolean
 }
 
 export type ReadRoot = InternalActionLocation

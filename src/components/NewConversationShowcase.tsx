@@ -1,16 +1,21 @@
 import type { ResolvedDailyCover } from '../services/daily-cover'
 import type { HomepageHighlightStat } from '../services/homepage-highlights'
+import type { Ref } from 'react'
 
 interface NewConversationShowcaseProps {
   cover: ResolvedDailyCover | null
   highlightStats: HomepageHighlightStat[]
   responseModeLabel: string
+  className?: string
+  rootRef?: Ref<HTMLElement>
 }
 
 const NewConversationShowcase = ({
   cover,
   highlightStats,
   responseModeLabel,
+  className,
+  rootRef,
 }: NewConversationShowcaseProps) => {
   const displayHighlightStats =
     highlightStats.length > 0
@@ -43,7 +48,10 @@ const NewConversationShowcase = ({
         ]
 
   return (
-    <section className={`cover-empty-state ${cover ? 'has-cover' : 'is-fallback'}`}>
+    <section
+      ref={rootRef}
+      className={['cover-empty-state', cover ? 'has-cover' : 'is-fallback', className].filter(Boolean).join(' ')}
+    >
       <div className="cover-empty-state-content">
         <div className="cover-empty-state-kicker">
           <span>01</span>
