@@ -15,6 +15,8 @@ import type {
   ProjectedConversationMessage,
   TranscriptContentPart,
   TranscriptConversation,
+  TranscriptConversationPreferences,
+  TranscriptConversationResponseMode,
   TranscriptEvent,
   TranscriptImageAttachment,
   TranscriptTurn,
@@ -42,6 +44,15 @@ const sanitizeTitleText = (text: string): string =>
     .replace(/[#[\]>*`_~()]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+
+export const normalizeConversationResponseMode = (
+  value: unknown,
+): TranscriptConversationResponseMode | undefined => {
+  if (value === 'tool' || value === 'text') {
+    return value
+  }
+  return undefined
+}
 
 const getUserMessageText = (content: TranscriptContentPart[]): string =>
   content
@@ -73,6 +84,51 @@ const buildFallbackAssistantFlow = (
 
 const looksLikeSkillAgentProtocolText = (text: string): boolean =>
   /<\/?(progress|final)>/i.test(text)
+
+const buildConversationPreferences = (
+  responseMode: unknown,
+): TranscriptConversationPreferences | undefined => {
+  const normalizedResponseMode = normalizeConversationResponseMode(responseMode)
+  return normalizedResponseMode
+    ? {
+        responseMode: normalizedResponseMode,
+      }
+    : undefined
+}
+
+const hasAssistantToolArtifacts = (event: AssistantMessageTranscriptEvent): boolean =>
+  looksLikeSkillAgentProtocolText(event.rawText) ||
+  (event.assistantFlow?.some((node) => node.kind === 'skill') ?? false)
+
+export const inferConversationResponseModeFromTranscript = (
+  transcript: TranscriptEvent[],
+): TranscriptConversationResponseMode | undefined => {
+  let hasPlainAssistantOutput = false
+
+  for (const event of transcript) {
+    if (event.kind === 'user_message') {
+      continue
+    }
+
+    if (event.kind === 'host_message') {
+      return 'tool'
+    }
+
+    if (hasAssistantToolArtifacts(event)) {
+      return 'tool'
+    }
+
+    if (event.rawText.trim() || (event.assistantFlow?.length ?? 0) > 0) {
+      hasPlainAssistantOutput = true
+    }
+  }
+
+  if (hasPlainAssistantOutput) {
+    return 'text'
+  }
+
+  return undefined
+}
 
 const groupTranscriptTurns = (transcript: TranscriptEvent[]): TranscriptTurn[] => {
   const turns: TranscriptTurn[] = []
@@ -360,9 +416,31 @@ export const withConversationTranscript = (
   }
 }
 
+export const withConversationResponseMode = (
+  conversation: TranscriptConversation,
+  responseMode: TranscriptConversationResponseMode,
+  options?: {
+    keepUpdatedAt?: boolean
+  },
+): TranscriptConversation => {
+  const nextPreferences = buildConversationPreferences(responseMode)
+  if (conversation.preferences?.responseMode === nextPreferences?.responseMode) {
+    return conversation
+  }
+
+  return {
+    ...conversation,
+    preferences: nextPreferences,
+    updatedAt: options?.keepUpdatedAt ? conversation.updatedAt : Date.now(),
+  }
+}
+
 export const createConversationFromTranscript = (
   id: string,
   transcript: TranscriptEvent[] = [],
+  options?: {
+    preferences?: TranscriptConversationPreferences
+  },
 ): TranscriptConversation => {
   const createdAt = transcript.length > 0 ? inferConversationCreatedAtFromTranscript(transcript) : 0
   const updatedAt =
@@ -375,6 +453,7 @@ export const createConversationFromTranscript = (
     title: deriveConversationTitleFromTranscript(transcript) ?? '新对话',
     titleManuallyEdited: false,
     transcript,
+    preferences: buildConversationPreferences(options?.preferences?.responseMode),
     createdAt,
     updatedAt,
   }

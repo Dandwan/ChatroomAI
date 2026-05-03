@@ -5,7 +5,6 @@ import mirrorMountainImageUrl from '../assets/daily-covers/mirror-mountain.jpg'
 
 export interface DailyCoverSettings {
   enabled: boolean
-  showChatBanner: boolean
   useApi: boolean
   apiEndpoint: string
   apiMethod: 'GET' | 'POST'
@@ -42,7 +41,6 @@ const DAY_MS = 24 * 60 * 60 * 1000
 
 export const DEFAULT_DAILY_COVER_SETTINGS: DailyCoverSettings = {
   enabled: true,
-  showChatBanner: true,
   useApi: false,
   apiEndpoint: '',
   apiMethod: 'GET',

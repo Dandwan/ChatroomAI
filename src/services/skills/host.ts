@@ -21,14 +21,12 @@ import {
 } from './storage'
 import type { ReadListEntry, SkillDocument, SkillInstallResult, SkillRecord } from './types'
 
-const builtinUnionSearchFiles = import.meta.glob('../../../builtin-skills/union-search/**/*', {
-  query: '?raw',
-  import: 'default',
-  eager: true,
-}) as Record<string, string>
+import builtinUnionSearchMarkdown from '../../../builtin-skills/union-search/SKILL.md?raw'
+import builtinUnionSearchConfigTemplateRaw from '../../../builtin-skills/union-search/config-template.json?raw'
+import builtinDeviceInfoMarkdown from '../../../builtin-skills/device-info/SKILL.md?raw'
 
 const builtinDeviceInfoFiles = import.meta.glob('../../../builtin-skills/device-info/**/*', {
-  query: '?raw',
+  query: '?url',
   import: 'default',
   eager: true,
 }) as Record<string, string>
@@ -53,14 +51,19 @@ const DEFAULT_STATE: SkillHostState = {
 const STATE_PATH = joinRelativePath(SKILL_DIRECTORIES.state, 'skills.json')
 const CONFIGS_PATH = joinRelativePath(SKILL_DIRECTORIES.state, 'skill-configs')
 const INSTALLED_SKILLS_PATH = SKILL_DIRECTORIES.skills
+const BUILTIN_SIGNATURE_FILENAME = '.builtin-signature.json'
+
+let builtinMaterializationErrorsById: Record<string, string> = {}
 
 const SKILL_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 type BuiltinSkillDefinition = {
   id: string
   markdown: string
+  configTemplateRaw: string | null
   configTemplate: Record<string, unknown> | null
-  files: Record<string, string>
+  assetUrls: Record<string, string>
+  publicRoot?: string
 }
 
 const createFallbackSkillDocument = (skillId: string, markdown: string): SkillDocument => {
@@ -99,26 +102,39 @@ const toBuiltinFiles = (files: Record<string, string>, prefix: string): Record<s
 
 const createBuiltinSkillDefinition = (
   id: string,
+  markdown: string,
+  configTemplateRaw: string | null,
   files: Record<string, string>,
+  options?: {
+    publicRoot?: string
+  },
 ): BuiltinSkillDefinition | null => {
-  const fileMap = toBuiltinFiles(files, `builtin-skills/${id}`)
-  const markdown = fileMap['SKILL.md']
   if (!markdown) {
     return null
   }
   return {
     id,
     markdown,
-    configTemplate: fileMap['config-template.json']
-      ? (JSON.parse(fileMap['config-template.json']) as Record<string, unknown>)
+    configTemplateRaw,
+    configTemplate: configTemplateRaw
+      ? (JSON.parse(configTemplateRaw) as Record<string, unknown>)
       : null,
-    files: fileMap,
+    assetUrls: toBuiltinFiles(files, `builtin-skills/${id}`),
+    publicRoot: options?.publicRoot,
   }
 }
 
 const BUILTIN_SKILLS: BuiltinSkillDefinition[] = [
-  createBuiltinSkillDefinition('union-search', builtinUnionSearchFiles),
-  createBuiltinSkillDefinition('device-info', builtinDeviceInfoFiles),
+  createBuiltinSkillDefinition(
+    'union-search',
+    builtinUnionSearchMarkdown,
+    builtinUnionSearchConfigTemplateRaw,
+    {},
+    {
+      publicRoot: 'builtin-skills/union-search',
+    },
+  ),
+  createBuiltinSkillDefinition('device-info', builtinDeviceInfoMarkdown, null, builtinDeviceInfoFiles),
 ].filter((skill): skill is BuiltinSkillDefinition => skill !== null)
 
 const toEntryKind = (type?: string): 'file' | 'directory' =>
@@ -319,14 +335,113 @@ export const readSkillFile = async (
   }
 }
 
+const readBuiltinAssetText = async (assetUrl: string): Promise<string> => {
+  const response = await fetch(assetUrl)
+  if (!response.ok) {
+    throw new Error(`Failed to load builtin skill asset: ${assetUrl}`)
+  }
+  return response.text()
+}
+
+const resolveBuiltinPublicUrl = (publicPath: string): string =>
+  new URL(publicPath.replace(/^\/+/, ''), window.location.href).toString()
+
+const readBuiltinPublicJson = async <T>(publicPath: string): Promise<T> => {
+  const response = await fetch(resolveBuiltinPublicUrl(publicPath))
+  if (!response.ok) {
+    throw new Error(`Failed to load builtin skill public asset: ${publicPath}`)
+  }
+  return (await response.json()) as T
+}
+
+const readBuiltinPublicText = async (publicPath: string): Promise<string> => {
+  const response = await fetch(resolveBuiltinPublicUrl(publicPath))
+  if (!response.ok) {
+    throw new Error(`Failed to load builtin skill public asset: ${publicPath}`)
+  }
+  return response.text()
+}
+
 const materializeBuiltinSkill = async (skill: BuiltinSkillDefinition): Promise<void> => {
   const root = getBuiltinSkillRoot(skill.id)
-  for (const [relativePath, content] of Object.entries(skill.files)) {
+  if (skill.publicRoot) {
+    const manifest = await readBuiltinPublicJson<{
+      files: string[]
+    }>(`${skill.publicRoot}/manifest.json`)
+    for (const relativePath of manifest.files) {
+      const content =
+        relativePath === 'SKILL.md'
+          ? skill.markdown
+          : relativePath === 'config-template.json' && skill.configTemplateRaw
+            ? skill.configTemplateRaw
+            : await readBuiltinPublicText(`${skill.publicRoot}/${relativePath}`)
+      await writeTextFile(joinRelativePath(root, relativePath), content)
+    }
+    await writeTextFile(joinRelativePath(root, BUILTIN_SIGNATURE_FILENAME), await createBuiltinSkillSignature(skill))
+    return
+  }
+
+  for (const [relativePath, assetUrl] of Object.entries(skill.assetUrls)) {
+    const content =
+      relativePath === 'SKILL.md'
+        ? skill.markdown
+        : relativePath === 'config-template.json' && skill.configTemplateRaw
+          ? skill.configTemplateRaw
+          : await readBuiltinAssetText(assetUrl)
     await writeTextFile(joinRelativePath(root, relativePath), content)
   }
+  await writeTextFile(joinRelativePath(root, BUILTIN_SIGNATURE_FILENAME), await createBuiltinSkillSignature(skill))
+}
+
+const createBuiltinSkillSignature = async (skill: BuiltinSkillDefinition): Promise<string> => {
+  if (skill.publicRoot) {
+    const manifest = await readBuiltinPublicJson<{
+      signature: string
+      files: string[]
+    }>(`${skill.publicRoot}/manifest.json`)
+    return JSON.stringify(
+      {
+        id: skill.id,
+        markdown: skill.markdown,
+        configTemplateRaw: skill.configTemplateRaw,
+        publicRoot: skill.publicRoot,
+        manifestSignature: manifest.signature,
+      },
+      null,
+      2,
+    )
+  }
+
+  return JSON.stringify(
+    {
+      id: skill.id,
+      markdown: skill.markdown,
+      configTemplateRaw: skill.configTemplateRaw,
+      assetUrls: Object.keys(skill.assetUrls)
+        .sort((left, right) => left.localeCompare(right))
+        .map((relativePath) => [relativePath, skill.assetUrls[relativePath]]),
+    },
+    null,
+    2,
+  )
+}
+
+const builtinSkillIsUpToDate = async (skill: BuiltinSkillDefinition): Promise<boolean> => {
+  const root = getBuiltinSkillRoot(skill.id)
+  if (!(await pathExists(root))) {
+    return false
+  }
+
+  const signaturePath = joinRelativePath(root, BUILTIN_SIGNATURE_FILENAME)
+  if (!(await pathExists(signaturePath))) {
+    return false
+  }
+
+  return (await readTextFile(signaturePath)) === (await createBuiltinSkillSignature(skill))
 }
 
 const synchronizeBuiltinSkills = async (): Promise<void> => {
+  const nextBuiltinErrors: Record<string, string> = {}
   const expectedIds = new Set(BUILTIN_SKILLS.map((skill) => skill.id))
   const existingIds = await listDirectory(SKILL_DIRECTORIES.builtin)
 
@@ -338,11 +453,23 @@ const synchronizeBuiltinSkills = async (): Promise<void> => {
 
   for (const skill of BUILTIN_SKILLS) {
     const root = getBuiltinSkillRoot(skill.id)
-    if (await pathExists(root)) {
-      await deletePath(root)
+    try {
+      if (await builtinSkillIsUpToDate(skill)) {
+        continue
+      }
+      if (await pathExists(root)) {
+        await deletePath(root)
+      }
+      await materializeBuiltinSkill(skill)
+    } catch (error) {
+      nextBuiltinErrors[skill.id] = error instanceof Error ? error.message : String(error)
+      await deletePath(root).catch(() => {
+        // Ignore cleanup failures after a builtin materialization error.
+      })
     }
-    await materializeBuiltinSkill(skill)
   }
+
+  builtinMaterializationErrorsById = nextBuiltinErrors
 }
 
 const readState = async (): Promise<SkillHostState> =>
@@ -362,6 +489,7 @@ const loadBuiltinRecord = async (
     return null
   }
 
+  const loadError = builtinMaterializationErrorsById[skill.id]
   let document: SkillDocument
   try {
     document = parseSkillDocument(skill.markdown)
@@ -372,7 +500,8 @@ const loadBuiltinRecord = async (
     id: skill.id,
     source: 'builtin',
     installedAt: 0,
-    enabled: state.enabledById[skill.id] ?? true,
+    enabled: loadError ? false : state.enabledById[skill.id] ?? true,
+    loadError,
     folderName: skill.id,
     overrideBuiltin: false,
     frontmatter: document.frontmatter,

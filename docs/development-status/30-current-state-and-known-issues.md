@@ -8,13 +8,257 @@ The repository is very dirty.
 - There are many untracked temp screenshots, XML dumps, APKs, and investigation artifacts.
 - Do not use broad cleanup or revert commands unless the user explicitly asks for that cleanup.
 
+## Latest First-Send Chat Transition State
+
+As of 2026-05-03:
+
+- the empty new-conversation homepage no longer shrinks the daily cover into an in-chat summary card
+- the first real send now uses a dedicated `homepageSendTransition` overlay in `src/App.tsx`:
+  - the cold-start cover scene is snapshotted into fixed overlay geometry
+  - the overlay carries both the background image and the homepage showcase copy
+  - the overlay moves upward and leaves the screen, revealing the real message flow underneath
+- the transition lifecycle no longer depends on a JS timeout racing the WebView compositor:
+  - the overlay now clears itself on `animationend`
+  - this replaced the earlier timer-based cleanup that proved less trustworthy on Android WebView
+- active chat no longer renders any daily-cover summary slot or summary-card component:
+  - `src/components/DailyCoverSummaryCard.tsx` is removed
+  - the old `showChatBanner` daily-cover setting is removed from runtime settings and settings UI
+- the chat-page header/footer wrappers are now explicitly transparent in `src/styles/app-editorial-redesign.css`:
+  - only the actual cards and controls occlude the conversation background
+  - shell wrappers such as `.app-header`, `.homepage-footer-dock`, and the composer layout rows no longer own their own blocking background layer
+- Android-side validation confirmed the real packaged app reflects the new behavior:
+  - homepage reference capture: `.tmp-devtools-home-upslide-final.png`
+  - transition capture references: `.tmp-devtools-upslide-final-40ms.png`, `.tmp-devtools-upslide-final-120ms.png`, `.tmp-devtools-upslide-final-240ms.png`
+  - stable active-chat reference without any summary card: `.tmp-devtools-upslide-final-980ms.png`
+  - runtime DOM inspection on `emulator-5554` additionally confirmed:
+    - `summaryCardCount = 0`
+    - `.app-header` computed background is `rgba(0, 0, 0, 0)`
+    - `.homepage-footer-dock` computed background is `rgba(0, 0, 0, 0)`
+
+## Latest Chat Composer Height State
+
+As of 2026-05-02:
+
+- the chat-page composer top row now uses the same `46px` control height as the lower model / tool row
+- this was implemented in `src/styles/app-editorial-redesign.css` by:
+  - changing `--homepage-composer-row-height` from `52px` to `46px`
+  - deriving `--homepage-footer-dock-height` from the shared composer height tokens instead of leaving it as the old hardcoded `114px`
+  - reducing editorial chat-input vertical padding from `14px 18px` to `12px 18px`
+- the inter-row spacing was intentionally left unchanged:
+  - `--homepage-footer-gap` remains `8px`
+- the derived dock-height change is intentional engineering work, not visual drift:
+  - without it, shrinking only the top row would have left extra dead air in the dock because the footer shell would still reserve space for the old taller row
+- Android-side validation was run against the real packaged app, not only the web source:
+  - `node scripts/cap-sync-android.mjs`
+  - `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- assembleDebug`
+  - `.codex/skills/chatroomai-android-emulator-test/scripts/launch-emulator.ps1 -Mode headless`
+  - `.codex/skills/chatroomai-android-emulator-test/scripts/prepare-chatroomai.ps1 -ProjectRoot C:\\Users\\Dandwan\\projects\\ChatroomAI`
+  - emulator screenshot inspection of `.tmp-homepage-composer-height-check.png`
+
+## Latest Settings Input Styling State
+
+As of 2026-05-02:
+
+- the dark-mode settings input regression is fixed in `src/styles/app-editorial-redesign.css`
+- the previous separate light `paper-field` treatment for settings text inputs and select-like triggers has been replaced with shared dark editorial field tokens owned by `.settings-screen`
+- normal settings text inputs now resolve through the same dark field language as the chat composer:
+  - background `rgba(10, 12, 18, 0.88)`
+  - border `rgba(244, 239, 231, 0.12)`
+  - text `rgba(244, 239, 231, 0.88)`
+  - radius `4px`
+- the same dark field system now also covers:
+  - settings popover triggers such as the theme selector
+  - JSON type triggers inside the skill-config structured editor
+- the larger dark card editors intentionally remain a separate variant:
+  - raw JSON / prompt-style multi-line editors still use the existing `settings-chat-input-card` treatment with `14px` radius
+  - this is deliberate so dense editor surfaces stay visually distinct from compact form fields instead of collapsing everything into one identical box
+- device-side validation for this fix did not rely only on source inspection:
+  - the debug app was rebuilt, synced, installed, and launched on `emulator-5554`
+  - WebView DevTools CDP was attached to the running app page at `https://localhost/`
+  - the settings UI was opened through runtime DOM clicks
+  - computed styles confirmed real compact settings inputs and the settings popover trigger now use the dark field background instead of the old white field background
+
+## Latest Phone Install State
+
+As of 2026-05-02:
+
+- the current debug APK at `android/app/build/outputs/apk/debug/app-debug.apk` was reinstalled onto the physical phone `c3fec216`
+- this handoff used the repo's already-known reliable install path for that phone:
+  - `adb -s c3fec216 install --no-streaming -r ...`
+- the installed phone package currently reports:
+  - `versionName=1.5.0`
+  - `versionCode=1500`
+  - `lastUpdateTime=2026-05-02 21:01:49`
+
+## Latest Release Artifact State
+
+As of 2026-05-02:
+
+- `npm run android:build:release` passed again from the current dirty worktree with local Gradle home `.gradle-local-v120`
+- a fresh signed `v1.5.0` Android release APK was copied locally as `ActiChat-v1.5.0-android-release-20260502-172916.apk`
+- that copied artifact has:
+  - size `214825810` bytes
+  - SHA256 `960477E0EC6E8E1DC2947E491888DF747FCF65C356D167AC6611E6513311114E`
+- the same artifact was uploaded to the user's File Browser cloud root as `/ActiChat-v1.5.0-android-release-20260502-172916.apk`
+- remote `stat` confirmed the uploaded file exists with size `214825810` bytes
+
 ## Branding State
 
 - User-facing Chinese branding is now `动话`.
 - English-facing project/config branding is now `ActiChat`.
 - Android package name and `applicationId` intentionally remain `com.dandwan.chatroomai` for install/update continuity.
 
+## Chat Storage Startup State
+
+As of 2026-05-02:
+
+- cold start no longer waits on full history hydration:
+  - `src/services/chat-storage/` now persists richer `index.json` summaries plus top-level `historyStats`
+  - app startup reads the summary index first and lands directly in a fresh new conversation
+  - the old full-screen `正在加载聊天记录…` cold-start page is intentionally removed
+- historical conversation bodies now hydrate on demand:
+  - selecting a history row loads that conversation's `conversation.json` in real time
+  - while that one conversation is hydrating, the UI shows a local per-conversation loading state instead of blocking the whole app shell
+- homepage history metrics are now summary-driven:
+  - `词元消耗 / 历史会话 / 工具调用 / 消息数量` no longer depend on cold-start transcript scans
+  - those values come from persisted storage summaries and are rewritten together with chat persistence
+- chat-storage schema is now `4`
+
 ## Recently Validated State
+
+As of 2026-05-02:
+
+- the remaining shared UI base has now been moved onto the same editorial direction instead of keeping the older pastel / glossy token layer underneath:
+  - `src/index.css` now defines ActiChat editorial dark/light tokens and uses the local ActiChat font families as the default UI stack
+  - `src/App.css` now provides the shared editorial baseline for notices, empty states, user cards, helper panels, message action rows, pending-image surfaces, image viewer, and shared triggers / popovers
+  - `src/styles/app-overlay-panels.css` now carries matching editorial destructive-surface defaults for delete affordances and delete confirmations
+- this pass explicitly validated that the redesign now carries through not only homepage / drawer / settings home, but also deeper editable settings pages and a real active-chat selection:
+  - homepage cold start: `.tmp-ui-home-after-shared-pass-2.png`
+  - drawer: `.tmp-ui-drawer-after-shared-pass.png`
+  - settings main: `.tmp-ui-settings-main-after-shared-pass.png`
+  - providers list: `.tmp-ui-providers-after-shared-pass.png`
+  - provider detail after the Android readability fix: `.tmp-ui-provider-detail-after-paper-fields.png`
+  - active chat after selecting a historical conversation: `.tmp-ui-active-chat-serial.png`
+- a real Android WebView contrast problem was found during this pass:
+  - the ultra-flat underline-only treatment for deep editable settings fields produced too-low contrast for textarea/input values on the emulator
+  - those editable fields now intentionally use higher-contrast paper-field surfaces inside the dark settings shell
+  - this is a deliberate product tradeoff for legibility and edit reliability, not a fallback to the older pastel system
+- the latest validation for this shared editorial-base pass passed through:
+  - `npm run lint`
+  - `npm run build`
+  - `node scripts/cap-sync-android.mjs`
+  - `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- assembleDebug`
+  - `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- clean assembleDebug`
+  - `.codex/skills/chatroomai-android-emulator-test/scripts/launch-emulator.ps1 -Mode headless`
+  - repeated `.codex/skills/chatroomai-android-emulator-test/scripts/prepare-chatroomai.ps1 -ProjectRoot C:\\Users\\Dandwan\\projects\\ChatroomAI`
+  - emulator screenshot inspection of the files listed above
+- one Android packaging-side issue was identified and fixed during this pass:
+  - `scripts/cap-sync-android.mjs` now force-mirrors `dist/` into `android/app/src/main/assets/public/` after Capacitor sync when the copied `index.html` does not match the built `dist/index.html`
+  - this was needed because the earlier sync path could leave Android assets pointing at an older hashed entry bundle even after a successful web build
+- the final device-side validation after fixing that sync mismatch additionally confirmed:
+  - skill delete now uses the in-app editorial confirmation dialog instead of the older WebView/native `window.confirm` path:
+    - `.tmp-ui-delete-dialog-after-syncfix.png`
+  - the skill-config visual editor now uses the intended higher-contrast paper-field treatment:
+    - `.tmp-ui-skill-config-latest.png`
+  - the raw JSON section now renders through the same dark-shell / high-contrast editor system:
+    - `.tmp-ui-skill-config-raw-json.png`
+- current remaining fidelity / validation limitations after this pass:
+  - the Android emulator still shows the previously known white system status-bar background above the WebView
+  - active chat is now structurally aligned with the approved direction, but still not guaranteed to be pixel-identical to the standalone prototype in every transient assistant-flow state
+
+- the settings surface now has a dedicated prototype-aligned editorial implementation in real app code:
+  - the real settings overlay now follows `docs/prototypes/actichat-product-pages/settings-home.html` and `settings-daily-cover.html` much more closely while preserving all existing settings logic and subpage routing
+  - the main settings page now opens with an editorial intro, a real daily-cover preview hero, and prototype-style summary sections for provider, daily cover, permissions, and extensions
+  - provider / prompt / generation / conversation / display sections keep their original capabilities, but now read as one continuous long-form dark settings surface instead of a stack of thick control cards
+  - the dedicated daily-cover page now uses the same visual language with a denser hero title line, long-form section headings, and prototype-style display-rule / bundled-pool / API sections
+  - the redesign work for this pass is limited to:
+    - `src/App.tsx`
+    - `src/styles/app-editorial-redesign.css`
+- the latest validation for this settings redesign pass passed through:
+  - `npm run lint`
+  - `npm run build`
+  - `node scripts/cap-sync-android.mjs`
+  - `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- assembleDebug`
+  - `.codex/skills/chatroomai-android-emulator-test/scripts/launch-emulator.ps1 -Mode headless -Restart`
+  - `.codex/skills/chatroomai-android-emulator-test/scripts/prepare-chatroomai.ps1 -ProjectRoot C:\\Users\\Dandwan\\projects\\ChatroomAI`
+  - emulator screenshot inspection of:
+    - `.tmp-settings-redesign-main-v3.png`
+    - `.tmp-settings-redesign-daily-cover-v3.png`
+- current remaining fidelity limitation for the settings pass:
+  - the Android emulator still shows the previously known white system status-bar background above the WebView, so whole-screen screenshots cannot become a byte-for-byte match to the standalone prototype even though the settings content surface itself is now much closer
+  - deep utility-heavy subpages such as skill-config and raw JSON editing now share the same visual system, but they remain necessarily denser than the flat marketing-style prototype because the real app still exposes fully editable controls there
+
+- the history drawer now has a dedicated prototype-aligned editorial implementation in real app code:
+  - the left drawer surface now matches `docs/prototypes/actichat-product-pages/drawer.html` much more closely without changing the exposed right-side chat page
+  - the old `ISSUE 08 · TODAY'S INDEX` line is gone
+  - group labels now render with drawer-only natural-day formatting:
+    - `TODAY · HH:mm`
+    - `YESTERDAY · HH:mm`
+    - `MM/DD · HH:mm`
+  - the drawer keeps real app behavior for conversation switching, group collapsing, swipe/delete mode, scroll restoration, settings launch, and new-conversation creation
+  - the footer actions now use the prototype-style iconless rectangular control language instead of the older shared pill/button treatment
+  - the restyle is now isolated through drawer-specific structure/classes instead of broad new global mutations to every shared `.conversation-*` surface
+- the latest validation for this drawer redesign pass passed through:
+  - `npm run lint`
+  - `npm run build`
+  - `node scripts/cap-sync-android.mjs`
+  - `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- assembleDebug`
+  - `.codex/skills/chatroomai-android-emulator-test/scripts/launch-emulator.ps1 -Mode visible`
+  - `.codex/skills/chatroomai-android-emulator-test/scripts/prepare-chatroomai.ps1 -ProjectRoot C:\\Users\\Dandwan\\projects\\ChatroomAI`
+  - emulator screenshot inspection of:
+    - `.tmp-drawer-iteration0-home.png`
+    - `.tmp-drawer-iteration2-open.png`
+- the latest physical-phone package state after follow-up debug install on `c3fec216` is:
+  - `versionName=1.5.0`
+  - `versionCode=1500`
+  - `lastUpdateTime=2026-05-02 04:09:38`
+- current remaining fidelity limitation for the drawer pass:
+  - the right-side exposed chat page was intentionally left unchanged for this task, so whole-screen screenshots cannot become a byte-for-byte match to the standalone prototype
+  - the current emulator history state only exposed one visible real conversation row, so multi-row density was judged against the prototype language rather than a like-for-like data population
+
+- the homepage history drawer regression on the empty new-conversation page is now fixed in app code:
+  - homepage content now renders through a dedicated `app-shell-content` layer above the daily-cover background
+  - shell-level overlays such as the history drawer no longer inherit the homepage-empty content-layer rule that had been forcing them back into normal document flow
+  - the drawer once again opens as an overlay above the homepage instead of pushing the page layout sideways
+  - Android emulator validation on `emulator-5554` confirmed the history drawer now visually overlays the homepage and that selecting a historical conversation closes the drawer and switches into that conversation
+- the latest validation for this drawer fix passed through:
+  - `npm run lint`
+  - `npm run build`
+  - `node scripts/cap-sync-android.mjs`
+  - `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- assembleDebug`
+  - `.codex/skills/chatroomai-android-emulator-test/scripts/launch-emulator.ps1 -Mode headless`
+  - `.codex/skills/chatroomai-android-emulator-test/scripts/prepare-chatroomai.ps1 -ProjectRoot C:\\Users\\Dandwan\\projects\\ChatroomAI`
+  - emulator screenshot inspection for cold-start homepage, opened drawer, and drawer-driven conversation selection
+- current remaining validation gap for the drawer path:
+  - the current emulator state only exposed one visible history group, so multi-group auto-collapse was not directly observed on-device in this handoff
+  - transparent-area tap-to-dismiss was inconclusive through raw `adb shell input tap ...` coordinates, even though conversation-item selection and drawer overlay layering both behaved correctly
+
+As of 2026-05-02:
+
+- the real chat page no longer treats homepage and active chat as two separate shells:
+  - the same chat-page header, top stats row, composer geometry, and model popover styling now carry across both the empty new-conversation state and the active message state
+  - the title line now stays in the same `动话 · <conversation>` structure instead of switching to a separate non-homepage title treatment after the first send
+  - the footer now always renders through the same bottom dock wrapper instead of using a homepage-only dock in one state and a direct composer render in the other
+  - the message content now flows through one shared `chat-content-frame`, so homepage copy, the active-chat cover summary, and message cards all resolve from the same horizontal inset system
+- the daily-cover transition for the first real send from an empty conversation now exists in app code:
+  - a `dailyCoverTransition` state machine in `src/App.tsx` snapshots the homepage background rect on first send
+  - the target top summary banner is measured from the real active-chat layout instead of being hardcoded
+  - the transition now runs as a same-page cover shrink into the active-chat summary-card slot instead of a hard cut from one page treatment to another
+- active chat now lands on a quieter dark reading surface after the cover transition finishes:
+  - a dedicated active-chat background layer now replaces the old light generic shell after the homepage cover retracts
+  - user messages are now visually closer to the approved editorial active-chat direction instead of keeping the earlier pastel rounded bubble treatment
+  - the always-visible `复制 / 编辑 / 重试` actions now share one flatter dark-shell action style instead of mixing old rounded utility button treatments into the redesigned chat page
+- daily-cover summary rendering is now centralized through:
+  - `src/components/DailyCoverSummaryCard.tsx`
+  - this reduces duplicated banner markup between the steady-state active chat and the measured transition target
+- current screenshot-based validation for this active-chat work was done through WebView DevTools page screenshots on `emulator-5554`, not only through blind `adb` screencaps:
+  - empty homepage reference: `.tmp-devtools-home-v7.png`
+  - first-send transition references: `.tmp-devtools-transition-mid-v4.png`, `.tmp-devtools-transition-end-v4.png`, `.tmp-devtools-transition-final-v4.png`
+  - stable active-chat reference after the shared-dock/shared-content-frame pass: `.tmp-devtools-active-clean-v2.png`
+- current residual differences versus the approved `actichat-product-pages` active-chat reference are still known:
+  - the chat page is materially closer, but not yet pixel-identical
+  - validation screenshots that use debug commands can still surface non-product copy such as `/debug-clear-logs`
+  - assistant-flow and error states still need another polish pass if the user wants stricter screenshot-level parity rather than the current structurally aligned result
 
 As of 2026-05-01:
 

@@ -9,6 +9,14 @@ The project is in the middle of a large execution-model refactor:
 - `edit` now exists as a first-class text-file editing action.
 - legacy `skill_call` naming still exists in some settings/storage fields for compatibility, but the effective default execution prompt is the `run` version.
 
+## Conversation Response Mode
+
+- `src/App.tsx` now treats response mode as conversation-owned state instead of a global runtime switch.
+- empty conversations can still switch between text mode and skill mode
+- once the first user message exists in a conversation transcript, that conversation mode is treated as locked
+- queued execution, regenerate, and append now all carry the locked conversation mode forward instead of re-reading a global mode flag
+- persisted conversation metadata now stores the selected mode under conversation preferences so later history reloads can preserve the mode
+
 ## Run Pipeline
 
 ### TypeScript side
@@ -32,7 +40,7 @@ The project is in the middle of a large execution-model refactor:
   - auto-generates a session for new runs with `command`
   - requires explicit `session` when inspecting an existing run without `command`
   - special-cases `device-info` so `./get_device_info` is executed through the native helper path
-  - now also special-cases `union-search` `visit_url` / `fetch_url` so native app builds can route those commands into a browser-backed extractor instead of the Node process path
+  - no longer special-cases `union-search` webpage visits; `visit_url` / `fetch_url` now execute through the skill’s own Node path like other skill commands
 
 ### Android native side
 
@@ -42,11 +50,6 @@ The project is in the middle of a large execution-model refactor:
   - separates “launch new run” from “inspect existing session”
   - only requires `session` when starting a new run
   - uses managed-runtime linker launching for Termux-based Node/Python runtimes
-- `SkillRuntimePlugin.extractWebPage(...)`
-  - creates a hidden WebView inside the native app
-  - loads the target URL with JS enabled and shared CookieManager state
-  - injects a DOM-to-Markdown extractor script from `android/app/src/main/assets/browser-page-extractor.js`
-  - returns a structured browser-extraction payload to TypeScript
 - `SkillRuntimePlugin.listAbsoluteDirectory(...)` / `statAbsolutePath(...)` / `readAbsoluteTextFile(...)` / `writeAbsoluteTextFile(...)`
   - expose native absolute-path file inspection and text-file writes for `location="root"` on native app builds
 
@@ -81,14 +84,22 @@ The project is in the middle of a large execution-model refactor:
   - wrappers such as `web_search` still dispatch into `.internal` names inside the union-search implementation
 - `union-search`
   - now exposes a model-facing `visit_url` entrypoint in addition to the compatibility alias `fetch_url`
-  - webpage fetching is now direct HTML extraction only; the page-reader path no longer routes through `jina`
+  - the canonical source package now lives under `codex-skills/union-search/`
+  - `visit_url` now uses a Defuddle-based extraction path owned by the skill itself
+  - direct HTML mode fetches raw HTML with the skill request client, then runs Defuddle locally
+  - browser mode is no longer host-provided; the skill now uses a local Chrome / Edge headless `--dump-dom` flow when browser mode is explicitly requested in a compatible desktop environment
+  - webpage fetching no longer routes through `jina`
   - the skill frontmatter now advertises the two-step workflow explicitly: search for candidate links first, then visit the chosen URL for full page content
   - the skill networking layer now uses a reusable desktop Chromium Windows request profile for HTML and search traffic instead of the previous Android-mobile default headers
   - the request layer now maintains a per-process cookie jar and redirect-aware request headers so multi-step scraping behaves more like a real desktop browser session
   - `visit_url` now has a site-specific blocked-page fallback for Zhihu question URLs: when Zhihu returns the `zse-ck` challenge page, the skill returns a structured “访问受限” Markdown payload instead of surfacing a raw 403 exception
-  - in native app builds, `visit_url` now defaults to browser mode through the hidden-WebView path; explicit `--extract html` is the escape hatch back to direct HTML fetching
+  - built-in app defaults now point `fetchUrl.preferredEngine` at `html`, not a host-provided browser path
 
 ## Built-In Skill Materialization
 
-- `src/services/skills/host.ts` currently only materializes built-in skills from the repo bundles
+- `src/services/skills/host.ts` currently materializes built-in skills from repo-tracked bundles
+- `union-search` is large enough that raw inlining is no longer acceptable
+  - the host now keeps `SKILL.md` / `config-template.json` inline for metadata
+  - the rest of the built-in files are imported as emitted asset URLs and fetched at materialization time
+  - built-in materialization now writes a signature file and skips re-writing a built-in skill when the materialized snapshot already matches the current asset set
 - a sync pass now deletes built-in skill directories that are no longer present in the repo definition, so removed built-ins such as `runtime-shell` should not keep living on device after re-sync
