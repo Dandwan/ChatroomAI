@@ -1,5 +1,81 @@
 # Handoff Log
 
+## 2026-05-04 17:48 +08:00
+
+### Scope
+
+- remove the remaining tinted background from the chat-page top bar container
+- keep the chat-page shell layers transparent while preserving the control-level blur treatment
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now sets the chat-page `.header-card` background to `transparent`
+- the chat-page shell layers remain transparent:
+  - `.app-header`
+  - `.chat-summary-bar`
+  - `.composer.is-editorial-chat-shell`
+  - `.homepage-footer-dock`
+  - `.composer-panel`
+  - `.composer-row`
+  - `.composer-tools`
+- proposal-and-confirmation gate status:
+  - completed in this handoff through the user's explicit confirmation before implementation
+- commit note:
+  - a self-only git commit was created for the transparency change
+
+### Validation Snapshot
+
+- `npm run build`
+
+### Open Items
+
+- revalidate the transparency change on `emulator-5554` or the physical phone `c3fec216` if device-side visual confirmation is needed
+
+## 2026-05-04 17:38 +08:00
+
+### Scope
+
+- rebuild the Android release APK again from the current worktree
+- overwrite the existing local file-server APK with the newly built artifact
+- restart the lightweight local HTTP server after confirming the prior server process was no longer reachable
+
+### Current High-Signal State
+
+- the release pipeline succeeded again through:
+  - `npm run build`
+  - `node scripts/cap-sync-android.mjs`
+  - `sh ./.gradlew-unix assembleRelease`
+- the local served APK was overwritten in place at:
+  - `/home/dandwan/application/ActiChat-v1.5.0-android-release.apk`
+- the refreshed file now reports:
+  - size `215053861` bytes
+  - modified time `2026-05-04 17:38:25 +08:00`
+- the lightweight local HTTP server is now serving that directory again on port `8000`
+- local verification confirmed:
+  - `http://127.0.0.1:8000/ActiChat-v1.5.0-android-release.apk`
+  - HTTP `200 OK`
+- the build still used `android/.gradlew-unix` because the tracked `android/gradlew` wrapper remains CRLF-terminated on this Linux host
+- proposal-and-confirmation gate status:
+  - completed earlier in this packaging workstream through the user's direct request
+
+### Validation Snapshot
+
+- `JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleRelease`
+- `cp android/app/build/outputs/apk/release/app-release.apk /home/dandwan/application/ActiChat-v1.5.0-android-release.apk`
+- `python3 -m http.server 8000 --directory /home/dandwan/application`
+- `curl -I http://127.0.0.1:8000/ActiChat-v1.5.0-android-release.apk`
+
+### Commit
+
+- no self-only git commit was created
+- the repo worktree remains broadly dirty, and this handoff only refreshed operational artifacts plus the repo-tracked handoff log
+
+### Open Items
+
+- if repeated local release rebuilds should stay available across interrupted turns, move the lightweight file server under a proper long-lived service manager instead of a foreground session
+
 ## 2026-05-04 16:36 +08:00
 
 ### Scope

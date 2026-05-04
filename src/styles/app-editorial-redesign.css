@@ -129,7 +129,7 @@
 
 .header-card {
   min-height: 50px;
-  background: rgba(12, 16, 24, 0.72);
+  background: transparent;
   border-radius: 999px;
 }
 
@@ -138,7 +138,7 @@
   gap: 12px;
   min-height: var(--homepage-header-height);
   padding: 0 18px;
-  background: rgba(10, 12, 18, 0.84);
+  background: transparent;
   border-color: rgba(244, 247, 251, 0.12);
   backdrop-filter: blur(14px);
 }
