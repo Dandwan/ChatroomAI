@@ -1,5 +1,33 @@
 # Handoff Log
 
+## 2026-05-05 03:27 +08:00
+
+### Scope
+
+- give the active chat page the same settings-style background
+- restyle the title pill with the same 14px glass blur treatment used by the stats-style pills
+
+### Current High-Signal State
+
+- `src/App.tsx` now mounts a fixed `chat-active-background` layer for active conversations, so the settings-style radial background replaces the daily cover once a transcript exists
+- `src/styles/app-editorial-redesign.css` now gives the chat header pill a translucent 14px blur treatment instead of the heavier field background
+- empty homepage cover behavior is unchanged for empty conversations
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+- `npm run build`
+
+### Commit
+
+- self-only git commit was created for this change
+
+### Open Items
+
+- the lint failure predates this change and is outside the touched background / pill styling path
+
 ## 2026-05-05 03:17 +08:00
 
 ### Scope

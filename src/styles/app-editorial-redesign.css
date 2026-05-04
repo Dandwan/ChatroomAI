@@ -7,6 +7,12 @@
   --chat-header-inline: 20px;
   --chat-content-inline: 20px;
   --chat-footer-inline: 8px;
+  --chat-page-background:
+    radial-gradient(circle at 50% -10%, rgba(186, 154, 124, 0.05), transparent 28%),
+    #090b10;
+  --chat-header-pill-bg: rgba(10, 12, 18, 0.52);
+  --chat-header-pill-border: rgba(244, 239, 231, 0.16);
+  --chat-header-pill-blur: 14px;
   --homepage-header-height: 52px;
   --homepage-composer-row-height: 46px;
   --homepage-composer-tool-height: 46px;
@@ -72,9 +78,7 @@
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background:
-    radial-gradient(circle at 50% -12%, rgba(190, 160, 132, 0.08), transparent 34%),
-    linear-gradient(180deg, rgba(8, 10, 16, 0.98), rgba(9, 11, 17, 1));
+  background: var(--chat-page-background);
 }
 
 .app-shell-content {
@@ -141,10 +145,10 @@
   gap: 12px;
   min-height: var(--homepage-header-height);
   padding: 0 18px;
-  background: var(--homepage-field-bg);
-  border-color: rgba(244, 247, 251, 0.12);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  background: var(--chat-header-pill-bg);
+  border-color: var(--chat-header-pill-border);
+  backdrop-filter: blur(var(--chat-header-pill-blur));
+  -webkit-backdrop-filter: blur(var(--chat-header-pill-blur));
 }
 
 .app-shell.chat-page-shell .header-card .menu-button {
