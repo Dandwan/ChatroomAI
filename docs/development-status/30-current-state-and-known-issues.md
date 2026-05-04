@@ -4,6 +4,11 @@
 
 As of 2026-05-05:
 
+- `src/App.tsx` now removes the remaining active-page wrapper shells:
+  - the composer is rendered directly instead of inside `homepage-footer-dock`
+  - the composer row is rendered directly instead of inside `composer-panel`
+  - the header is rendered as `app-header header-card` directly, without a nested card wrapper
+  - the separate active-chat background node is no longer rendered
 - the active chat page now renders the header, summary bar, and composer as true overlays instead of reserving flow space
 - the message list no longer adds top or bottom insets for those controls, so conversation text can continue directly underneath them
 - the composer is explicitly anchored to the bottom edge again, while the visible control geometry remains unchanged:
