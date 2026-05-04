@@ -135,14 +135,65 @@
   grid-template-columns: 32px minmax(0, 1fr);
 }
 
-.header-card.is-editing-title .header-spacer {
+.header-card.is-editing-title .header-spacer,
+.header-card.is-editing-title .theme-toggle-button {
   display: none;
 }
 
 .menu-button,
-.header-spacer {
+.header-spacer,
+.theme-toggle-button {
   width: 32px;
   height: 32px;
+}
+
+.theme-toggle-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 0;
+  cursor: pointer;
+  border-radius: 999px;
+  transition: color 0.2s ease, background 0.2s ease, transform 0.18s ease;
+}
+
+.theme-toggle-button svg {
+  width: 17px;
+  height: 17px;
+  transition: transform 0.28s ease, opacity 0.22s ease;
+}
+
+.theme-toggle-button:hover {
+  color: var(--accent-2);
+  background: var(--surface-muted);
+}
+
+.theme-toggle-button:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+}
+
+.theme-toggle-button:active {
+  transform: scale(0.92);
+}
+
+.theme-toggle-button.is-dark svg {
+  color: #eab308;
+}
+
+.theme-toggle-button.is-dark:hover svg {
+  transform: rotate(15deg);
+}
+
+.theme-toggle-button.is-light svg {
+  color: #6366f1;
+}
+
+.theme-toggle-button.is-light:hover svg {
+  transform: rotate(-15deg);
 }
 
 .menu-button {
@@ -1369,7 +1420,7 @@ textarea.settings-chat-input.settings-chat-input-compact {
   overflow: auto;
   border: 1px solid var(--glass-edge-strong, var(--border-color));
   border-radius: var(--radius-card);
-  background: var(--surface-popover);
+  background: rgba(8, 10, 16, 0.22);
   box-shadow: var(--glass-shadow, var(--shadow-soft));
   padding: 7px;
   display: flex;
@@ -1380,6 +1431,8 @@ textarea.settings-chat-input.settings-chat-input-compact {
   transform: translateY(14px) scale(0.96);
   transform-origin: left bottom;
   pointer-events: none;
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
   transition: opacity 0.2s ease, transform 0.22s ease;
 }
 
@@ -1590,7 +1643,7 @@ textarea.settings-chat-input,
 }
 
 .model-popover {
-  background: var(--surface-popover);
+  background: rgba(8, 10, 16, 0.22);
 }
 
 .header-card,

@@ -1079,6 +1079,56 @@ const normalizeThemeMode = (value: unknown): ThemeMode => {
   return DEFAULT_SETTINGS.themeMode
 }
 
+const ThemeToggle = memo(function ThemeToggle({
+  themeMode,
+  onToggle,
+}: {
+  themeMode: ThemeMode
+  onToggle: (nextMode: ThemeMode) => void
+}) {
+  const [resolved, setResolved] = useState<'light' | 'dark'>('dark')
+
+  useEffect(() => {
+    const computeResolved = (): 'light' | 'dark' => {
+      if (themeMode === 'system') {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+      }
+      return themeMode as 'light' | 'dark'
+    }
+
+    setResolved(computeResolved())
+
+    if (themeMode !== 'system') return
+
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const handler = (): void => setResolved(computeResolved())
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [themeMode])
+
+  const isDark = resolved === 'dark'
+
+  return (
+    <button
+      type="button"
+      className={`theme-toggle-button ${isDark ? 'is-dark' : 'is-light'}`}
+      aria-label={isDark ? '切换到浅色模式' : '切换到深色模式'}
+      onClick={() => onToggle(isDark ? 'light' : 'dark')}
+    >
+      {isDark ? (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" strokeWidth="2" />
+          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )}
+    </button>
+  )
+})
+
 const normalizeProviderModels = (value: unknown): ProviderModel[] => {
   if (!Array.isArray(value)) {
     return []
@@ -1584,11 +1634,14 @@ const formatSkillStepTarget = (step: AssistantFlowSkillNode): string => {
           ? 'workspace'
         : step.root === 'home'
           ? 'home'
-          : step.root === 'absolute'
+        : step.root === 'absolute'
               ? 'root'
               : 'run'
     if (step.command) {
       return `${rootLabel} / ${step.command}`
+    }
+    if (step.script) {
+      return `${rootLabel} / ${step.script}`
     }
     if (step.cwd) {
       return `${rootLabel} / ${step.cwd}`
@@ -1642,10 +1695,9 @@ const vibrateInteraction = (): void => {
 const TRANSCRIPT_REPLAY_SYSTEM_PROMPT = `
 历史上下文会以原始多轮转录的形式回放：
 
-1. 历史 assistant 输出中可能出现 <progress>、<read>、<run>、<skill_call>、<final> 等标签，它们只是历史记录，不会再次执行。
-2. 历史 assistant 输出中若出现 <edit> 也只是历史记录，不会再次执行。
-3. 宿主会以 user 角色注入 <host_message>...</host_message> 作为工具结果或运行时反馈；这些内容不是用户新的自然语言输入。
-4. 只有你当前正在生成的这一次回复中的动作标签会被宿主解析和执行。
+1. 历史 assistant 输出中可能出现 <progress>、<read>、<run>、<edit>、<final> 等标签，它们只是历史记录，不会再次执行。
+2. 宿主会以 user 角色注入 <host_message>...</host_message> 作为工具结果或运行时反馈；这些内容不是用户新的自然语言输入。
+3. 只有你当前正在生成的这一次回复中的动作标签会被宿主解析和执行。
 `.trim()
 
 const buildSkillAgentSystemPrompt = async (
@@ -5453,13 +5505,13 @@ function App() {
           event.assistantFlow,
           token,
           {
-            actionKind: 'skill_call',
+            actionKind: 'run',
             status: 'running',
             skill: 'device-info',
             script: 'scripts/get_device_info.internal',
             result: formatStructuredMarkdown({
               stage: 'open',
-              kind: 'skill_call',
+              kind: 'run',
               skill: 'device-info',
               script: 'scripts/get_device_info.internal',
             }),
@@ -5485,11 +5537,11 @@ function App() {
           event.assistantFlow,
           token,
           {
-            actionKind: 'skill_call',
+            actionKind: 'run',
             status: 'success',
             result: formatStructuredMarkdown({
               stage: 'close',
-              id: 'debug:skill_call',
+              id: 'debug:run',
               skill: 'device-info',
               script: 'scripts/get_device_info.internal',
               exitCode: 0,
@@ -10076,9 +10128,22 @@ function App() {
               )}
             </div>
 
-            <div className="header-spacer" />
+            <ThemeToggle
+              themeMode={settings.themeMode}
+              onToggle={(nextMode) => updateSetting('themeMode', nextMode)}
+            />
           </div>
         </header>
+
+        <section ref={chatSummaryBarRef} className="summary-bar chat-summary-bar">
+          <span>轮次 {chatSummarySnapshot.rounds}</span>
+          <span>输入 {numberFormatter.format(chatSummarySnapshot.promptTokens)}</span>
+          <span>输出 {numberFormatter.format(chatSummarySnapshot.completionTokens)}</span>
+          <span>总计 {numberFormatter.format(chatSummarySnapshot.totalTokens)}</span>
+          {chatSummarySnapshot.estimatedCount > 0 ? (
+            <span className="summary-muted">含 {chatSummarySnapshot.estimatedCount} 条估算</span>
+          ) : null}
+        </section>
 
         {notice ? (
           <div className="chat-notice-layer">
@@ -10087,16 +10152,6 @@ function App() {
         ) : null}
 
         <>
-          <section ref={chatSummaryBarRef} className="summary-bar chat-summary-bar">
-            <span>轮次 {chatSummarySnapshot.rounds}</span>
-            <span>输入 {numberFormatter.format(chatSummarySnapshot.promptTokens)}</span>
-            <span>输出 {numberFormatter.format(chatSummarySnapshot.completionTokens)}</span>
-            <span>总计 {numberFormatter.format(chatSummarySnapshot.totalTokens)}</span>
-            {chatSummarySnapshot.estimatedCount > 0 ? (
-              <span className="summary-muted">含 {chatSummarySnapshot.estimatedCount} 条估算</span>
-            ) : null}
-          </section>
-
           <main
             key={activeConversationId}
             ref={messageListRef}
@@ -10378,38 +10433,38 @@ function App() {
               </div>
             </main>
 
-            <div className="homepage-footer-dock">{renderComposerFooter()}</div>
+          <div className="homepage-footer-dock">{renderComposerFooter()}</div>
 
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              hidden
-              onChange={(event) => void handleImageSelect(event)}
-            />
-            <input
-              ref={cameraInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              hidden
-              onChange={(event) => void handleImageSelect(event)}
-            />
-            <input
-              ref={skillArchiveInputRef}
-              type="file"
-              accept=".zip,application/zip"
-              hidden
-              onChange={(event) => void handleSkillArchiveSelect(event)}
-            />
-            <input
-              ref={runtimeArchiveInputRef}
-              type="file"
-              accept=".zip,application/zip"
-              hidden
-              onChange={(event) => void handleRuntimeArchiveSelect(event)}
-            />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={(event) => void handleImageSelect(event)}
+          />
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            hidden
+            onChange={(event) => void handleImageSelect(event)}
+          />
+          <input
+            ref={skillArchiveInputRef}
+            type="file"
+            accept=".zip,application/zip"
+            hidden
+            onChange={(event) => void handleSkillArchiveSelect(event)}
+          />
+          <input
+            ref={runtimeArchiveInputRef}
+            type="file"
+            accept=".zip,application/zip"
+            hidden
+            onChange={(event) => void handleRuntimeArchiveSelect(event)}
+          />
         </>
       </div>
 

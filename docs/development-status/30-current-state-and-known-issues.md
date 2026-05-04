@@ -10,6 +10,29 @@ The repository is very dirty.
 - `.gitignore` now covers root `/.tmp-*` captures plus timestamped local `ActiChat` / `ChatroomAI` APK copy names.
 - Do not use broad cleanup or revert commands unless the user explicitly asks for that cleanup.
 
+## Latest Managed Runtime Permission Recovery State
+
+As of 2026-05-03:
+
+- the phone-side `union-search` `permission denied` regression was traced to the managed Node runtime under `/data/data/com.dandwan.chatroomai/files/skill-host/runtimes/nodejs-termux-aarch64/bin/node`
+- the root cause was host/runtime trust drift, not `union-search` business logic:
+  - existing bundled runtimes were being treated as healthy when their manifest existed, without re-running `preparePath`
+  - managed runtime launches had no final execution-time self-heal when execute bits on the installed runtime tree were lost
+- the fix is host-generic, not `union-search`-specific:
+  - `src/services/skills/runtime.ts` now reapplies `nativePreparePath(...)` for already-installed bundled runtimes before cached metadata is reused
+  - `SkillRuntimePlugin.java` now self-heals managed runtime permissions immediately before native inspect/run launch
+- validation in this handoff:
+  - `adb logcat` on phone `c3fec216` previously showed `F/linker: error: unable to open file ".../nodejs-termux-aarch64/bin/node"`
+  - after rebuild, release install, and relaunch on the same phone, startup logs no longer showed that linker error
+  - `npm run build` passed
+  - `node scripts/cap-sync-android.mjs` passed
+  - `assembleDebug` passed with a temporary LF wrapper plus a temporary Google Maven mirror init script
+  - `assembleRelease` passed with the same local workarounds
+  - `adb -s c3fec216 install --no-streaming -r android/app/build/outputs/apk/release/app-release.apk` succeeded
+  - after deleting `/data/data/com.dandwan.chatroomai/files/skill-host/builtin-skills/union-search` and relaunching, the rebuilt built-in tree came back with `scripts/union_search` and `scripts/union_search.internal` at `755`, clearing the original `permission denied` condition on the phone
+- current remaining validation gap:
+  - this handoff revalidated runtime recovery and app relaunch on the phone, but did not replay a full model-driven in-app `union-search` conversation end-to-end
+
 ## Latest First-Send Chat Transition State
 
 As of 2026-05-03:
@@ -22,40 +45,58 @@ As of 2026-05-03:
 - the transition lifecycle no longer depends on a JS timeout racing the WebView compositor:
   - the overlay now clears itself on `animationend`
   - this replaced the earlier timer-based cleanup that proved less trustworthy on Android WebView
+- the first-send transition timing remains at the original baseline:
+  - `HOMEPAGE_SEND_TRANSITION_DURATION_MS` is `920`
+  - easing remains `linear`
 - active chat no longer renders any daily-cover summary slot or summary-card component:
   - `src/components/DailyCoverSummaryCard.tsx` is removed
   - the old `showChatBanner` daily-cover setting is removed from runtime settings and settings UI
-- the chat-page header/footer wrappers are now explicitly transparent in `src/styles/app-editorial-redesign.css`:
-  - only the actual cards and controls occlude the conversation background
-  - shell wrappers such as `.app-header`, `.homepage-footer-dock`, and the composer layout rows no longer own their own blocking background layer
-- Android-side validation confirmed the real packaged app reflects the new behavior:
-  - homepage reference capture: `.tmp-devtools-home-upslide-final.png`
-  - transition capture references: `.tmp-devtools-upslide-final-40ms.png`, `.tmp-devtools-upslide-final-120ms.png`, `.tmp-devtools-upslide-final-240ms.png`
-  - stable active-chat reference without any summary card: `.tmp-devtools-upslide-final-980ms.png`
-  - runtime DOM inspection on `emulator-5554` additionally confirmed:
-    - `summaryCardCount = 0`
-    - `.app-header` computed background is `rgba(0, 0, 0, 0)`
-    - `.homepage-footer-dock` computed background is `rgba(0, 0, 0, 0)`
+- the earlier Android-validated behavior still remains true:
+  - there is no active-chat summary card
+  - `.app-header` and `.homepage-footer-dock` backgrounds are transparent
+- validation for this refinement was source-side only in this handoff:
+  - `npm run lint`
+  - `npm run build`
+- current remaining validation gap:
+  - this refined overlay geometry and faster easing have not yet been re-verified on Android WebView or the physical phone in this turn
 
 ## Latest Chat Composer Height State
 
-As of 2026-05-02:
+As of 2026-05-04:
 
 - the chat-page composer top row now uses the same `46px` control height as the lower model / tool row
 - this was implemented in `src/styles/app-editorial-redesign.css` by:
   - changing `--homepage-composer-row-height` from `52px` to `46px`
   - deriving `--homepage-footer-dock-height` from the shared composer height tokens instead of leaving it as the old hardcoded `114px`
   - reducing editorial chat-input vertical padding from `14px 18px` to `12px 18px`
-- the inter-row spacing was intentionally left unchanged:
+- the homepage chrome spacing has been returned to the original `8px` footer gap:
   - `--homepage-footer-gap` remains `8px`
-- the derived dock-height change is intentional engineering work, not visual drift:
-  - without it, shrinking only the top row would have left extra dead air in the dock because the footer shell would still reserve space for the old taller row
-- Android-side validation was run against the real packaged app, not only the web source:
+  - the extra equal-spacing footer gutter work from the blur pass has been rolled back
+- the derived dock-height change is back to the original baseline:
+  - the footer shell once again reserves the original 8px spacing instead of the shared 10px gap token
+
+## Latest Bottom Composer Glass State
+
+As of 2026-05-04:
+
+- the bottom dock shell and composer controls are back on the original flat field styling:
+  - message input
+  - send / stop button
+  - model trigger
+  - image picker button
+  - camera button
+- the model popover is back to the original flat panel treatment instead of the frosted overlay variant
+- validation status for this pass:
+  - `npm run build`
   - `node scripts/cap-sync-android.mjs`
-  - `$env:GRADLE_USER_HOME='C:\\Users\\Dandwan\\projects\\ChatroomAI\\.gradle-local-v120'; npm run android:gradle -- assembleDebug`
-  - `.codex/skills/chatroomai-android-emulator-test/scripts/launch-emulator.ps1 -Mode headless`
-  - `.codex/skills/chatroomai-android-emulator-test/scripts/prepare-chatroomai.ps1 -ProjectRoot C:\\Users\\Dandwan\\projects\\ChatroomAI`
-  - emulator screenshot inspection of `.tmp-homepage-composer-height-check.png`
+  - `cd android && ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk JAVA_HOME=/opt/android-studio/jbr GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleDebug`
+  - `adb -s emulator-5554 install -r -t android/app/build/outputs/apk/debug/app-debug.apk`
+  - `adb -s emulator-5554 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
+  - emulator screenshot inspection of:
+    - `/tmp/actichat-layout-check.png`
+    - `/tmp/actichat-rollback-verify.png`
+- remaining validation gap:
+  - this corrected glass pass is now re-captured on `emulator-5554`, but the physical phone `c3fec216` still was not reconnected in this handoff
 
 ## Latest Settings Input Styling State
 
@@ -100,15 +141,27 @@ As of 2026-05-03:
 
 ## Latest Release Artifact State
 
-As of 2026-05-02:
+As of 2026-05-03:
 
-- `npm run android:build:release` passed again from the current dirty worktree with local Gradle home `.gradle-local-v120`
-- a fresh signed `v1.5.0` Android release APK was copied locally as `ActiChat-v1.5.0-android-release-20260502-172916.apk`
-- that copied artifact has:
-  - size `214825810` bytes
-  - SHA256 `960477E0EC6E8E1DC2947E491888DF747FCF65C356D167AC6611E6513311114E`
-- the same artifact was uploaded to the user's File Browser cloud root as `/ActiChat-v1.5.0-android-release-20260502-172916.apk`
-- remote `stat` confirmed the uploaded file exists with size `214825810` bytes
+- a fresh signed `v1.5.0` Android release build was produced again from the current dirty worktree
+- the local validation chain for this handoff passed through:
+  - `npm run build`
+  - `node scripts/cap-sync-android.mjs`
+  - `assembleRelease` with repo-local Gradle cache `.gradle-local-v120`
+- the release artifact currently lives at:
+  - `android/app/build/outputs/apk/release/app-release.apk`
+- that artifact has:
+  - size `215019476` bytes
+  - SHA256 `39C75D4398633CD5FA2434A06FFB6F9A8CC0805E10A0BDEC00D1C13D39A2C607`
+- the same artifact was uploaded to the user's File Browser cloud root as:
+  - `/ActiChat-v1.5.0-android-release-20260503-190421.apk`
+- remote `stat` confirmed the uploaded file exists with size `215019476` bytes
+- this Linux host still required the previously known local Android-build environment workarounds, without tracked source changes:
+  - restore execute bits on local wrapper scripts with `chmod +x node_modules/.bin/*`
+  - run the build with `JAVA_HOME=/opt/android-studio/jbr`
+  - set `ANDROID_HOME=/home/dandwan/Android/Sdk` and `ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk`
+  - use a temporary LF-normalized wrapper for `android/gradlew` because the tracked file still has CRLF line endings
+  - use a temporary Gradle init script that rewrote Google Maven to `https://maven.aliyun.com/repository/google` because direct JBR TLS handshakes to `dl.google.com` still failed on this host
 
 ## Branding State
 
@@ -554,3 +607,25 @@ Verification after the fix:
 - Investigate why `ChatroomAI_API_35_ARM64` failed to attach to `adb` on this machine during the latest headless and manual launch attempts.
 - If future requirements demand actual Zhihu正文 extraction instead of graceful degraded output, that will require a stronger browser/session strategy than static headers alone.
 - Run one fresh emulator or phone-side verification against the newly synced `union-search` built-in skill through the normal chat loop, not only through direct desktop Node entrypoints and install/start smoke.
+
+## 2026-05-04 14:23 +08:00
+
+### Bottom Composer / Popover State
+
+- the bottom composer layout is back in the original two-row geometry
+- the visible frosted treatment now comes from transparent shell layers plus blurred background clones, not from real `backdrop-filter`
+- the model popover now uses the same shell/overlay pattern and opens visibly on the emulator
+- direct `backdrop-filter` on these bottom surfaces was tested and caused the emulator WebView render path to drop, so it is intentionally disabled in the current implementation
+
+### Validation
+
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk JAVA_HOME=/opt/android-studio/jbr GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleDebug`
+- `adb -s emulator-5554 install -r -t android/app/build/outputs/apk/debug/app-debug.apk`
+- `adb -s emulator-5554 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
+- screenshot inspection of `/tmp/actichat-home-blur-check-late.png` and `/tmp/actichat-model-popover-check-cdp.png`
+
+### Follow-Up
+
+- if stronger blur is still desired, test on a physical Android device or a different WebView renderer before reintroducing `backdrop-filter`

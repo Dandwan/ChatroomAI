@@ -1,5 +1,601 @@
 # Handoff Log
 
+## 2026-05-04 16:18 +08:00
+
+### Scope
+
+- collect the current dirty worktree into a single push to `origin/release-v1.5.0`
+- keep the existing release branch, without creating a new release tag
+
+### Current High-Signal State
+
+- the repo still contains many broad tracked edits across web, Android, skills, docs, and packaging code
+- the repo also still has local-only temp wrapper files under `android/.gradlew-lf-*`; those remain uncommitted
+- proposal-and-confirmation gate status:
+  - completed earlier in this handoff, before implementation
+- commit note:
+  - a consolidated git commit was created for the pushed changes
+
+### Validation Snapshot
+
+- `git status -sb`
+- `git diff --stat`
+- `git log --oneline --decorate --graph --max-count=20 HEAD origin/release-v1.5.0`
+
+### Open Items
+
+- the temporary Gradle wrapper copies under `android/.gradlew-lf-*` still exist locally if the Linux build workaround is needed again
+- no new release was published; this handoff only pushed the current branch state to GitHub
+
+## 2026-05-04 16:09 +08:00
+
+### Scope
+
+- rebuild the current Android release APK again from the active worktree
+- overwrite the existing local file-server APK with the new artifact
+- restore the lightweight local HTTP server after the previous server process was no longer running
+
+### Current High-Signal State
+
+- the release pipeline succeeded again through:
+  - `npm run build`
+  - `node scripts/cap-sync-android.mjs`
+  - `sh ./.gradlew-unix assembleRelease`
+- the refreshed local APK now lives at:
+  - `/home/dandwan/application/ActiChat-v1.5.0-android-release.apk`
+- the current served file reports:
+  - size `215053847` bytes
+  - modified time `2026-05-04 16:08:39 +08:00`
+- the lightweight local HTTP server was restarted on port `8000`
+- LAN access remains available through:
+  - `http://192.168.117.2:8000/ActiChat-v1.5.0-android-release.apk`
+- the build still used `android/.gradlew-unix` because the tracked `android/gradlew` wrapper remains CRLF-terminated on this host
+- proposal-and-confirmation gate status:
+  - completed earlier in this packaging workstream through the user's direct request
+
+### Validation Snapshot
+
+- `JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleRelease`
+- `cp android/app/build/outputs/apk/release/app-release.apk /home/dandwan/application/ActiChat-v1.5.0-android-release.apk`
+- `python3 -m http.server 8000 --directory /home/dandwan/application`
+- `curl -I http://127.0.0.1:8000/ActiChat-v1.5.0-android-release.apk`
+
+### Commit
+
+- no self-only git commit was created
+- the repo worktree remains broadly dirty, and this handoff only refreshed operational artifacts plus the repo-tracked handoff log
+
+### Open Items
+
+- if repeated local release packaging is expected, make `scripts/run-android-gradle.mjs` prefer the Unix wrapper on this Linux host or normalize the tracked wrapper line endings
+
+## 2026-05-04 16:00 +08:00
+
+### Scope
+
+- revalidate the already-restored pre-blur chat-page baseline on `emulator-5554`
+- confirm that no further source rollback was needed beyond the existing `src/App.tsx` and `src/styles/app-editorial-redesign.css` state
+
+### Current High-Signal State
+
+- no additional app-source edits were required in this follow-up
+- the current debug build still renders the pre-blur homepage baseline on `emulator-5554`:
+  - top chrome keeps the existing header/stat-card blur treatment
+  - the bottom composer remains on the flat dark field treatment instead of the attempted frosted-control variant
+  - the empty new-conversation page still lands on the cold-start cover layout without the footer floating away from the bottom edge
+- proposal-and-confirmation gate status:
+  - satisfied earlier in this rollback workstream through the user's explicit confirmation before implementation
+- commit note:
+  - no self-only git commit was created
+  - this follow-up only refreshed repo-tracked status docs, and those files already contained broader unstaged handoff edits from the ongoing dirty worktree
+
+### Validation Snapshot
+
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk JAVA_HOME=/opt/android-studio/jbr GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleDebug`
+- `adb -s emulator-5554 install -r -t android/app/build/outputs/apk/debug/app-debug.apk`
+- `adb -s emulator-5554 shell am force-stop com.dandwan.chatroomai`
+- `adb -s emulator-5554 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
+- emulator screenshot inspection of:
+  - `/tmp/actichat-rollback-verify.png`
+
+### Open Follow-Up
+
+- if the user wants the same rollback revalidated on physical hardware, reconnect `c3fec216` and repeat the install plus screenshot capture there
+- if a future blur attempt resumes, use this screenshot and the current flat footer baseline as the starting reference instead of rebuilding the dock structure again
+
+## 2026-05-04 15:50 +08:00
+
+### Scope
+
+- fully roll the chat-page composer / blur experiment back to the pre-blur baseline
+- remove the extra footer glass wrappers, footer chrome inset measurement, and equal-spacing footer pass
+- verify the restored baseline on `emulator-5554`
+
+### Current High-Signal State
+
+- `src/App.tsx` is back to the pre-blur composer structure:
+  - no `.composer-glass-shell` wrappers around the input, send button, model trigger, or image / camera buttons
+  - no footer-dock height measurement refs or chrome-inset reservation logic
+  - the first-send transition is back to the original fixed-overlay geometry with `920ms` linear timing
+- `src/styles/app-editorial-redesign.css` is back to the pre-blur styling baseline:
+  - footer dock side inset is back to `8px`
+  - footer row spacing is back to `8px`
+  - the model popover is back to the original flat panel treatment
+  - the bottom controls no longer use the frosted clone/glass treatment
+- proposal-and-confirmation gate status:
+  - completed through the user's explicit confirmation before this rollback
+- commit note:
+  - no self-only git commit was created
+  - the worktree remains broadly dirty, so isolating a guaranteed self-only commit was not safe in this handoff
+
+### Validation Snapshot
+
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk JAVA_HOME=/opt/android-studio/jbr GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleDebug`
+- `adb -s emulator-5554 install -r -t android/app/build/outputs/apk/debug/app-debug.apk`
+- `adb -s emulator-5554 shell am force-stop com.dandwan.chatroomai`
+- `adb -s emulator-5554 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
+- emulator screenshot inspection of:
+  - `/tmp/actichat-layout-check.png`
+
+### Open Follow-Up
+
+- if future work reintroduces blur, start from the restored baseline and keep the layout/structure unchanged until the renderer path is proven stable
+- if the user wants the same rollback validated on the physical phone, reconnect `c3fec216` and rerun the install plus screenshot capture
+
+## 2026-05-04 15:12 +08:00
+
+### Scope
+
+- restore the chat homepage / empty-state layout to a clean equal-spacing structure before any further blur tuning
+- realign the bottom dock gutter with the top chrome gutter
+- verify the restored layout on `emulator-5554` with a fresh screenshot
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now sets the footer dock side inset back to `20px`, matching the top chrome/content gutter
+- the bottom composer no longer adds its own extra `8px` internal padding or `8px` row offset on top of the shared spacing token
+- the visible layout rhythm is back to the shared `10px` gap between:
+  - title bar and stats row
+  - input/send row and model/tools row
+  - controls within each bottom row
+- proposal-and-confirmation gate status:
+  - completed through the user's explicit request to restore the layout first in this handoff
+- commit note:
+  - no self-only git commit was created
+  - the target CSS file and status docs were already part of a broadly dirty worktree, so isolating a guaranteed self-only commit was not safe
+
+### Validation Snapshot
+
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk JAVA_HOME=/opt/android-studio/jbr GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleDebug`
+- `adb -s emulator-5554 install -r -t android/app/build/outputs/apk/debug/app-debug.apk`
+- `adb -s emulator-5554 shell am force-stop com.dandwan.chatroomai`
+- `adb -s emulator-5554 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
+- emulator screenshot inspection of:
+  - `/tmp/actichat-layout-check.png`
+
+### Open Follow-Up
+
+- if the next step is to continue the bottom-control blur work, keep the restored `20px` gutter + shared `10px` gap layout intact and limit further changes to control-surface rendering only
+- if the user wants the same layout pass validated on the physical phone, reconnect `c3fec216` and rerun the screenshot capture there
+
+## 2026-05-04 14:45 +08:00
+
+### Scope
+
+- build a fresh release APK for the current ChatroomAI / ActiChat project state
+- place the APK in a local lightweight file server directory under `~/application`
+- start a simple static HTTP server for local download access
+
+### Current High-Signal State
+
+- the release artifact was rebuilt successfully from the current worktree
+- the APK was copied to:
+  - `/home/dandwan/application/ActiChat-v1.5.0-android-release.apk`
+- a lightweight static server is now serving that directory on port `8000`
+- the standard `android/gradlew` wrapper still has CRLF line endings, so the build used the repo-local Unix wrapper path `android/.gradlew-unix`
+- proposal-and-confirmation gate status:
+  - completed before implementation in this handoff
+- commit note:
+  - no self-only git commit was created
+  - the worktree already contained many unrelated unstaged modifications, so isolating a guaranteed self-only commit was not safe
+
+### Validation Snapshot
+
+- `JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 npm run android:build:release`
+- `mkdir -p /home/dandwan/application && cp android/app/build/outputs/apk/release/app-release.apk /home/dandwan/application/ActiChat-v1.5.0-android-release.apk`
+- `python3 -m http.server 8000 --directory /home/dandwan/application`
+
+### Open Follow-Up
+
+- if the team wants a different filename or port, adjust the local server layout without touching the app build itself
+- if future Android packaging should be routine on this machine, normalize the tracked Gradle wrapper line endings so the Unix fallback is no longer needed
+
+## 2026-05-04 14:23 +08:00
+
+### Scope
+
+- restore the bottom composer layout while keeping the controls visibly frosted
+- keep the model popover in the same frosted visual language
+- verify the result on `emulator-5554` with fresh screenshots
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now keeps the visible glass on transparent shell layers and pseudo-background clones instead of relying on real `backdrop-filter` for the bottom controls
+- the bottom input, send button, model trigger, and image / camera buttons now read as frosted again without changing the original row sizing
+- the model popover now uses the same transparent-shell / background-clone pattern and opens visibly on-device
+- direct `backdrop-filter` on these bottom surfaces was tested and caused the emulator WebView rendering path to drop, so the final implementation intentionally avoids it
+- proposal-and-confirmation gate status:
+  - completed earlier in this workstream
+- commit note:
+  - no self-only git commit was created
+  - the repo worktree was already broadly dirty, including unrelated modifications in other files, so isolating a guaranteed self-only commit was not safe in this handoff
+
+### Validation Snapshot
+
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk JAVA_HOME=/opt/android-studio/jbr GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleDebug`
+- `adb -s emulator-5554 install -r -t android/app/build/outputs/apk/debug/app-debug.apk`
+- `adb -s emulator-5554 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
+- emulator screenshot inspection of:
+  - `/tmp/actichat-home-blur-check-late.png`
+  - `/tmp/actichat-model-popover-check-cdp.png`
+
+### Open Follow-Up
+
+- if the team wants stronger blur than the current background-clone fallback, revisit it on physical hardware or with a different WebView renderer; the current emulator path is stable only with `backdrop-filter` disabled on the bottom controls
+
+## 2026-05-04 11:52 +08:00
+
+### Scope
+
+- keep the footer dock shell transparent while making the bottom composer controls visibly frosted on Android
+- repair the model popover so it also reads as a blurred glass surface
+- rebuild, reinstall, and verify the packaged app on `emulator-5554` with fresh screenshots
+
+### Current High-Signal State
+
+- `src/App.tsx` now wraps the bottom input, send button, model trigger, and image / camera buttons in dedicated `.composer-glass-shell` containers
+- `src/styles/app-editorial-redesign.css` now makes those shells and the model popover read as frosted surfaces by combining a heavier dark-glass fill with stronger blur / brightness directly on the dedicated shell surfaces
+- `.homepage-footer-dock` remains transparent; the blur now lives on the individual control surfaces instead of on the dock shell
+- the model popover is now visually present and frosted in the emulator instead of reading like a nearly invisible transparent overlay
+- proposal-and-confirmation gate status:
+  - completed earlier in this workstream
+- commit note:
+  - no self-only git commit was created
+  - the repo worktree was already broadly dirty, including the status docs and target UI files, so isolating a guaranteed self-only commit was not safe in this handoff
+
+### Validation Snapshot
+
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk JAVA_HOME=/opt/android-studio/jbr GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleDebug`
+- `adb -s emulator-5554 install -r -t android/app/build/outputs/apk/debug/app-debug.apk`
+- `adb -s emulator-5554 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
+- emulator screenshot inspection of:
+  - `/tmp/actichat-bottom-check-6.png`
+  - `/tmp/actichat-model-popover-4.png`
+
+### Open Follow-Up
+
+- reconnect phone `c3fec216` only if the user wants the same visual pass validated on physical hardware in addition to `emulator-5554`
+
+## 2026-05-04 10:05 +08:00
+
+### Scope
+
+- remove the accidental translucent background from the footer dock shell
+- move the glass blur treatment onto the bottom composer controls themselves
+- rebuild the Android debug APK and attempt to reinstall it onto the physical phone
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now keeps `.homepage-footer-dock` transparent again instead of painting a dock-wide translucent backdrop
+- the bottom composer controls now own the glass effect directly:
+  - input field
+  - send / stop button
+  - model trigger
+  - image and camera icon buttons
+- `src/App.css` now gives the model popover the same blurred dark-glass treatment instead of the older flatter popover surface
+- proposal-and-confirmation gate status:
+  - completed earlier in this workstream
+- commit note:
+  - no self-only git commit was created
+  - the repo worktree remains broadly dirty and this pass also used temporary local Android build helpers, so isolating a guaranteed self-only commit was not safe
+
+### Validation Snapshot
+
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk JAVA_HOME=/opt/android-studio/jbr GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 ./.gradlew-unix assembleDebug`
+- pre-fix and mid-fix physical-phone screenshots were captured locally for inspection
+- final `adb install -r -t ...` attempt was blocked because `adb devices -l` no longer showed phone `c3fec216`
+
+### Open Follow-Up
+
+- reconnect phone `c3fec216` and rerun the debug APK install plus a fresh bottom-composer screenshot capture
+
+## 2026-05-04 01:26 +08:00
+
+### Scope
+
+- increase the homepage footer spacing slightly
+- align the top title/statistics spacing to the same gap token
+- give the bottom dock the same blurred glass treatment already used by the top chrome
+- keep the empty new-conversation page from becoming vertically scrollable
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now uses a shared `10px` homepage chrome gap token for both the top summary spacing and the bottom composer spacing
+- the chat message viewport now reserves top and bottom chrome space with scroll padding while the empty-state scroll container is clamped to `overflow: hidden`
+- the bottom dock now has a translucent blurred backdrop instead of a flat transparent shell, while still preserving click-through behavior on the wrapper
+- proposal-and-confirmation gate status:
+  - completed earlier in this turn before implementation after re-reading the repo-tracked development-status docs and confirming the approach with the user
+- commit note:
+  - no self-only git commit was created
+  - the repo worktree already contains unrelated edits in the same target files, so isolating a guaranteed self-only commit was not safe in this pass
+
+### Validation Snapshot
+
+- `npm run lint`
+  - still fails on the pre-existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1097`
+- `npm run build`
+
+### Open Follow-Up
+
+- if the worktree is cleaned up later, the same change set can be isolated for a self-only commit
+
+## 2026-05-04 00:20 +08:00
+
+### Scope
+
+- repair the built-in `union-search` execute-bit regression on the phone with `adb`
+- make built-in skill sync re-prepare already-materialized `scripts/` trees
+- verify the repaired tree on `c3fec216` after a fresh Android debug install
+
+### Current High-Signal State
+
+- the stale phone-side `union-search` tree was still landing with `scripts/union_search` at `600` before this handoff
+- the host fix now re-prepares built-in `scripts/` even when the skill snapshot is already current, so stale execute bits no longer depend on forcing a delete/rematerialize cycle
+- after deleting `/data/data/com.dandwan.chatroomai/files/skill-host/builtin-skills/union-search` and relaunching the app on `c3fec216`, the built-in tree came back with:
+  - `scripts/union_search` at `755`
+  - `scripts/union_search.internal` at `755`
+  - `runtimes/nodejs-termux-aarch64/bin/node` at `755`
+- the `permission denied` condition is gone on the phone-side tree; remaining shell-only launcher failures are now about Android shell / Node shebang behavior, not file mode bits
+- proposal-and-confirmation gate status:
+  - already completed earlier in this workstream
+- commit note:
+  - no self-only git commit was created
+  - this work touched `src/services/skills/host.ts` plus repo-tracked status docs that were already dirty in the worktree, so isolating a guaranteed self-only commit was not safe
+
+### Validation Snapshot
+
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `assembleDebug` with a temporary LF-normalized Gradle wrapper and local Gradle cache
+- `adb -s c3fec216 install --no-streaming -r -t android/app/build/outputs/apk/debug/app-debug.apk`
+- `adb -s c3fec216 shell run-as com.dandwan.chatroomai stat -c '%a %n' /data/data/com.dandwan.chatroomai/files/skill-host/builtin-skills/union-search/scripts /data/data/com.dandwan.chatroomai/files/skill-host/builtin-skills/union-search/scripts/union_search /data/data/com.dandwan.chatroomai/files/skill-host/builtin-skills/union-search/scripts/union_search.internal /data/data/com.dandwan.chatroomai/files/skill-host/runtimes/nodejs-termux-aarch64/bin/node`
+- `adb -s c3fec216 logcat -d -v brief | rg "Permission denied|EACCES|unable to open file|inaccessible or not found|com.dandwan.chatroomai|SkillRuntime"`
+
+### Open Follow-Up
+
+- if the team wants direct Android shell invocation of `./union_search`, that needs a separate portability pass for the wrapper/shebang itself; the current app-managed execution path is fixed
+
+## 2026-05-03 22:10 +08:00
+
+### Scope
+
+- investigate the phone-side `union-search` `permission denied` regression through `adb`
+- repair the managed runtime recovery path without adding any `union-search`-specific host logic
+- rebuild and reinstall the Android app on the connected phone for regression verification
+
+### Current High-Signal State
+
+- `adb logcat` on phone `c3fec216` showed the concrete runtime failure before the fix:
+  - `F/linker: error: unable to open file "/data/data/com.dandwan.chatroomai/files/skill-host/runtimes/nodejs-termux-aarch64/bin/node"`
+- the root cause was a host/runtime recovery gap, not a `union-search` portability violation:
+  - existing bundled runtimes were being reused from manifest metadata without first re-running `preparePath`
+  - managed runtime launches did not self-heal lost execute bits just before native inspect/run launch
+- the fix stays inside generic host/runtime responsibilities:
+  - `src/services/skills/runtime.ts` now re-runs `nativePreparePath(...)` for already-installed bundled runtimes before reusing them
+  - `android/app/src/main/java/com/dandwan/chatroomai/SkillRuntimePlugin.java` now self-heals managed runtime permissions immediately before native managed-runtime launch
+- a fresh signed release build was installed back onto phone `c3fec216`
+- after reinstall and relaunch, the same startup log sweep no longer showed the previous `linker` open failure for `nodejs-termux-aarch64/bin/node`
+- proposal-and-confirmation gate status:
+  - completed in this turn before implementation after re-reading the repo-tracked development-status docs and confirming the host-generic repair approach with the user
+- commit note:
+  - no self-only git commit was created
+  - `android/app/src/main/java/com/dandwan/chatroomai/SkillRuntimePlugin.java`, `src/services/skills/runtime.ts`, and the status docs were already part of a broader dirty worktree before this handoff, so isolating a guaranteed self-only commit was not safe
+
+### Validation Snapshot
+
+- `adb -s c3fec216 logcat -d -v brief | rg "unable to open file|Permission denied|EACCES|com.dandwan.chatroomai"`
+- `npm run build`
+- `npm run lint`
+  - still fails on the pre-existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1097`
+- `node scripts/cap-sync-android.mjs`
+- `assembleDebug` from `android/` using a temporary LF-normalized wrapper plus a temporary Gradle init mirror script
+- `assembleRelease` using the same local workarounds
+- `adb -s c3fec216 install --no-streaming -r android/app/build/outputs/apk/release/app-release.apk`
+- `adb -s c3fec216 shell dumpsys package com.dandwan.chatroomai | rg "versionCode=|versionName=|lastUpdateTime="`
+- `adb -s c3fec216 logcat -c`
+- `adb -s c3fec216 shell am start -n com.dandwan.chatroomai/.MainActivity`
+- post-launch `adb logcat` sweep confirmed the previous `linker` error line did not recur
+
+### Open Follow-Up
+
+- replay one full model-driven in-app `union-search` conversation on phone or ARM64 emulator to confirm the repaired runtime path survives a real search execution, not only startup/runtime initialization
+- if Linux-side Android work on this machine should be routine, normalize the tracked `gradlew` line endings and the Google Maven access path so future validation does not keep needing a temporary wrapper and mirror script
+
+## 2026-05-03 19:07 +08:00
+
+### Scope
+
+- rebuild and re-upload a fresh signed Android release APK from the current dirty worktree after additional in-flight source changes
+
+### Current High-Signal State
+
+- the release build succeeded again and produced:
+  - `android/app/build/outputs/apk/release/app-release.apk`
+  - size `215019476` bytes
+  - SHA256 `39C75D4398633CD5FA2434A06FFB6F9A8CC0805E10A0BDEC00D1C13D39A2C607`
+- the uploaded remote artifact is now:
+  - `/ActiChat-v1.5.0-android-release-20260503-190421.apk`
+  - remote `stat` size `215019476` bytes
+- compared with the immediately previous 2026-05-03 release upload, this artifact is not byte-identical:
+  - previous size `215019464` bytes
+  - current size `215019476` bytes
+- the Linux host still required the same local environment workarounds instead of tracked source fixes:
+  - `chmod +x node_modules/.bin/*`
+  - `JAVA_HOME=/opt/android-studio/jbr`
+  - `ANDROID_HOME=/home/dandwan/Android/Sdk`
+  - `ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk`
+  - a temporary LF-normalized wrapper for `android/gradlew`
+  - a temporary Gradle init script redirecting Google Maven to the Aliyun mirror
+- proposal-and-confirmation gate status:
+  - completed earlier in this turn before execution after re-reading the repo-tracked development-status docs
+- commit note:
+  - no self-only git commit was created
+  - `docs/development-status/00-index.md`, `30-current-state-and-known-issues.md`, and `40-handoff-log.md` were already part of a broader dirty worktree before this repeated packaging handoff, so isolating a guaranteed self-only commit was not safe
+
+### Validation Snapshot
+
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `assembleRelease` from `android/` using a temporary LF-normalized wrapper plus a temporary Gradle init mirror script
+- `stat -c '%n|%s bytes|%y' android/app/build/outputs/apk/release/app-release.apk`
+- `sha256sum android/app/build/outputs/apk/release/app-release.apk`
+- `python3 /home/dandwan/.codex/skills/filebrowser-47-108-210-249-28080/scripts/fbctl.py --timeout 600 upload ...`
+- `python3 /home/dandwan/.codex/skills/filebrowser-47-108-210-249-28080/scripts/fbctl.py --timeout 60 stat /ActiChat-v1.5.0-android-release-20260503-190421.apk`
+
+### Open Follow-Up
+
+- if the user wants only one latest release file on the server, delete or overwrite older root-level APK uploads in a separate explicit task
+- if future Linux-side release packaging on this machine should be routine, normalize the local Android/Gradle environment so the current CRLF-wrapper and Google-Maven-mirror workarounds are no longer needed each handoff
+
+## 2026-05-03 18:23 +08:00
+
+### Scope
+
+- slow the first-send homepage up-slide transition slightly without changing its layering or easing profile
+
+### Current High-Signal State
+
+- the first-send transition duration in app code is now `850ms`
+- the existing transition structure remains unchanged:
+  - viewport-scoped overlay layering is preserved
+  - easing remains `cubic-bezier(0.16, 1, 0.3, 1)`
+  - top/bottom chrome continuity behavior is unchanged
+- proposal-and-confirmation gate status:
+  - completed in this turn before implementation after re-reading the repo-tracked development-status docs and confirming the exact target value with the user
+- commit note:
+  - no self-only git commit was created
+  - `src/App.tsx`, `src/styles/app-editorial-redesign.css`, and the status docs were already part of a broader dirty worktree before this tiny timing adjustment, so isolating a guaranteed self-only commit was not safe
+
+### Validation Snapshot
+
+- `npm run lint`
+
+### Open Follow-Up
+
+- if the user wants another timing pass later, keep tuning only the duration token first before touching easing or travel distance
+- Android WebView visual re-check is still pending for the refined transition stack in this area
+
+## 2026-05-03 18:15 +08:00
+
+### Scope
+
+- build a fresh signed Android release APK from the current dirty worktree on this Linux host
+- upload that APK to the user's File Browser server root with a timestamped release filename
+- verify the uploaded remote artifact matches the local build by size
+
+### Current High-Signal State
+
+- the release build succeeded and produced:
+  - `android/app/build/outputs/apk/release/app-release.apk`
+  - size `215019464` bytes
+  - SHA256 `EAA27E0A3DDF679215736D7932B2A74BEFC1585707EEC33E8A4E04BA80AAF69A`
+- the uploaded remote artifact is now:
+  - `/ActiChat-v1.5.0-android-release-20260503-180404.apk`
+  - remote `stat` size `215019464` bytes
+- this Linux host again required local environment workarounds rather than tracked source fixes:
+  - `chmod +x node_modules/.bin/*`
+  - `JAVA_HOME=/opt/android-studio/jbr`
+  - `ANDROID_HOME=/home/dandwan/Android/Sdk`
+  - `ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk`
+  - a temporary LF-normalized wrapper for `android/gradlew`
+  - a temporary Gradle init script redirecting Google Maven to the Aliyun mirror
+- proposal-and-confirmation gate status:
+  - completed earlier in this turn before execution after reading the repo-tracked development-status docs
+- commit note:
+  - no self-only git commit was created
+  - `docs/development-status/00-index.md`, `30-current-state-and-known-issues.md`, and `40-handoff-log.md` were already part of a broader dirty worktree before this packaging handoff, so isolating a guaranteed self-only commit was not safe
+
+### Validation Snapshot
+
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `assembleRelease` from `android/` using a temporary LF-normalized wrapper plus a temporary Gradle init mirror script
+- `stat -c '%n|%s bytes|%y' android/app/build/outputs/apk/release/app-release.apk`
+- `sha256sum android/app/build/outputs/apk/release/app-release.apk`
+- `python3 /home/dandwan/.codex/skills/filebrowser-47-108-210-249-28080/scripts/fbctl.py --timeout 600 upload ...`
+- `python3 /home/dandwan/.codex/skills/filebrowser-47-108-210-249-28080/scripts/fbctl.py --timeout 60 stat /ActiChat-v1.5.0-android-release-20260503-180404.apk`
+
+### Open Follow-Up
+
+- if future Linux-side release packaging on this machine should be routine, normalize the local Android/Gradle environment so the current CRLF-wrapper and Google-Maven-mirror workarounds are no longer needed each handoff
+- if the user wants a second copy path such as a dedicated `/releases/` directory on the File Browser server, switch future uploads there instead of continuing to accumulate APKs at remote root
+
+## 2026-05-03 14:48 +08:00
+
+### Scope
+
+- refine the first-send homepage up-slide transition so the active-chat top/bottom chrome stays visible and continuous during the animation
+- remove the remaining non-card shell blocking behavior so transcript content can pass behind the transparent header/footer wrappers
+- speed up the first-send transition and add easing
+
+### Current High-Signal State
+
+- `src/App.tsx` now renders chat chrome in three layers instead of one normal-flow stack:
+  - a top overlay layer for header + summary
+  - a scroll viewport layer for transcript content plus the first-send transition overlay
+  - a bottom overlay layer for the composer dock
+- the first-send transition no longer renders as a full-screen sibling over the whole chat shell:
+  - the overlay is now mounted inside the message viewport
+  - the showcase snapshot is now stored relative to that viewport
+  - the summary-bar clone inside the transition overlay is gone
+- transcript layout now uses measured chrome insets instead of implicit document-flow spacing:
+  - `chatChromeTopRef` and `footerDockRef` are observed with `ResizeObserver`
+  - the measured heights are written into `--chat-chrome-top-inset` / `--chat-chrome-bottom-inset`
+  - the transcript content uses those insets as scroll padding so messages can move behind the transparent shell wrappers
+- the first-send transition timing is now faster and eased:
+  - duration `620ms`
+  - easing `cubic-bezier(0.16, 1, 0.3, 1)`
+- proposal-and-confirmation gate status:
+  - completed earlier in this turn before implementation
+- commit note:
+  - no self-only git commit was created
+  - `src/App.tsx` and `src/styles/app-editorial-redesign.css` were already part of a broader dirty worktree before this refinement, so isolating a guaranteed self-only commit from this turn was not safe
+
+### Validation Snapshot
+
+- `npm run lint`
+- `npm run build`
+
+### Open Follow-Up
+
+- re-verify this refinement on Android WebView and the physical phone if the user wants visual confirmation of the faster eased transition and the new chrome layering
+- if future composer content grows further, keep the measured-inset approach instead of reintroducing hardcoded footer reservation values
+- if a self-only git commit is required later, isolate it only after the broader dirty worktree around `src/App.tsx` / `src/styles/app-editorial-redesign.css` is reconciled
+
 ## 2026-05-03 14:02 +08:00
 
 ### Scope
