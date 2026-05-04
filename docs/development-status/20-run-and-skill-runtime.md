@@ -94,6 +94,9 @@ The project is in the middle of a large execution-model refactor:
   - the request layer now maintains a per-process cookie jar and redirect-aware request headers so multi-step scraping behaves more like a real desktop browser session
   - `visit_url` now has a site-specific blocked-page fallback for Zhihu question URLs: when Zhihu returns the `zse-ck` challenge page, the skill returns a structured “访问受限” Markdown payload instead of surfacing a raw 403 exception
   - built-in app defaults now point `fetchUrl.preferredEngine` at `html`, not a host-provided browser path
+- bundled runtime recovery is now idempotent:
+  - already-installed bundled runtimes are re-prepared before cached metadata is reused
+  - managed runtime launches self-heal execute bits before inspect/run paths start, so lost permissions on an existing runtime tree no longer surface as a `permission denied` runtime failure
 
 ## Built-In Skill Materialization
 
@@ -102,4 +105,5 @@ The project is in the middle of a large execution-model refactor:
   - the host now keeps `SKILL.md` / `config-template.json` inline for metadata
   - the rest of the built-in files are imported as emitted asset URLs and fetched at materialization time
   - built-in materialization now writes a signature file and skips re-writing a built-in skill when the materialized snapshot already matches the current asset set
+  - even when the snapshot is already current, built-in sync now re-prepares the `scripts/` subtree so stale execute bits on an existing built-in tree get repaired before the skill is reused
 - a sync pass now deletes built-in skill directories that are no longer present in the repo definition, so removed built-ins such as `runtime-shell` should not keep living on device after re-sync

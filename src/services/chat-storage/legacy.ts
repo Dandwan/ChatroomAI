@@ -116,7 +116,7 @@ const normalizeLegacyAssistantActionKind = (value: unknown): AssistantFlowSkillK
     return 'edit'
   }
   if (value === 'skill_call') {
-    return 'skill_call'
+    return 'run'
   }
   if (value === 'read') {
     return 'read'
@@ -315,10 +315,10 @@ const normalizeStoredLegacySkillSteps = (value: unknown): LegacySkillStep[] | un
         : item.kind === 'edit'
           ? 'edit'
           : item.kind === 'skill_call'
-            ? 'skill_call'
+            ? 'run'
             : 'read'
     const script = typeof item.script === 'string' && item.script.trim() ? item.script : undefined
-    if (kind === 'skill_call' && !script) {
+    if (item.kind === 'skill_call' && !script) {
       continue
     }
     const token = typeof item.token === 'string' && item.token.trim() ? item.token.trim() : undefined

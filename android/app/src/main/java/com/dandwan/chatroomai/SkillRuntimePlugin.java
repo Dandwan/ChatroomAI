@@ -902,6 +902,7 @@ public class SkillRuntimePlugin extends Plugin {
 
         File managedRuntime = resolveManagedRuntime(command, environment);
         if (managedRuntime != null) {
+            ensureManagedRuntimePrepared(managedRuntime);
             applyManagedRuntimeEnvironment(environment, managedRuntime);
             launchCommand = resolveManagedRuntimeLaunchCommand(launchCommand, managedRuntime);
             builder.command(launchCommand);
@@ -963,6 +964,7 @@ public class SkillRuntimePlugin extends Plugin {
         }
 
         if (resolution.managedRuntime != null) {
+            ensureManagedRuntimePrepared(resolution.managedRuntime);
             applyManagedRuntimeEnvironment(environment, resolution.managedRuntime);
             launchCommand = resolveManagedRuntimeLaunchCommand(launchCommand, resolution.managedRuntime);
             builder.command(launchCommand);
@@ -1141,6 +1143,27 @@ public class SkillRuntimePlugin extends Plugin {
             }
         } catch (Exception ignored) {}
         return "";
+    }
+
+    private void ensureManagedRuntimePrepared(File executable) throws IOException {
+        File runtimeExecutable = executable.getCanonicalFile();
+        if (!isManagedRuntimeExecutable(runtimeExecutable)) {
+            return;
+        }
+
+        File binaryDir = runtimeExecutable.getParentFile();
+        File runtimeRoot = binaryDir != null ? binaryDir.getParentFile() : null;
+
+        if (binaryDir == null || runtimeRoot == null || !runtimeRoot.exists()) {
+            runtimeExecutable.setExecutable(true, false);
+            return;
+        }
+
+        if (runtimeExecutable.canExecute() && binaryDir.canExecute() && runtimeRoot.canExecute()) {
+            return;
+        }
+
+        makeExecutableRecursive(runtimeRoot);
     }
 
     private File resolveManagedRuntime(List<String> command, Map<String, String> environment) {

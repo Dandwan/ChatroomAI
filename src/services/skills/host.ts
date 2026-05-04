@@ -19,10 +19,16 @@ import {
   writeTextFile,
   writeJsonFile,
 } from './storage'
+import { nativePreparePath } from './native-runtime'
 import type { ReadListEntry, SkillDocument, SkillInstallResult, SkillRecord } from './types'
 
 import builtinUnionSearchMarkdown from '../../../builtin-skills/union-search/SKILL.md?raw'
 import builtinUnionSearchConfigTemplateRaw from '../../../builtin-skills/union-search/config-template.json?raw'
+const builtinUnionSearchFiles = import.meta.glob('../../../builtin-skills/union-search/**/*', {
+  query: '?url',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>
 import builtinDeviceInfoMarkdown from '../../../builtin-skills/device-info/SKILL.md?raw'
 
 const builtinDeviceInfoFiles = import.meta.glob('../../../builtin-skills/device-info/**/*', {
@@ -52,6 +58,7 @@ const STATE_PATH = joinRelativePath(SKILL_DIRECTORIES.state, 'skills.json')
 const CONFIGS_PATH = joinRelativePath(SKILL_DIRECTORIES.state, 'skill-configs')
 const INSTALLED_SKILLS_PATH = SKILL_DIRECTORIES.skills
 const BUILTIN_SIGNATURE_FILENAME = '.builtin-signature.json'
+const BUILTIN_MATERIALIZATION_VERSION = 3
 
 let builtinMaterializationErrorsById: Record<string, string> = {}
 
@@ -129,7 +136,7 @@ const BUILTIN_SKILLS: BuiltinSkillDefinition[] = [
     'union-search',
     builtinUnionSearchMarkdown,
     builtinUnionSearchConfigTemplateRaw,
-    {},
+    builtinUnionSearchFiles,
     {
       publicRoot: 'builtin-skills/union-search',
     },
@@ -362,6 +369,13 @@ const readBuiltinPublicText = async (publicPath: string): Promise<string> => {
   return response.text()
 }
 
+const prepareMaterializedSkillScripts = async (root: string): Promise<void> => {
+  const scriptsPath = joinRelativePath(root, 'scripts')
+  if (await pathExists(scriptsPath)) {
+    await nativePreparePath(scriptsPath)
+  }
+}
+
 const materializeBuiltinSkill = async (skill: BuiltinSkillDefinition): Promise<void> => {
   const root = getBuiltinSkillRoot(skill.id)
   if (skill.publicRoot) {
@@ -374,10 +388,13 @@ const materializeBuiltinSkill = async (skill: BuiltinSkillDefinition): Promise<v
           ? skill.markdown
           : relativePath === 'config-template.json' && skill.configTemplateRaw
             ? skill.configTemplateRaw
-            : await readBuiltinPublicText(`${skill.publicRoot}/${relativePath}`)
+            : skill.assetUrls[relativePath]
+              ? await readBuiltinAssetText(skill.assetUrls[relativePath])
+              : await readBuiltinPublicText(`${skill.publicRoot}/${relativePath}`)
       await writeTextFile(joinRelativePath(root, relativePath), content)
     }
     await writeTextFile(joinRelativePath(root, BUILTIN_SIGNATURE_FILENAME), await createBuiltinSkillSignature(skill))
+    await prepareMaterializedSkillScripts(root)
     return
   }
 
@@ -391,6 +408,7 @@ const materializeBuiltinSkill = async (skill: BuiltinSkillDefinition): Promise<v
     await writeTextFile(joinRelativePath(root, relativePath), content)
   }
   await writeTextFile(joinRelativePath(root, BUILTIN_SIGNATURE_FILENAME), await createBuiltinSkillSignature(skill))
+  await prepareMaterializedSkillScripts(root)
 }
 
 const createBuiltinSkillSignature = async (skill: BuiltinSkillDefinition): Promise<string> => {
@@ -401,6 +419,7 @@ const createBuiltinSkillSignature = async (skill: BuiltinSkillDefinition): Promi
     }>(`${skill.publicRoot}/manifest.json`)
     return JSON.stringify(
       {
+        materializationVersion: BUILTIN_MATERIALIZATION_VERSION,
         id: skill.id,
         markdown: skill.markdown,
         configTemplateRaw: skill.configTemplateRaw,
@@ -414,6 +433,7 @@ const createBuiltinSkillSignature = async (skill: BuiltinSkillDefinition): Promi
 
   return JSON.stringify(
     {
+      materializationVersion: BUILTIN_MATERIALIZATION_VERSION,
       id: skill.id,
       markdown: skill.markdown,
       configTemplateRaw: skill.configTemplateRaw,
@@ -455,6 +475,7 @@ const synchronizeBuiltinSkills = async (): Promise<void> => {
     const root = getBuiltinSkillRoot(skill.id)
     try {
       if (await builtinSkillIsUpToDate(skill)) {
+        await prepareMaterializedSkillScripts(root)
         continue
       }
       if (await pathExists(root)) {
@@ -664,6 +685,8 @@ export const installSkillPackage = async (file: File): Promise<SkillInstallResul
       ...existingConfig,
     })
   }
+
+  await prepareMaterializedSkillScripts(joinRelativePath(INSTALLED_SKILLS_PATH, rootFolder))
 
   const record: SkillRecord = {
     id: rootFolder,

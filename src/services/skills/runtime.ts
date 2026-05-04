@@ -305,6 +305,7 @@ export const ensureBundledRuntimesInstalled = async (): Promise<void> => {
   for (const bundled of BUNDLED_RUNTIME_ARCHIVES) {
     try {
       if (installed.has(bundled.id)) {
+        await nativePreparePath(joinRelativePath(RUNTIMES_ROOT, bundled.id))
         const existing = await inspectRuntimeDirectory(bundled.id)
         if (existing.executablePath) {
           persistInstalledRuntimeMetadata(state, bundled.id, existing)
