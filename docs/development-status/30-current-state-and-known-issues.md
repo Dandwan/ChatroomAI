@@ -1,5 +1,18 @@
 # Current State And Known Issues
 
+## Latest Header Title Overflow Fix State
+
+As of 2026-05-05:
+
+- the active chat header title now keeps the rename button in flow instead of absolutely positioning it after the text
+- long titles now shrink within the available center column instead of crowding the theme toggle button
+- the old viewport-based `72vw` title cap has been replaced with a header-width-based constraint
+- validation for this pass:
+  - `npm run build`
+  - `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+- validation gap:
+  - no fresh screenshot or device UI pass was run in this turn
+
 ## Latest Chat Message Typography State
 
 As of 2026-05-05:
