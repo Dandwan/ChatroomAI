@@ -16,7 +16,7 @@
   --homepage-header-inline-inset: 20px;
   --homepage-field-radius: 4px;
   --homepage-field-border: rgba(244, 247, 251, 0.12);
-  --homepage-field-bg: rgba(10, 12, 18, 0.88);
+  --homepage-field-bg: transparent;
   --homepage-footer-safe-bottom: env(safe-area-inset-bottom);
   --homepage-footer-dock-height: calc(
     var(--homepage-composer-row-height) +

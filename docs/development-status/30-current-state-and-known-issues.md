@@ -88,17 +88,18 @@ As of 2026-05-04:
   - `.composer-row`
   - `.composer-tools`
 - the title bar card is back on the earlier tinted fill instead of the transparent variant
-- the bottom dock shell and composer controls are back on the original flat field styling:
+- the bottom dock shell and composer controls now use transparent fills:
   - message input
   - send / stop button
   - model trigger
   - image picker button
   - camera button
-- the model popover is back on the older flat panel variant
+- the model popover is still on the older flat panel variant
 - validation status for this pass:
   - `npm run build`
+  - emulator-5554 screenshot + computed-style check confirmed the bottom controls now resolve to transparent backgrounds
 - remaining validation gap:
-  - this rollback has not yet been re-verified on `emulator-5554` or the physical phone `c3fec216`
+  - this fill-removal pass has not yet been re-verified on the physical phone `c3fec216`
 
 ## Latest Settings Input Styling State
 
@@ -155,8 +156,8 @@ As of 2026-05-04:
 - the current local file-server copy lives at:
   - `/home/dandwan/application/ActiChat-v1.5.0-android-release.apk`
 - that local copy has:
-  - size `215053854` bytes
-  - SHA256 `c48f8d8ab9aa896b8f8bfe82942e8e97ad83c5339abef182f4ebf284a7de30fb`
+  - size `215053847` bytes
+  - SHA256 `bede79d26c9a323ae805e1a99be851306635b09c83c60ff1258fbe6e6f672658`
 - the lightweight HTTP server is serving that directory on port `8000`
 - this Linux host still required the previously known local Android-build environment workarounds, without tracked source changes:
   - restore execute bits on local wrapper scripts with `chmod +x node_modules/.bin/*`
