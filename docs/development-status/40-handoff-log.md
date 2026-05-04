@@ -1,5 +1,35 @@
 # Handoff Log
 
+## 2026-05-05 04:13 +08:00
+
+### Scope
+
+- fix the active chat title bar so long titles stop colliding with the theme toggle and rename button
+
+### Current High-Signal State
+
+- `src/App.css` now lets the title text shrink while the rename button participates in the row instead of floating absolutely after the text
+- `src/styles/app-editorial-redesign.css` now removes the old viewport-based title width cap so the title follows the actual header width
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- no fresh screenshot or device UI pass was run in this turn
+
+### Next Step
+
+- if needed, do a quick browser or device screenshot check on a long conversation title
+
 ## 2026-05-05 03:49 +08:00
 
 ### Scope
