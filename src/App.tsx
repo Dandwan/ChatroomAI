@@ -2709,6 +2709,7 @@ function App() {
     activeConversation?.storageLoadState === 'hydrated' &&
     activeMessages.length === 0
   const displayConversationTitle = activeConversation?.title ?? '新对话'
+  const shouldShowTitleRenameButton = activeConversation !== null && !isHomepageEmptyState
   const shouldShowHomepageBackground = resolvedDailyCover !== null
   const homepageBackgroundStyle = shouldShowHomepageBackground && resolvedDailyCover
     ? ({ '--homepage-cover-image': `url("${resolvedDailyCover.imageUrl}")` } as CSSProperties)
@@ -10101,24 +10102,26 @@ function App() {
                   <span ref={titleTextRef} className="title-text homepage-title-text conversation-title-shell">
                     动话 · <em>{displayConversationTitle}</em>
                   </span>
-                  <button
-                    ref={titleRenameButtonRef}
-                    type="button"
-                    className="icon-inline-button title-rename-button"
-                    aria-label="编辑对话名"
-                    onClick={beginRenameConversation}
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        d="M5.5 16.9V19h2.1l8.1-8.1-2.1-2.1-8.1 8.1Zm9-9 2.1 2.1 1.2-1.2a1.5 1.5 0 0 0 0-2.1l-1.2-1.2a1.5 1.5 0 0 0-2.1 0L13.3 6.7l1.2 1.2Z"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </button>
+                  {shouldShowTitleRenameButton ? (
+                    <button
+                      ref={titleRenameButtonRef}
+                      type="button"
+                      className="icon-inline-button title-rename-button"
+                      aria-label="编辑对话名"
+                      onClick={beginRenameConversation}
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M5.5 16.9V19h2.1l8.1-8.1-2.1-2.1-8.1 8.1Zm9-9 2.1 2.1 1.2-1.2a1.5 1.5 0 0 0 0-2.1l-1.2-1.2a1.5 1.5 0 0 0-2.1 0L13.3 6.7l1.2 1.2Z"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </button>
+                  ) : null}
                 </div>
               )}
             </div>
