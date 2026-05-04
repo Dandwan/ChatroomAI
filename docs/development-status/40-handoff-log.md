@@ -37,7 +37,7 @@
 
 ### Commit
 
-- pending
+- `3f931bd` (`fix: flatten active chat shell structure`)
 
 ### Open Items
 
