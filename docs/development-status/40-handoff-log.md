@@ -1,5 +1,31 @@
 # Handoff Log
 
+## 2026-05-05 03:49 +08:00
+
+### Scope
+
+- add interior padding to the daily-cover hero text block on the settings page
+- keep the rest of the settings layout unchanged
+
+### Current High-Signal State
+
+- `src/App.tsx` now wraps the daily-cover hero copy in the existing `content-wrap` container so the card text no longer hugs the top-left corner
+- the hero card's existing overlay image and styling remain unchanged
+- proposal-and-confirmation gate status:
+  - completed through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- pending
+
+### Commit
+
+- pending
+
+### Open Items
+
+- run build and lint after the edit
+
 ## 2026-05-05 03:37 +08:00
 
 ### Scope
