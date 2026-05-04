@@ -38,6 +38,10 @@
   padding-inline: var(--chat-header-inline);
 }
 
+.app-shell.chat-page-shell.has-active-messages .app-shell-content {
+  gap: 0;
+}
+
 .homepage-empty-background {
   position: fixed;
   inset: 0;
@@ -137,9 +141,10 @@
   gap: 12px;
   min-height: var(--homepage-header-height);
   padding: 0 18px;
-  background: transparent;
+  background: var(--homepage-field-bg);
   border-color: rgba(244, 247, 251, 0.12);
   backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .app-shell.chat-page-shell .header-card .menu-button {
@@ -242,6 +247,35 @@
 
 .chat-page-shell .chat-summary-bar .summary-muted {
   display: none;
+}
+
+.app-shell.chat-page-shell.has-active-messages .app-header,
+.app-shell.chat-page-shell.has-active-messages .chat-summary-bar,
+.app-shell.chat-page-shell.has-active-messages .composer.is-editorial-chat-shell {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  background: transparent;
+}
+
+.app-shell.chat-page-shell.has-active-messages .app-header {
+  top: 0;
+}
+
+.app-shell.chat-page-shell.has-active-messages .chat-summary-bar {
+  top: calc(var(--homepage-header-height) + 10px);
+  left: var(--chat-content-inline);
+  right: var(--chat-content-inline);
+}
+
+.app-shell.chat-page-shell.has-active-messages .composer.is-editorial-chat-shell {
+  bottom: 0;
+}
+
+.app-shell.chat-page-shell.has-active-messages .message-list {
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 .chat-content-frame {
@@ -736,7 +770,8 @@
 
 .composer.is-editorial-chat-shell {
   margin-top: 0;
-  padding-inline: 0;
+  padding-inline: var(--chat-footer-inline);
+  padding-bottom: calc(var(--homepage-footer-safe-bottom) + var(--homepage-footer-gap));
 }
 
 .homepage-footer-dock {

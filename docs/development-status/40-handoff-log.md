@@ -1,5 +1,127 @@
 # Handoff Log
 
+## 2026-05-05 00:43 +08:00
+
+### Scope
+
+- remove the remaining message-list inset that kept active chat text out from under the top and bottom overlays
+- anchor the composer to the bottom edge without changing any control positions or order
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now treats the active-page header, summary bar, and composer as overlays with no extra message-list padding reserve
+- the composer is explicitly bottom-anchored again, so it no longer depends on its static-flow position
+- the control geometry and ordering remain unchanged:
+  - header menu button
+  - conversation title
+  - title edit button
+  - summary chips
+  - message input
+  - send button
+  - model picker
+  - image picker
+  - camera button
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleRelease`
+- `adb -s c3fec216 install -r android/app/build/outputs/apk/release/app-release.apk`
+- `adb -s c3fec216 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
+- `adb -s c3fec216 shell uiautomator dump ...` confirmed the phone is currently on the system PIN unlock screen, which blocked unlocked-screen visual verification
+
+### Commit
+
+- no self-only git commit has been created yet
+
+### Open Items
+
+- the phone is currently locked behind the system PIN prompt, so this turn has not yet completed a fresh visual recheck of the unlocked app screen
+
+## 2026-05-05 00:09 +08:00
+
+### Scope
+
+- keep the active chat page from reserving a separate top/bottom content tray
+- let the conversation render underneath the header, summary bar, and composer overlays
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now treats the active-page header, summary bar, and composer as overlays instead of normal-flow blocks
+- the message list now gets top and bottom insets so conversation content can continue underneath those overlays
+- the control geometry and ordering remain unchanged:
+  - header menu button
+  - conversation title
+  - title edit button
+  - summary chips
+  - message input
+  - send button
+  - model picker
+  - image picker
+  - camera button
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleRelease`
+- `adb -s c3fec216 install -r android/app/build/outputs/apk/release/app-release.apk`
+
+### Commit
+
+- no self-only git commit has been created yet
+
+### Open Items
+
+- this turn rebuilt and installed the new APK, but did not complete a fresh on-device visual recheck of the overlay layout
+
+## 2026-05-04 21:32 +08:00
+
+### Scope
+
+- compress the chat-page top and bottom chrome so they read like the reference screenshots
+- keep the control positions and ordering unchanged
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now keeps the top bar as a compact dark pill with a boxed rename/edit affordance
+- `src/styles/app-editorial-redesign.css` also removes the extra footer dock reserve so the bottom chrome collapses to the controls themselves
+- the control geometry and order were left intact:
+  - top menu button
+  - title
+  - title edit button
+  - summary chips
+  - composer input row
+  - send button
+  - model picker row
+  - image picker
+  - camera button
+- proposal-and-confirmation gate status:
+  - completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` failed on the pre-existing `react-hooks/set-state-in-effect` issue in `src/App.tsx:1099`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleRelease`
+- `adb -s c3fec216 install -r android/app/build/outputs/apk/release/app-release.apk`
+- `adb -s c3fec216 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
+- screenshot validation on `c3fec216`
+
+### Commit
+
+- no self-only git commit has been created yet
+
+### Open Items
+
+- the current session cold-started into a new conversation as expected, but the older long conversation was not successfully reopened from recents in this turn
+
 ## 2026-05-04 20:55 +08:00
 
 ### Scope
@@ -3360,6 +3482,38 @@
 
 - rerun a clean emulator or phone-side browser-mode extraction check now that the simplified `onPageFinished -> delayed extract` flow is in place
 - if hidden WebView targets keep lingering in DevTools after extraction, audit the native cleanup path for a retained WebView lifecycle leak
+
+## 2026-05-04 20:18 +08:00
+
+### Scope
+
+- restore the active-chat title bar card background while keeping the top and bottom shell layers transparent
+- re-check the floating-control behavior against the user's two reference screenshots
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now restores `var(--homepage-field-bg)` on `.app-shell.chat-page-shell .header-card`
+- the title bar keeps `blur(14px)` on the card itself, but the surrounding `.app-header` shell remains transparent
+- the bottom composer shell remains transparent, while the message input, send button, model trigger, image picker button, and camera button keep their own dark control fills
+
+### Validation Snapshot
+
+- `npm run build` passed
+- `npm run android:sync` passed during an attempted `npm run android:build:debug`
+- native debug rebuild on this Linux host did not complete because the local Android toolchain still needs the previously known workarounds:
+  - LF-normalized `gradlew`
+  - explicit `ANDROID_HOME` / `ANDROID_SDK_ROOT`
+  - explicit `JAVA_HOME=/opt/android-studio/jbr`
+  - a working Google Maven mirror or TLS workaround for `dl.google.com`
+- fallback visual validation used `vite --host 0.0.0.0 --port 4173` inside `emulator-5554` Chrome:
+  - confirmed the title bar background is back on the control itself
+  - confirmed the top and bottom shell layers outside the controls remain transparent
+  - confirmed the bottom controls still float directly over the conversation background instead of sitting on a separate dock fill
+
+### Open Follow-Up
+
+- re-run the same UI check in a freshly rebuilt native debug APK once the local Gradle Google Maven workaround is restored
+- if a strict active-message-state screenshot is still needed, validate with a configured provider or seeded conversation data instead of the cold-start conversation shell
 
 ## 2026-04-28 20:26 +08:00
 
