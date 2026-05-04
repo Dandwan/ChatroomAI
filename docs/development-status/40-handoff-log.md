@@ -14,15 +14,15 @@
 - proposal-and-confirmation gate status:
   - completed in this handoff through the user's explicit rollback request
 - commit note:
-  - pending, to be created after validation and status updates
+  - a self-only git commit was created for the rollback
 
 ### Validation Snapshot
 
-- pending
+- `npm run build`
 
 ### Open Items
 
-- re-run the web build after the rollback
+- revalidate the rollback on `emulator-5554` or the physical phone `c3fec216` if device-side visual confirmation is needed
 
 ## 2026-05-04 17:55 +08:00
 
