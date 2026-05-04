@@ -1,5 +1,29 @@
 # Current State And Known Issues
 
+## Latest Active-Page Overlay State
+
+As of 2026-05-05:
+
+- the active chat page now renders the header, summary bar, and composer as true overlays instead of reserving flow space
+- the message list no longer adds top or bottom insets for those controls, so conversation text can continue directly underneath them
+- the composer is explicitly anchored to the bottom edge again, while the visible control geometry remains unchanged:
+  - header menu button
+  - conversation title
+  - title edit button
+  - summary chips
+  - message input
+  - send button
+  - model picker
+  - image picker
+  - camera button
+- validation in this pass:
+  - `npm run build`
+  - `node scripts/cap-sync-android.mjs`
+  - `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleRelease`
+  - `adb -s c3fec216 install -r android/app/build/outputs/apk/release/app-release.apk`
+- validation gap:
+  - this turn has not yet completed a fresh visual recheck on the unlocked phone screen because the device is currently sitting on the system PIN unlock UI
+
 ## Worktree Reality
 
 The repository is very dirty.
@@ -89,7 +113,9 @@ As of 2026-05-04:
   - `.composer-panel`
   - `.composer-row`
   - `.composer-tools`
-- the title bar card now uses a transparent fill
+- the title bar card itself is filled again:
+  - `.app-shell.chat-page-shell .header-card` now uses `var(--homepage-field-bg)`
+  - the title bar keeps its `14px` blur while the outer header shell stays transparent
 - the bottom dock shell stays transparent while the composer controls keep their own fills:
   - message input
   - send / stop button
@@ -99,9 +125,14 @@ As of 2026-05-04:
 - the model popover is still on the older flat panel variant
 - validation status for this pass:
   - `npm run build`
-  - emulator-5554 screenshot + computed-style check confirmed the top bar shell is transparent, the bottom dock shell is transparent, and the bottom controls keep filled backgrounds
+  - `npm run android:sync` passed as part of an attempted debug rebuild
+  - emulator-5554 browser screenshot check confirmed:
+    - the title bar card background is back
+    - the top bar shell stays transparent
+    - the bottom dock shell stays transparent
+    - the bottom controls keep filled backgrounds
 - remaining validation gap:
-  - this fill-removal pass has not yet been re-verified on the physical phone `c3fec216`
+  - the native Android debug rebuild on this Linux host is still blocked by the known Gradle wrapper / Google Maven environment issues, so this exact fill state has not yet been re-verified inside a freshly rebuilt APK on `emulator-5554` or the physical phone `c3fec216`
 
 ## Latest Settings Input Styling State
 
