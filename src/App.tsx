@@ -2715,7 +2715,7 @@ function App() {
     : undefined
   const appShellStyle = {
     '--homepage-send-transition-duration': `${HOMEPAGE_SEND_TRANSITION_DURATION_MS}ms`,
-    '--homepage-send-transition-easing': 'linear',
+    '--homepage-send-transition-easing': 'cubic-bezier(0.22, 1, 0.36, 1)',
     ...(homepageBackgroundStyle ?? {}),
   } as CSSProperties
   const draft = activeConversation ? draftsByConversation[activeConversation.id] ?? '' : ''
