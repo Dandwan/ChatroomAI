@@ -1,5 +1,52 @@
 # Handoff Log
 
+## 2026-05-04 20:55 +08:00
+
+### Scope
+
+- rebuild the latest Android release APK from the current worktree
+- install that release APK onto the physical phone `c3fec216`
+
+### Current High-Signal State
+
+- the release pipeline succeeded again through:
+  - `npm run build`
+  - `node scripts/cap-sync-android.mjs`
+  - `cd android && sh ./.gradlew-unix assembleRelease`
+- the installed artifact is:
+  - `android/app/build/outputs/apk/release/app-release.apk`
+- APK metadata confirms:
+  - package `com.dandwan.chatroomai`
+  - launch activity `com.dandwan.chatroomai.MainActivity`
+  - `versionName=1.5.0`
+  - `versionCode=1500`
+- phone install and launch on `c3fec216` both succeeded:
+  - `adb -s c3fec216 install -r .../app-release.apk` returned `Success`
+  - `adb -s c3fec216 shell am start -W -n com.dandwan.chatroomai/.MainActivity` returned `Status: ok`
+  - `adb -s c3fec216 shell pidof com.dandwan.chatroomai` returned a live PID after launch
+- proposal-and-confirmation gate status:
+  - completed in this handoff through the user's explicit confirmation before installation
+
+### Validation Snapshot
+
+- `adb devices -l`
+- `JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleRelease`
+- `/home/dandwan/Android/Sdk/build-tools/36.1.0/aapt dump badging android/app/build/outputs/apk/release/app-release.apk`
+- `adb -s c3fec216 install -r android/app/build/outputs/apk/release/app-release.apk`
+- `adb -s c3fec216 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
+- `adb -s c3fec216 shell pidof com.dandwan.chatroomai`
+
+### Commit
+
+- a self-only git commit will be created for the release build/install validation
+- the repo worktree already contains unrelated uncommitted changes, and this handoff only added operational validation notes
+
+### Open Items
+
+- none for the install/build request itself
+
 ## 2026-05-04 20:38 +08:00
 
 ### Scope
