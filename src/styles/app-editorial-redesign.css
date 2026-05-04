@@ -4,9 +4,10 @@
 }
 
 .app-shell.chat-page-shell {
-  --chat-header-inline: 20px;
+  --chat-equal-margin: 12px;
+  --chat-header-inline: var(--chat-equal-margin);
   --chat-content-inline: 20px;
-  --chat-footer-inline: 8px;
+  --chat-footer-inline: var(--chat-equal-margin);
   --chat-page-background:
     radial-gradient(circle at 50% -10%, rgba(186, 154, 124, 0.05), transparent 28%),
     #090b10;
@@ -18,8 +19,8 @@
   --homepage-composer-tool-height: 46px;
   --homepage-composer-send-width: 74px;
   --homepage-composer-icon-size: 46px;
-  --homepage-footer-gap: 8px;
-  --homepage-header-inline-inset: 20px;
+  --homepage-footer-gap: var(--chat-equal-margin);
+  --homepage-header-inline-inset: var(--chat-equal-margin);
   --homepage-field-radius: 4px;
   --homepage-field-border: rgba(244, 247, 251, 0.12);
   --homepage-field-bg: rgba(10, 12, 18, 0.88);
@@ -32,6 +33,7 @@
   --homepage-footer-reserved-space: 32px;
   width: 100%;
   max-width: none;
+  padding-top: calc(var(--safe-top-inset) + var(--chat-equal-margin));
   padding-left: 0;
   padding-right: 0;
   padding-bottom: 0;
@@ -269,8 +271,8 @@
 
 .app-shell.chat-page-shell.has-active-messages .chat-summary-bar {
   top: calc(var(--homepage-header-height) + 10px);
-  left: var(--chat-content-inline);
-  right: var(--chat-content-inline);
+  left: var(--chat-header-inline);
+  right: var(--chat-header-inline);
 }
 
 .app-shell.chat-page-shell.has-active-messages .composer.is-editorial-chat-shell {
@@ -775,7 +777,7 @@
 .composer.is-editorial-chat-shell {
   margin-top: 0;
   padding-inline: var(--chat-footer-inline);
-  padding-bottom: calc(var(--homepage-footer-safe-bottom) + var(--homepage-footer-gap));
+  padding-bottom: calc(var(--homepage-footer-safe-bottom) + var(--chat-equal-margin));
 }
 
 .homepage-footer-dock {
@@ -783,7 +785,7 @@
   z-index: 2;
   min-height: calc(var(--homepage-footer-dock-height) + var(--homepage-footer-safe-bottom));
   padding-inline: var(--chat-footer-inline);
-  padding-bottom: calc(var(--homepage-footer-safe-bottom) + var(--homepage-footer-gap));
+  padding-bottom: calc(var(--homepage-footer-safe-bottom) + var(--chat-equal-margin));
 }
 
 .composer.is-editorial-chat-shell .composer-panel {
@@ -2216,8 +2218,8 @@
 
 @media (max-width: 760px) {
   .app-shell.chat-page-shell {
-    --homepage-header-inline-inset: 20px;
-    --homepage-footer-gap: 8px;
+    --homepage-header-inline-inset: var(--chat-equal-margin);
+    --homepage-footer-gap: var(--chat-equal-margin);
     --homepage-footer-dock-height: calc(
       var(--homepage-composer-row-height) +
       var(--homepage-composer-tool-height) +
@@ -2262,7 +2264,7 @@
 
   .composer.is-editorial-chat-shell {
     margin-top: 0;
-    padding-inline: 0;
+    padding-inline: var(--chat-footer-inline);
   }
 
   .settings-page {

@@ -1,5 +1,33 @@
 # Handoff Log
 
+## 2026-05-05 03:31 +08:00
+
+### Scope
+
+- unify the active chat page to a 12px equal margin rhythm for the top pill and bottom composer controls
+- keep the summary chip spacing unchanged while preserving the mobile footer inset
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now drives the active chat header inset, footer gutter, and composer control spacing from a shared `--chat-equal-margin: 12px` token
+- the top summary chips keep their existing internal `gap`, so only the outer chrome spacing changed
+- the mobile footer override now keeps the same 12px inline inset instead of collapsing to zero
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- no new product risks; the remaining lint failure predates this change
+
 ## 2026-05-05 03:27 +08:00
 
 ### Scope
