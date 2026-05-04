@@ -10045,8 +10045,12 @@ function App() {
               } as CSSProperties
             }
           >
-            <span className="title-transition-button title-save-button">保存</span>
-            <span className="title-transition-button title-cancel-button">取消</span>
+            <button type="button" className="title-transition-button title-save-button" tabIndex={-1}>
+              保存
+            </button>
+            <button type="button" className="title-transition-button title-cancel-button" tabIndex={-1}>
+              取消
+            </button>
           </div>
         </div>
       ) : null}
