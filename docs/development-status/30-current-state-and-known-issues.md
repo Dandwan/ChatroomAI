@@ -1,5 +1,15 @@
 # Current State And Known Issues
 
+## Latest Chat Message Typography State
+
+As of 2026-05-05:
+
+- active chat message body text is now slightly smaller and tighter in `src/styles/app-editorial-redesign.css`
+- the change is scoped to chat-page message cards, so settings, cover, and other markdown surfaces keep their existing sizing
+- validation for this pass:
+  - `npm run build` failed in `npm run skill:sync:union-search` with `ENOTEMPTY` on `builtin-skills/union-search/scripts/lib/vendor/node_modules/htmlparser2`
+  - `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
 ## Latest Active-Page Overlay State
 
 As of 2026-05-05:
