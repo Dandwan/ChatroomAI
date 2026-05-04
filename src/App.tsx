@@ -9935,6 +9935,8 @@ function App() {
         <div className={`homepage-empty-background ${resolvedDailyCover ? 'has-cover' : 'is-fallback'}`} aria-hidden="true" />
       ) : null}
 
+      {hasActiveMessages ? <div className="chat-active-background" aria-hidden="true" /> : null}
+
       {homepageSendTransition ? (
         <div
           className="homepage-send-transition-layer"

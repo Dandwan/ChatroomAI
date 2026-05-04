@@ -8,8 +8,12 @@ As of 2026-05-05:
   - the composer is rendered directly instead of inside `homepage-footer-dock`
   - the composer row is rendered directly instead of inside `composer-panel`
   - the header is rendered as `app-header header-card` directly, without a nested card wrapper
-  - the separate active-chat background node is no longer rendered
+  - the active chat background now renders as a direct fixed layer again, but only once a conversation has messages
 - the active chat page now renders the header, summary bar, and composer as true overlays instead of reserving flow space
+- the active-page outer rhythm now uses a shared 12px equal margin token:
+  - the title pill now sits `12px` from the safe-top shell edge and `12px` from each side
+  - the bottom composer now uses the same `12px` spacing for control gaps, side gutters, and bottom gutter
+  - the summary chips keep their existing internal spacing
 - the message list no longer adds top or bottom insets for those controls, so conversation text can continue directly underneath them
 - the composer is explicitly anchored to the bottom edge again, while the visible control geometry remains unchanged:
   - header menu button
@@ -21,13 +25,12 @@ As of 2026-05-05:
   - model picker
   - image picker
   - camera button
+- the active chat background now matches the settings page's dark radial treatment once a transcript exists, and the title bar pill now uses the same 14px glass blur treatment as the stats-style pills
 - validation in this pass:
+  - `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
   - `npm run build`
-  - `node scripts/cap-sync-android.mjs`
-  - `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleRelease`
-  - `adb -s c3fec216 install -r android/app/build/outputs/apk/release/app-release.apk`
 - validation gap:
-  - this turn has not yet completed a fresh visual recheck on the unlocked phone screen because the device is currently sitting on the system PIN unlock UI
+  - this turn has not yet completed a fresh on-device visual recheck
 
 ## Worktree Reality
 
@@ -93,18 +96,17 @@ As of 2026-05-03:
 
 ## Latest Chat Composer Height State
 
-As of 2026-05-04:
+As of 2026-05-05:
 
-- the chat-page composer top row now uses the same `46px` control height as the lower model / tool row
-- this was implemented in `src/styles/app-editorial-redesign.css` by:
-  - changing `--homepage-composer-row-height` from `52px` to `46px`
+- the chat-page composer top row still uses the same `46px` control height as the lower model / tool row
+- this geometry is still implemented in `src/styles/app-editorial-redesign.css` by:
+  - keeping `--homepage-composer-row-height` at `46px`
   - deriving `--homepage-footer-dock-height` from the shared composer height tokens instead of leaving it as the old hardcoded `114px`
-  - reducing editorial chat-input vertical padding from `14px 18px` to `12px 18px`
-- the homepage chrome spacing has been returned to the original `8px` footer gap:
-  - `--homepage-footer-gap` remains `8px`
-  - the extra equal-spacing footer gutter work from the blur pass has been rolled back
-- the derived dock-height change is back to the original baseline:
-  - the footer shell once again reserves the original 8px spacing instead of the shared 10px gap token
+  - keeping editorial chat-input vertical padding at `12px 18px`
+- the homepage chrome spacing now resolves through the shared `12px` equal margin token:
+  - `--homepage-footer-gap` now resolves to `12px`
+  - the composer row gap, tool-row gap, footer side gutter, and footer bottom gutter all stay in sync
+  - the mobile footer override now preserves the same 12px inline inset instead of collapsing to 0
 
 ## Latest Bottom Composer Glass State
 
