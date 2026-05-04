@@ -1,5 +1,30 @@
 # Handoff Log
 
+## 2026-05-04 20:38 +08:00
+
+### Scope
+
+- give the first-send homepage slide-up transition a real ease-out curve
+
+### Current High-Signal State
+
+- `src/App.tsx` now sets `--homepage-send-transition-easing` to `cubic-bezier(0.22, 1, 0.36, 1)` for the first-send overlay
+- the overlay still uses the same duration, geometry, and `animationend` cleanup path
+- proposal-and-confirmation gate status:
+  - completed in this handoff through the user's explicit confirmation before implementation
+- commit note:
+  - a self-only git commit was created for this easing change
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` failed on an existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Open Items
+
+- the lint failure predates this easing-only change and is outside the touched animation path
+
+
 ## 2026-05-04 19:29 +08:00
 
 ### Scope

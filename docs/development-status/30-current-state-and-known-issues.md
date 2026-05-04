@@ -45,9 +45,11 @@ As of 2026-05-03:
 - the transition lifecycle no longer depends on a JS timeout racing the WebView compositor:
   - the overlay now clears itself on `animationend`
   - this replaced the earlier timer-based cleanup that proved less trustworthy on Android WebView
+- the transition motion now uses a proper ease-out curve instead of a linear ramp:
+  - `--homepage-send-transition-easing` is now `cubic-bezier(0.22, 1, 0.36, 1)`
+  - the upward slide still keeps the same duration and geometry
 - the first-send transition timing remains at the original baseline:
   - `HOMEPAGE_SEND_TRANSITION_DURATION_MS` is `920`
-  - easing remains `linear`
 - active chat no longer renders any daily-cover summary slot or summary-card component:
   - `src/components/DailyCoverSummaryCard.tsx` is removed
   - the old `showChatBanner` daily-cover setting is removed from runtime settings and settings UI
