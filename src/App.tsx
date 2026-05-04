@@ -8102,19 +8102,21 @@ function App() {
       <section className="settings-section">
         <div className="settings-static-card daily-cover-hero-card">
           {resolvedDailyCover ? <img src={resolvedDailyCover.imageUrl} alt={resolvedDailyCover.title} /> : null}
-          <div className="daily-cover-kicker">
-            {resolvedDailyCover
-              ? `Today’s cover · ${resolvedDailyCover.sourceLabel}`
-              : 'Daily cover unavailable'}
+          <div className="content-wrap">
+            <div className="daily-cover-kicker">
+              {resolvedDailyCover
+                ? `Today’s cover · ${resolvedDailyCover.sourceLabel}`
+                : 'Daily cover unavailable'}
+            </div>
+            <h3 className="daily-cover-title">
+              {resolvedDailyCover
+                ? `${resolvedDailyCover.title} · ${resolvedDailyCover.photographer}`
+                : 'Daily Cover'}
+            </h3>
+            <p className="daily-cover-copy">
+              {resolvedDailyCover?.description ?? '封面不可用时，界面会自动退回到安静的默认壳层。'}
+            </p>
           </div>
-          <h3 className="daily-cover-title">
-            {resolvedDailyCover
-              ? `${resolvedDailyCover.title} · ${resolvedDailyCover.photographer}`
-              : 'Daily Cover'}
-          </h3>
-          <p className="daily-cover-copy">
-            {resolvedDailyCover?.description ?? '封面不可用时，界面会自动退回到安静的默认壳层。'}
-          </p>
         </div>
       </section>
 
