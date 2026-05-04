@@ -79,6 +79,15 @@ As of 2026-05-04:
 
 As of 2026-05-04:
 
+- the chat-page shell layers remain transparent:
+  - `.app-header`
+  - `.chat-summary-bar`
+  - `.composer.is-editorial-chat-shell`
+  - `.homepage-footer-dock`
+  - `.composer-panel`
+  - `.composer-row`
+  - `.composer-tools`
+- the title-bar container itself is now transparent instead of using the earlier tinted fill
 - the bottom dock shell and composer controls now use the same `14px` frosted blur treatment as the title bar:
   - message input
   - send / stop button
@@ -90,7 +99,7 @@ As of 2026-05-04:
   - `npm run build`
   - `npm run lint` failed on an existing `src/App.tsx:1099` `react-hooks/set-state-in-effect` warning that is unrelated to this CSS change
 - remaining validation gap:
-  - this blur pass has not yet been re-verified on `emulator-5554` or the physical phone `c3fec216`
+  - this transparency pass has not yet been re-verified on `emulator-5554` or the physical phone `c3fec216`
 
 ## Latest Settings Input Styling State
 
