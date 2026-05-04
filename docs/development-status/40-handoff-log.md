@@ -1,5 +1,59 @@
 # Handoff Log
 
+## 2026-05-05 03:37 +08:00
+
+### Scope
+
+- slightly shrink active chat message body text and tighten line spacing for easier reading
+- keep the change scoped to chat-page message cards so other markdown surfaces stay untouched
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now gives chat-page message markdown a smaller body size and tighter line height
+- assistant message body text is also trimmed down to stay closer to the user-message rhythm
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build` failed in `npm run skill:sync:union-search` with `ENOTEMPTY` on `builtin-skills/union-search/scripts/lib/vendor/node_modules/htmlparser2`
+- `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- the build failure appears unrelated to the typography change and comes from the existing union-search sync step
+- the lint failure predates this change
+## 2026-05-05 03:40 +08:00
+
+### Scope
+
+- hide the title edit button on the empty new-conversation page
+- remove the button background and border in the chat header skin
+
+### Current High-Signal State
+
+- `src/App.tsx` now suppresses the title rename button when the active chat is the hydrated empty homepage state
+- `src/styles/app-editorial-redesign.css` now forces the title rename button to stay transparent with no border or shadow in the chat header
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- no new product risks; the remaining lint failure predates this change
+
 ## 2026-05-05 03:31 +08:00
 
 ### Scope
