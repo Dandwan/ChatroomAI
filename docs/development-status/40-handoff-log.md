@@ -1,5 +1,34 @@
 # Handoff Log
 
+## 2026-05-05 04:49 +08:00
+
+### Scope
+
+- raise the active chat title block so it can render into the status-bar area
+- keep the rest of the page layout unchanged
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now shifts `.app-shell.chat-page-shell .header-card .title-display` and `.title-editor` upward by one `--safe-top-inset`
+- only the title/rename region moves; the header pill, summary bar, message list, composer, and drawer positioning stay as they were
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- no fresh device screenshot pass was run in this turn
+
+# Handoff Log
+
 ## 2026-05-05 04:40 +08:00
 
 ### Scope
