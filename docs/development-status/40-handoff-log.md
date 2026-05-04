@@ -1,5 +1,31 @@
 # Handoff Log
 
+## 2026-05-05 04:40 +08:00
+
+### Scope
+
+- fix the save/cancel buttons in the title rename transition so they stop snapping at the start and end of the animation
+
+### Current High-Signal State
+
+- `src/App.tsx` now renders the transition-layer save/cancel controls as real `button` clones instead of plain spans
+- `src/App.css` now gives those overlay buttons the same visual treatment as the live edit-state controls, while leaving position and opacity as the only animated properties
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- none
+
 ## 2026-05-05 04:13 +08:00
 
 ### Scope

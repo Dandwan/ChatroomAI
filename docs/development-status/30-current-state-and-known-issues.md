@@ -1,5 +1,15 @@
 # Current State And Known Issues
 
+## Latest Title Rename Button Transition State
+
+As of 2026-05-05:
+
+- the title rename transition layer now renders the save and cancel controls as real `button` clones instead of plain text spans
+- those overlay buttons now use the same visual treatment as the live edit-state controls, so the animation only changes geometry and opacity instead of snapping at the first or last frame
+- validation for this pass:
+  - `npm run build`
+  - `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
 ## Latest Header Title Overflow Fix State
 
 As of 2026-05-05:

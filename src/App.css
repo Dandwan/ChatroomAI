@@ -336,15 +336,22 @@
   opacity: var(--actions-end-opacity);
 }
 
-.title-transition-button {
+.title-transition-actions .title-transition-button {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  min-height: auto;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--text-secondary);
   font-size: 16px;
   font-weight: 650;
-  line-height: 1;
-  white-space: nowrap;
+  transition: color 0.18s ease, transform 0.18s ease;
 }
 
-.title-save-button {
+.title-transition-actions .title-save-button {
   color: #4ade80;
 }
 
@@ -564,13 +571,19 @@ button:not(:disabled):hover {
 .icon-inline-button:active,
 .title-editor .tiny-button:focus-visible,
 .title-editor .tiny-button:active,
-.title-editor .tiny-button:hover {
+.title-editor .tiny-button:hover,
+.title-transition-actions .title-transition-button:focus-visible,
+.title-transition-actions .title-transition-button:active,
+.title-transition-actions .title-transition-button:hover {
   color: var(--accent-2);
 }
 
 .title-editor .title-save-button:focus-visible,
 .title-editor .title-save-button:active,
-.title-editor .title-save-button:hover {
+.title-editor .title-save-button:hover,
+.title-transition-actions .title-save-button:focus-visible,
+.title-transition-actions .title-save-button:active,
+.title-transition-actions .title-save-button:hover {
   color: #86efac;
 }
 
