@@ -1,5 +1,72 @@
 # Handoff Log
 
+## 2026-05-04 18:01 +08:00
+
+### Scope
+
+- revert the recent chat chrome blur and transparency changes
+- restore the pre-blur bottom composer baseline and the earlier tinted top bar card
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` is back to the earlier top-bar tinted card and flat bottom composer surfaces
+- the recent `14px` blur addition for the bottom composer controls has been removed
+- proposal-and-confirmation gate status:
+  - completed in this handoff through the user's explicit rollback request
+- commit note:
+  - pending, to be created after validation and status updates
+
+### Validation Snapshot
+
+- pending
+
+### Open Items
+
+- re-run the web build after the rollback
+
+## 2026-05-04 17:55 +08:00
+
+### Scope
+
+- rebuild the Android release APK again from the current worktree
+- overwrite the existing local file-server APK with the newly built artifact
+
+### Current High-Signal State
+
+- the release pipeline succeeded again through:
+  - `npm run build`
+  - `node scripts/cap-sync-android.mjs`
+  - `sh ./.gradlew-unix assembleRelease`
+- the local served APK was overwritten in place at:
+  - `/home/dandwan/application/ActiChat-v1.5.0-android-release.apk`
+- the refreshed file now reports:
+  - size `215053854` bytes
+  - modified time `2026-05-04 17:55:17 +08:00`
+- the lightweight local HTTP server is serving that directory on port `8000`
+- local verification confirmed:
+  - `http://127.0.0.1:8000/ActiChat-v1.5.0-android-release.apk`
+  - HTTP `200 OK`
+- the build still used `android/.gradlew-unix` because the tracked `android/gradlew` wrapper remains CRLF-terminated on this Linux host
+- proposal-and-confirmation gate status:
+  - completed earlier in this packaging workstream through the user's direct request
+
+### Validation Snapshot
+
+- `JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleRelease`
+- `cp android/app/build/outputs/apk/release/app-release.apk /home/dandwan/application/ActiChat-v1.5.0-android-release.apk`
+- `curl -I http://127.0.0.1:8000/ActiChat-v1.5.0-android-release.apk`
+
+### Commit
+
+- no self-only git commit was created
+- the repo worktree remains broadly dirty, and this handoff only refreshed operational artifacts plus the repo-tracked handoff log
+
+### Open Items
+
+- if repeated local release rebuilds should stay available across interrupted turns, move the lightweight file server under a proper long-lived service manager instead of a foreground session
+
 ## 2026-05-04 17:48 +08:00
 
 ### Scope
