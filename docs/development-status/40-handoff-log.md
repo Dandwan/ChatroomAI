@@ -1,5 +1,48 @@
 # Handoff Log
 
+## 2026-05-05 03:17 +08:00
+
+### Scope
+
+- finish flattening the active chat render tree so the controls sit directly over the conversation
+- keep the visual geometry unchanged while removing the last wrapper shells
+
+### Current High-Signal State
+
+- `src/App.tsx` now removes the extra active-page wrapper shells:
+  - composer is rendered directly instead of inside `homepage-footer-dock`
+  - composer row is rendered directly instead of inside `composer-panel`
+  - header is rendered as `app-header header-card` directly
+  - the standalone active-chat background node is no longer rendered
+- `src/styles/app-editorial-redesign.css` keeps the active-page header, summary bar, and composer as overlays with no message-list inset reserve
+- the control geometry and ordering remain unchanged:
+  - header menu button
+  - conversation title
+  - title edit button
+  - summary chips
+  - message input
+  - send button
+  - model picker
+  - image picker
+  - camera button
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleRelease`
+- `adb -s c3fec216 install -r android/app/build/outputs/apk/release/app-release.apk`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- the phone is still locked behind the system PIN prompt, so this turn has not yet completed a fresh visual recheck of the unlocked app screen
+
 ## 2026-05-05 00:43 +08:00
 
 ### Scope

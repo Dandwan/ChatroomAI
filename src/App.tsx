@@ -2709,7 +2709,7 @@ function App() {
     activeConversation?.storageLoadState === 'hydrated' &&
     activeMessages.length === 0
   const displayConversationTitle = activeConversation?.title ?? '新对话'
-  const shouldShowHomepageBackground = isHomepageEmptyState && resolvedDailyCover !== null
+  const shouldShowHomepageBackground = resolvedDailyCover !== null
   const homepageBackgroundStyle = shouldShowHomepageBackground && resolvedDailyCover
     ? ({ '--homepage-cover-image': `url("${resolvedDailyCover.imageUrl}")` } as CSSProperties)
     : undefined
@@ -7912,51 +7912,49 @@ function App() {
         </div>
       ) : null}
 
-      <div className="composer-panel">
-        <div className="composer-row">
-          <ChatInputBox
-            ref={composerInputRef}
-            className="chat-input-box composer-input"
-            value={draft}
-            onChange={(event) => {
-              if (!activeConversation) {
-                return
-              }
-              updateConversationDraft(activeConversation.id, event.target.value)
-            }}
-            placeholder={isComposerLocked ? '请先等待历史对话载入完成' : '输入消息'}
-            maxHeight={188}
-            disabled={isComposerLocked}
-          />
+      <div className="composer-row">
+        <ChatInputBox
+          ref={composerInputRef}
+          className="chat-input-box composer-input"
+          value={draft}
+          onChange={(event) => {
+            if (!activeConversation) {
+              return
+            }
+            updateConversationDraft(activeConversation.id, event.target.value)
+          }}
+          placeholder={isComposerLocked ? '请先等待历史对话载入完成' : '输入消息'}
+          maxHeight={188}
+          disabled={isComposerLocked}
+        />
 
-          {isSending ? (
-            canAppendWhileSending ? (
-              <button type="button" className="composer-send-button" onClick={handleAppend}>
-                追加
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="composer-send-button danger-button"
-                onClick={stopGeneration}
-              >
-                停止
-              </button>
-            )
+        {isSending ? (
+          canAppendWhileSending ? (
+            <button type="button" className="composer-send-button" onClick={handleAppend}>
+              追加
+            </button>
           ) : (
             <button
               type="button"
-              className="composer-send-button"
-              disabled={!canSend}
-              onClick={() => void handleSend()}
+              className="composer-send-button danger-button"
+              onClick={stopGeneration}
             >
-              发送
+              停止
             </button>
-          )}
-        </div>
-
-        {renderComposerTools()}
+          )
+        ) : (
+          <button
+            type="button"
+            className="composer-send-button"
+            disabled={!canSend}
+            onClick={() => void handleSend()}
+          >
+            发送
+          </button>
+        )}
       </div>
+
+      {renderComposerTools()}
     </footer>
   )
 
@@ -9937,10 +9935,6 @@ function App() {
         <div className={`homepage-empty-background ${resolvedDailyCover ? 'has-cover' : 'is-fallback'}`} aria-hidden="true" />
       ) : null}
 
-      {hasActiveMessages ? (
-        <div className="chat-active-background" aria-hidden="true" />
-      ) : null}
-
       {homepageSendTransition ? (
         <div
           className="homepage-send-transition-layer"
@@ -10053,8 +10047,7 @@ function App() {
       ) : null}
 
       <div className="app-shell-content">
-        <header className="app-header">
-          <div className={`header-card ${isEditingTitle ? 'is-editing-title' : ''}`}>
+        <header className={`app-header header-card ${isEditingTitle ? 'is-editing-title' : ''}`}>
             <button
               type="button"
               className="menu-button"
@@ -10132,7 +10125,6 @@ function App() {
               themeMode={settings.themeMode}
               onToggle={(nextMode) => updateSetting('themeMode', nextMode)}
             />
-          </div>
         </header>
 
         <section ref={chatSummaryBarRef} className="summary-bar chat-summary-bar">
@@ -10433,7 +10425,7 @@ function App() {
               </div>
             </main>
 
-          <div className="homepage-footer-dock">{renderComposerFooter()}</div>
+          {renderComposerFooter()}
 
           <input
             ref={fileInputRef}
