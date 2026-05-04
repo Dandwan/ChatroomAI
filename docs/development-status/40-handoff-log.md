@@ -35,7 +35,7 @@
 
 ### Commit
 
-- no self-only git commit has been created yet
+- `3e01fd9` (`fix: let active chat render under overlays`)
 
 ### Open Items
 
