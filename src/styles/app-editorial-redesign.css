@@ -16,8 +16,7 @@
   --homepage-header-inline-inset: 20px;
   --homepage-field-radius: 4px;
   --homepage-field-border: rgba(244, 247, 251, 0.12);
-  --homepage-field-bg: rgba(10, 12, 18, 0.84);
-  --homepage-field-blur: blur(14px);
+  --homepage-field-bg: rgba(10, 12, 18, 0.88);
   --homepage-footer-safe-bottom: env(safe-area-inset-bottom);
   --homepage-footer-dock-height: calc(
     var(--homepage-composer-row-height) +
@@ -129,7 +128,7 @@
 
 .header-card {
   min-height: 50px;
-  background: transparent;
+  background: rgba(12, 16, 24, 0.72);
   border-radius: 999px;
 }
 
@@ -138,7 +137,7 @@
   gap: 12px;
   min-height: var(--homepage-header-height);
   padding: 0 18px;
-  background: transparent;
+  background: rgba(10, 12, 18, 0.84);
   border-color: rgba(244, 247, 251, 0.12);
   backdrop-filter: blur(14px);
 }
@@ -625,11 +624,9 @@
   gap: 6px;
   padding: 10px 12px 12px;
   border-radius: var(--homepage-field-radius);
-  background: var(--homepage-field-bg);
+  background: rgba(8, 10, 16, 0.96);
   border-color: var(--homepage-field-border);
   box-shadow: 0 16px 32px rgba(3, 7, 18, 0.22);
-  backdrop-filter: var(--homepage-field-blur);
-  -webkit-backdrop-filter: var(--homepage-field-blur);
 }
 
 .homepage-model-popover .model-provider-divider {
@@ -727,8 +724,6 @@
   border-color: var(--homepage-field-border);
   color: rgba(244, 247, 251, 0.88);
   box-shadow: none;
-  backdrop-filter: var(--homepage-field-blur);
-  -webkit-backdrop-filter: var(--homepage-field-blur);
 }
 
 .composer.is-editorial-chat-shell textarea.chat-input-box::placeholder {

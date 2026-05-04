@@ -87,19 +87,18 @@ As of 2026-05-04:
   - `.composer-panel`
   - `.composer-row`
   - `.composer-tools`
-- the title-bar container itself is now transparent instead of using the earlier tinted fill
-- the bottom dock shell and composer controls now use the same `14px` frosted blur treatment as the title bar:
+- the title bar card is back on the earlier tinted fill instead of the transparent variant
+- the bottom dock shell and composer controls are back on the original flat field styling:
   - message input
   - send / stop button
   - model trigger
   - image picker button
   - camera button
-- the model popover now uses the same `14px` blur field treatment instead of the older flat panel variant
+- the model popover is back on the older flat panel variant
 - validation status for this pass:
   - `npm run build`
-  - `npm run lint` failed on an existing `src/App.tsx:1099` `react-hooks/set-state-in-effect` warning that is unrelated to this CSS change
 - remaining validation gap:
-  - this transparency pass has not yet been re-verified on `emulator-5554` or the physical phone `c3fec216`
+  - this rollback has not yet been re-verified on `emulator-5554` or the physical phone `c3fec216`
 
 ## Latest Settings Input Styling State
 
@@ -144,7 +143,7 @@ As of 2026-05-03:
 
 ## Latest Release Artifact State
 
-As of 2026-05-03:
+As of 2026-05-04:
 
 - a fresh signed `v1.5.0` Android release build was produced again from the current dirty worktree
 - the local validation chain for this handoff passed through:
@@ -153,12 +152,12 @@ As of 2026-05-03:
   - `assembleRelease` with repo-local Gradle cache `.gradle-local-v120`
 - the release artifact currently lives at:
   - `android/app/build/outputs/apk/release/app-release.apk`
-- that artifact has:
-  - size `215019476` bytes
-  - SHA256 `39C75D4398633CD5FA2434A06FFB6F9A8CC0805E10A0BDEC00D1C13D39A2C607`
-- the same artifact was uploaded to the user's File Browser cloud root as:
-  - `/ActiChat-v1.5.0-android-release-20260503-190421.apk`
-- remote `stat` confirmed the uploaded file exists with size `215019476` bytes
+- the current local file-server copy lives at:
+  - `/home/dandwan/application/ActiChat-v1.5.0-android-release.apk`
+- that local copy has:
+  - size `215053854` bytes
+  - SHA256 `c48f8d8ab9aa896b8f8bfe82942e8e97ad83c5339abef182f4ebf284a7de30fb`
+- the lightweight HTTP server is serving that directory on port `8000`
 - this Linux host still required the previously known local Android-build environment workarounds, without tracked source changes:
   - restore execute bits on local wrapper scripts with `chmod +x node_modules/.bin/*`
   - run the build with `JAVA_HOME=/opt/android-studio/jbr`
