@@ -1,5 +1,35 @@
 # Handoff Log
 
+## 2026-05-04 19:29 +08:00
+
+### Scope
+
+- keep the top bar and bottom dock shells transparent
+- preserve fills on the bottom composer controls
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now sets the chat-page `.header-card` background to `transparent`
+- the bottom composer controls now use their own filled surfaces again:
+  - message input
+  - send / stop button
+  - model trigger
+  - image picker button
+  - camera button
+- proposal-and-confirmation gate status:
+  - completed in this handoff through the user's explicit request
+- commit note:
+  - a self-only git commit was created for the shell/control split
+
+### Validation Snapshot
+
+- `npm run build`
+- emulator-5554 screenshot and computed-style check confirmed transparent top/bottom shells and filled bottom controls
+
+### Open Items
+
+- the physical phone `c3fec216` has not been rechecked for this shell/control split
+
 ## 2026-05-04 19:08 +08:00
 
 ### Scope
