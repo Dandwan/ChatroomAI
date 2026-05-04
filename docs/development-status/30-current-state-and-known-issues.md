@@ -79,24 +79,18 @@ As of 2026-05-04:
 
 As of 2026-05-04:
 
-- the bottom dock shell and composer controls are back on the original flat field styling:
+- the bottom dock shell and composer controls now use the same `14px` frosted blur treatment as the title bar:
   - message input
   - send / stop button
   - model trigger
   - image picker button
   - camera button
-- the model popover is back to the original flat panel treatment instead of the frosted overlay variant
+- the model popover now uses the same `14px` blur field treatment instead of the older flat panel variant
 - validation status for this pass:
   - `npm run build`
-  - `node scripts/cap-sync-android.mjs`
-  - `cd android && ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk JAVA_HOME=/opt/android-studio/jbr GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleDebug`
-  - `adb -s emulator-5554 install -r -t android/app/build/outputs/apk/debug/app-debug.apk`
-  - `adb -s emulator-5554 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
-  - emulator screenshot inspection of:
-    - `/tmp/actichat-layout-check.png`
-    - `/tmp/actichat-rollback-verify.png`
+  - `npm run lint` failed on an existing `src/App.tsx:1099` `react-hooks/set-state-in-effect` warning that is unrelated to this CSS change
 - remaining validation gap:
-  - this corrected glass pass is now re-captured on `emulator-5554`, but the physical phone `c3fec216` still was not reconnected in this handoff
+  - this blur pass has not yet been re-verified on `emulator-5554` or the physical phone `c3fec216`
 
 ## Latest Settings Input Styling State
 

@@ -1,5 +1,31 @@
 # Handoff Log
 
+## 2026-05-04 16:36 +08:00
+
+### Scope
+
+- apply the same `14px` frosted blur treatment from the title bar to the chat composer bottom controls
+- keep the change limited to the input, send / stop button, model trigger, image picker button, camera button, and model popover
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now gives the bottom composer surfaces a shared `14px` blur and matching translucent field background
+- the change stays stylistic only; composer layout, sizing, and interaction flow are unchanged
+- proposal-and-confirmation gate status:
+  - completed earlier in this handoff before implementation
+- commit note:
+  - a self-only commit was created for the CSS + status updates
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` failed on an existing `src/App.tsx:1099` `react-hooks/set-state-in-effect` warning unrelated to this CSS change
+
+### Open Items
+
+- the new blur treatment has not yet been revalidated on `emulator-5554`
+- the physical phone `c3fec216` has not been rechecked in this handoff
+
 ## 2026-05-04 16:18 +08:00
 
 ### Scope
