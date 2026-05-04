@@ -87,8 +87,8 @@ As of 2026-05-04:
   - `.composer-panel`
   - `.composer-row`
   - `.composer-tools`
-- the title bar card is back on the earlier tinted fill instead of the transparent variant
-- the bottom dock shell and composer controls now use transparent fills:
+- the title bar card now uses a transparent fill
+- the bottom dock shell stays transparent while the composer controls keep their own fills:
   - message input
   - send / stop button
   - model trigger
@@ -97,7 +97,7 @@ As of 2026-05-04:
 - the model popover is still on the older flat panel variant
 - validation status for this pass:
   - `npm run build`
-  - emulator-5554 screenshot + computed-style check confirmed the bottom controls now resolve to transparent backgrounds
+  - emulator-5554 screenshot + computed-style check confirmed the top bar shell is transparent, the bottom dock shell is transparent, and the bottom controls keep filled backgrounds
 - remaining validation gap:
   - this fill-removal pass has not yet been re-verified on the physical phone `c3fec216`
 
