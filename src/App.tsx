@@ -2541,6 +2541,7 @@ function App() {
   const titleActionsRef = useRef<HTMLDivElement | null>(null)
   const messageListRef = useRef<HTMLElement | null>(null)
   const chatContentStackRef = useRef<HTMLDivElement | null>(null)
+  const chatHeaderRef = useRef<HTMLElement | null>(null)
   const homepageShowcaseRef = useRef<HTMLElement | null>(null)
   const chatSummaryBarRef = useRef<HTMLElement | null>(null)
   const composerFooterRef = useRef<HTMLElement | null>(null)
@@ -7478,16 +7479,19 @@ function App() {
     const syncActiveChatScrollInsets = (): void => {
       const messageList = messageListRef.current
       const chatContentStack = chatContentStackRef.current
+      const chatHeader = chatHeaderRef.current
       const summaryBar = chatSummaryBarRef.current
       const footer = composerFooterRef.current
-      if (!messageList || !chatContentStack || !summaryBar || !footer) {
+      if (!messageList || !chatContentStack || !chatHeader || !summaryBar || !footer) {
         return
       }
 
       const messageListRect = messageList.getBoundingClientRect()
+      const headerRect = chatHeader.getBoundingClientRect()
       const summaryRect = summaryBar.getBoundingClientRect()
       const footerRect = footer.getBoundingClientRect()
-      const topInset = Math.max(0, Math.round(summaryRect.bottom - messageListRect.top))
+      const topChromeBottom = Math.max(headerRect.bottom, summaryRect.bottom)
+      const topInset = Math.max(0, Math.round(topChromeBottom - messageListRect.top))
       const bottomInset = Math.max(0, Math.round(messageListRect.bottom - footerRect.top))
       const visibleContentHeight = Math.max(0, Math.round(messageList.clientHeight - bottomInset))
       const contentHeightWithoutInsets = Math.max(
@@ -7521,6 +7525,7 @@ function App() {
       const observedElements = [
         messageListRef.current,
         chatContentStackRef.current,
+        chatHeaderRef.current,
         chatSummaryBarRef.current,
         composerFooterRef.current,
       ].filter((element): element is HTMLElement => element !== null)
@@ -10130,10 +10135,12 @@ function App() {
                 '--title-end-height': `${titleTransition.titleEndRect.height}px`,
                 '--title-start-opacity': titleTransition.phase === 'opening' ? 1 : 0,
                 '--title-end-opacity': titleTransition.phase === 'opening' ? 0 : 1,
+                '--title-content-start-translate-y': titleTransition.phase === 'opening' ? '0px' : '6px',
+                '--title-content-end-translate-y': titleTransition.phase === 'opening' ? '-6px' : '0px',
               } as CSSProperties
             }
           >
-            <span className="title-text homepage-title-text conversation-title-shell">
+            <span className="title-text title-transition-title-content homepage-title-text conversation-title-shell">
               动话 · <em>{titleTransition.titleText}</em>
             </span>
           </div>
@@ -10154,6 +10161,8 @@ function App() {
                 '--title-end-height': `${titleTransition.titleEndRect.height}px`,
                 '--title-start-opacity': titleTransition.phase === 'opening' ? 0 : 1,
                 '--title-end-opacity': titleTransition.phase === 'opening' ? 1 : 0,
+                '--title-content-start-translate-y': titleTransition.phase === 'opening' ? '6px' : '0px',
+                '--title-content-end-translate-y': titleTransition.phase === 'opening' ? '0px' : '-6px',
               } as CSSProperties
             }
           >
@@ -10223,7 +10232,10 @@ function App() {
       ) : null}
 
       <div className="app-shell-content">
-        <header className={`app-header header-card chat-header-pill ${isEditingTitle ? 'is-editing-title' : ''}`}>
+        <header
+          ref={chatHeaderRef}
+          className={`app-header header-card chat-header-pill ${isEditingTitle ? 'is-editing-title' : ''}`}
+        >
             <button
               type="button"
               className="menu-button"
