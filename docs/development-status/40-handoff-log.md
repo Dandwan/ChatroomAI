@@ -1,5 +1,34 @@
 # Handoff Log
 
+## 2026-05-05 11:14 +08:00
+
+### Scope
+
+- let active chat content reach the status-bar bottom area
+- keep the title pill fixed in its current position
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now shifts only `.app-shell.chat-page-shell.has-active-messages .message-list` upward by the shared `12px` equal-margin token
+- the fix does not touch the header/title selectors, so header text stays in place
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- no fresh device screenshot pass was run in this turn
+
+# Handoff Log
+
 ## 2026-05-05 11:06 +08:00
 
 ### Scope

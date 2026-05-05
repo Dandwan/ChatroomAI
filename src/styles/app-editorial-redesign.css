@@ -288,6 +288,7 @@
 }
 
 .app-shell.chat-page-shell.has-active-messages .message-list {
+  margin-top: calc(var(--chat-equal-margin) * -1);
   padding-top: 0;
   padding-bottom: 0;
 }

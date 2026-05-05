@@ -1,3 +1,15 @@
+## Latest Active Chat Content Status-Bar Reach State
+
+As of 2026-05-05:
+
+- the active chat now lifts the `message-list` itself by the shared `12px` equal-margin token, so conversation text can reach the status-bar bottom area without moving the title pill
+- the fix is scoped to `.app-shell.chat-page-shell.has-active-messages .message-list`, not the header/title selectors
+- validation for this pass:
+  - `npm run build`
+  - `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+- validation gap:
+  - no fresh device screenshot pass was run in this turn
+
 # Current State And Known Issues
 
 ## Latest Title Button Centering And Transition Match State
