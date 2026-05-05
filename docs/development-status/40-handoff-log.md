@@ -17,6 +17,10 @@
 ### Validation Snapshot
 
 - `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleDebug`
+- `adb -s c3fec216 install --no-streaming -r android/app/build/outputs/apk/debug/app-debug.apk`
+- `adb -s c3fec216 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
 - `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
 
 ### Commit
@@ -27,7 +31,64 @@
 
 - no fresh device screenshot pass was run in this turn
 
-# Handoff Log
+## 2026-05-05 11:12 +08:00
+
+### Scope
+
+- fix the active chat drag range so short threads still show top reserve space
+- keep long-thread bottom reserve behavior working without adding a short-thread special case
+
+### Current High-Signal State
+
+- `src/App.tsx` now measures the real chat content stack instead of the full `message-list` box
+- the top reserve is always applied for active threads
+- the bottom reserve is only applied when the actual content plus the top reserve would be obscured by the composer/footer area
+- `src/styles/app-editorial-redesign.css` now keeps the spacer logic in a separate content stack so the invisible reserves stay exact
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- no fresh device install or screenshot pass was run in this turn
+
+## 2026-05-05 11:08 +08:00
+
+### Scope
+
+- soften the chat title pill so it matches the opacity and blur of the stats chips below it
+- keep the same header geometry and animation behavior
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now uses the lighter glass recipe for the title pill:
+  - lower fill opacity
+  - lower blur radius
+  - slightly softer border/shadow
+- the header shell itself still stays transparent; only the pill surface changed
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- no fresh screenshot pass was run in this turn
 
 ## 2026-05-05 11:06 +08:00
 
@@ -57,7 +118,125 @@
 
 - no fresh browser/device screenshot pass was run in this turn
 
-# Handoff Log
+## 2026-05-05 11:06 +08:00
+
+### Scope
+
+- soften the chat title pill so it matches the opacity and blur of the stats chips below it
+- keep the same header geometry and animation behavior
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now uses the lighter glass recipe for the title pill:
+  - lower fill opacity
+  - lower blur radius
+  - slightly softer border/shadow
+- the header shell itself still stays transparent; only the pill surface changed
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- not run yet
+
+### Commit
+
+- pending
+
+### Open Items
+
+- no fresh screenshot pass was run in this turn
+
+## 2026-05-05 10:56 +08:00
+
+### Scope
+
+- make the chat title pill read as a real glass surface instead of a flat dark bar
+- keep the same pill element and outer transparent header shell
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now raises the pill fill slightly, strengthens the blur, and adds `will-change: transform, backdrop-filter` plus `translateZ(0)` so Android/WebView composites the pill as its own blurred layer
+- the header shell itself stays transparent; only the pill surface is colored
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleDebug`
+- `adb -s c3fec216 install --no-streaming -r android/app/build/outputs/apk/debug/app-debug.apk`
+- `adb -s c3fec216 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
+- `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- not created
+- safe isolation is not possible in this worktree because `src/styles/app-editorial-redesign.css` and the development-status files already contain mixed staged/unstaged changes from earlier work
+
+### Open Items
+
+- no fresh screenshot pass was run in this turn
+
+## 2026-05-05 04:49 +08:00
+
+### Scope
+
+- raise the active chat title block so it can render into the status-bar area
+- keep the rest of the page layout unchanged
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now shifts `.app-shell.chat-page-shell .header-card .title-display` and `.title-editor` upward by one `--safe-top-inset`
+- only the title/rename region moves; the header pill, summary bar, message list, composer, and drawer positioning stay as they were
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- no fresh device screenshot pass was run in this turn
+
+## 2026-05-05 04:43 +08:00
+
+### Scope
+
+- remove the active-page transparent header override that was collapsing the title pill to a border-only outline
+- keep the pill surface shared between history and new-conversation states
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` no longer zeroes out `.app-header` background in the active-chat layout branch
+- the pill now keeps the same translucent background and `14px` blur in both historical and new-conversation states
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleDebug`
+- `adb -s c3fec216 install --no-streaming -r android/app/build/outputs/apk/debug/app-debug.apk`
+- `adb -s c3fec216 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
+- device screenshot check on `c3fec216` confirmed the historical conversation header pill is filled again
+- `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- none
 
 ## 2026-05-05 04:40 +08:00
 
@@ -76,6 +255,32 @@
 
 - `npm run build`
 - `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- none
+
+## 2026-05-05 04:25 +08:00
+
+### Scope
+
+- make the floating `回到底部` button follow the same 12px equal-margin layout as the rest of the chat chrome
+
+### Current High-Signal State
+
+- `src/App.tsx` now wraps the bottom composer controls in an inner panel so the floating button can live outside that padding layer
+- `src/App.css` now positions the floating button with the shared equal-margin token on both the right and bottom axes
+- `src/styles/app-editorial-redesign.css` now gives the inner composer panel the 12px horizontal and bottom padding that used to live on the outer footer shell
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- not run yet; the user will run the manual test pass
 
 ### Commit
 
@@ -105,7 +310,7 @@
 
 ### Commit
 
-- pending
+- `0836d8c8277eb609d03f7ffe5e2d7020d3de2a9e`
 
 ### Open Items
 
@@ -114,6 +319,120 @@
 ### Next Step
 
 - if needed, do a quick browser or device screenshot check on a long conversation title
+
+## 2026-05-05 04:07 +08:00
+
+### Scope
+
+- build the current debug APK from the active worktree
+- install that APK onto phone `c3fec216`
+- confirm the installed app can launch
+
+### Current High-Signal State
+
+- `android/.gradlew-unix` was used as the temporary Unix wrapper so the tracked CRLF `android/gradlew` file would not block the Linux build
+- the debug APK installed successfully with `adb install --no-streaming -r`
+- the launch command reached the already running top-most app instance and returned `Status: ok`
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh android/.gradlew-unix assembleDebug`
+- `adb -s c3fec216 install --no-streaming -r android/app/build/outputs/apk/debug/app-debug.apk`
+- `adb -s c3fec216 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- none
+
+## 2026-05-05 03:59 +08:00
+
+### Scope
+
+- keep horizontal dragging local to oversized images, tables, and similar markdown blocks in chat messages
+- stop the active chat conversation from panning sideways as a whole
+
+### Current High-Signal State
+
+- `src/App.tsx` now renders markdown images and tables through local scroll wrappers so only the oversized element can move horizontally
+- `src/App.css` and `src/styles/app-editorial-redesign.css` now block horizontal dragging on the message list itself and keep the chat layout width-constrained
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- none
+
+## 2026-05-05 03:56 +08:00
+
+### Scope
+
+- move the title pill to true 12px outer margins on the active chat header
+- preserve the existing inner title spacing and the rest of the chat chrome layout
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now uses `margin-inline: var(--chat-equal-margin)` on the chat header shell so the pill itself is inset from the screen edges instead of only padding its contents
+- the header pill still keeps its existing internal `18px` horizontal padding from the base card styling
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleRelease`
+- `adb -s c3fec216 install --no-streaming -r android/app/build/outputs/apk/release/app-release.apk`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- none
+
+## 2026-05-05 03:52 +08:00
+
+### Scope
+
+- limit the picture background to the empty new-conversation page only
+- restore the title bar pill fill and blur on active chat pages by overriding the higher-specificity transparent header rule
+
+### Current High-Signal State
+
+- `src/App.tsx` now only renders the cover-image background when the active conversation is the empty hydrated homepage state
+- non-empty chat states now render only the settings-style dark radial background
+- `src/styles/app-editorial-redesign.css` now applies the header pill background, border, blur, and shadow on the active-message selector too, so the pill no longer collapses to a border-only outline
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- `e86c88f` (`fix: hide title rename on empty chat`)
+
+### Open Items
+
+- none
 
 ## 2026-05-05 03:49 +08:00
 
@@ -131,7 +450,35 @@
 
 ### Validation Snapshot
 
-- pending
+- `npm run build`
+- `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- `0d895f2238a3b5328d55c5816206e3aaaa5d95a4`
+
+### Open Items
+
+- the lint failure predates this change
+
+## 2026-05-05 03:48 +08:00
+
+### Scope
+
+- make the title rename state use the current unedited title typography
+- remove the font snap at the start and end of the title edit transition by crossfading display and edit clones
+
+### Current High-Signal State
+
+- `src/App.tsx` now renders separate display and editor clones during title rename transitions, so the first frame matches the live title pill and the last frame matches the live edit state
+- `src/styles/app-editorial-redesign.css` now gives the chat-page title input the same 14px italic editorial serif treatment used by the unedited title text
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
 
 ### Commit
 
@@ -139,7 +486,61 @@
 
 ### Open Items
 
-- run build and lint after the edit
+- none
+
+## 2026-05-05 03:44 +08:00
+
+### Scope
+
+- tighten the active chat message drag range so the first and last messages stop at the top and bottom chrome edges
+- keep the visible layout and chrome styling unchanged
+
+### Current High-Signal State
+
+- `src/App.tsx` now measures the active-chat summary bar and composer footer, then feeds those heights into the message list padding
+- the visible chrome stays in the same place; only the scrollable range changed
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- none
+
+## 2026-05-05 03:40 +08:00
+
+### Scope
+
+- hide the title edit button on the empty new-conversation page
+- remove the button background and border in the chat header skin
+
+### Current High-Signal State
+
+- `src/App.tsx` now suppresses the title rename button when the active chat is the hydrated empty homepage state
+- `src/styles/app-editorial-redesign.css` now forces the title rename button to stay transparent with no border or shadow in the chat header
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- no new product risks; the remaining lint failure predates this change
 
 ## 2026-05-05 03:37 +08:00
 
@@ -168,32 +569,6 @@
 
 - the build failure appears unrelated to the typography change and comes from the existing union-search sync step
 - the lint failure predates this change
-## 2026-05-05 03:40 +08:00
-
-### Scope
-
-- hide the title edit button on the empty new-conversation page
-- remove the button background and border in the chat header skin
-
-### Current High-Signal State
-
-- `src/App.tsx` now suppresses the title rename button when the active chat is the hydrated empty homepage state
-- `src/styles/app-editorial-redesign.css` now forces the title rename button to stay transparent with no border or shadow in the chat header
-- proposal-and-confirmation gate status:
-  - already completed in this handoff through the user's explicit confirmation before implementation
-
-### Validation Snapshot
-
-- `npm run build`
-- `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
-
-### Commit
-
-- pending
-
-### Open Items
-
-- no new product risks; the remaining lint failure predates this change
 
 ## 2026-05-05 03:31 +08:00
 

@@ -3,14 +3,40 @@
 As of 2026-05-05:
 
 - the active chat now lifts the `message-list` itself by the shared `12px` equal-margin token, so conversation text can reach the status-bar bottom area without moving the title pill
-- the fix is scoped to `.app-shell.chat-page-shell.has-active-messages .message-list`, not the header/title selectors
+- the title row stays in place because the change is scoped to `.app-shell.chat-page-shell.has-active-messages .message-list`, not the header/title selectors
 - validation for this pass:
   - `npm run build`
   - `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
 - validation gap:
   - no fresh device screenshot pass was run in this turn
 
-# Current State And Known Issues
+## Latest Active Chat Scroll Range State
+
+As of 2026-05-05:
+
+- the active chat now always reserves the top chrome overlap for real message threads, even when the transcript is short enough not to scroll
+- the bottom reserve is only added when the actual content stack plus the top reserve would be hidden by the composer/footer area
+- the measurement now uses the real content stack instead of the full `message-list` box, so `min-height: 100%` no longer makes short conversations look scrollable
+- validation for this pass:
+  - `npm run build`
+  - `node scripts/cap-sync-android.mjs`
+  - `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleDebug`
+  - `adb -s c3fec216 install --no-streaming -r android/app/build/outputs/apk/debug/app-debug.apk`
+  - `adb -s c3fec216 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
+  - `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+## Latest Header Pill Stats Match State
+
+As of 2026-05-05:
+
+- the chat title pill now uses the same lighter glass opacity and blur as the stats chips underneath it
+- the pill keeps the same layered promotion with `will-change: transform, backdrop-filter` and `translateZ(0)` so the WebView still composites the blur as its own layer
+- the outer header shell stays transparent
+- validation for this pass:
+  - `npm run build`
+  - `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+- validation gap:
+  - no fresh screenshot pass was run in this turn
 
 ## Latest Title Button Centering And Transition Match State
 
@@ -22,7 +48,39 @@ As of 2026-05-05:
   - `npm run build`
   - `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
 
+# Latest Header Pill Glass Match State
+
+As of 2026-05-05:
+
+- the chat title pill now uses the same lighter glass opacity and blur as the stats chips underneath it
+- the pill is also promoted with `will-change: transform, backdrop-filter` and `translateZ(0)` so the WebView composites the blur as its own layer instead of reading like a flat fill
+- the intent is unchanged:
+  - only the pill itself is colored
+  - the outer header shell stays transparent
+  - the same shared pill style applies to both new-conversation and historical chat pages
+- validation for this pass:
+  - `npm run build`
+  - `node scripts/cap-sync-android.mjs`
+  - `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleDebug`
+  - `adb -s c3fec216 install --no-streaming -r android/app/build/outputs/apk/debug/app-debug.apk`
+  - `adb -s c3fec216 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
+  - `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+- validation gap:
+  - no fresh screenshot pass was run in this turn
+
 # Current State And Known Issues
+
+# Latest Chat Title Vertical Shift State
+
+As of 2026-05-05:
+
+- the active chat title block now sits one `--safe-top-inset` higher than the rest of the header chrome, so the conversation text can render into the status-bar area without moving the summary bar, composer, or drawer layout
+- the change is scoped to `.app-shell.chat-page-shell .header-card .title-display` and `.title-editor`, so only the title/rename region moves
+- validation for this pass:
+  - `npm run build`
+  - `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+- validation gap:
+  - no fresh device screenshot pass was run in this turn
 
 ## Latest Title Rename Button Transition State
 
@@ -33,6 +91,16 @@ As of 2026-05-05:
 - validation for this pass:
   - `npm run build`
   - `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+## Latest Scroll-To-Bottom Button Layout State
+
+As of 2026-05-05:
+
+- the floating `回到底部` button now sits in its own footer-level overlay lane instead of relying on the inner composer padding
+- the button uses the shared `12px` equal-margin token for both its right offset and its offset above the composer block
+- the composer controls keep their existing internal spacing inside the new inner panel wrapper
+- validation for this pass:
+  - not run yet; the user will run the manual device/browser checks
 
 ## Latest Header Title Overflow Fix State
 
@@ -47,6 +115,49 @@ As of 2026-05-05:
 - validation gap:
   - no fresh screenshot or device UI pass was run in this turn
 
+## Latest Debug Install State
+
+As of 2026-05-05:
+
+- the current debug APK was rebuilt from the active worktree and installed onto phone `c3fec216`
+- install validation succeeded with `adb install --no-streaming -r android/app/build/outputs/apk/debug/app-debug.apk`
+- a follow-up launch command was delivered to the already running top-most instance of `com.dandwan.chatroomai/.MainActivity`
+- validation for this pass:
+  - `JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh android/.gradlew-unix assembleDebug`
+  - `adb -s c3fec216 install --no-streaming -r android/app/build/outputs/apk/debug/app-debug.apk`
+  - `adb -s c3fec216 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
+
+## Latest Chat Horizontal Scroll State
+
+As of 2026-05-05:
+
+- chat markdown images now render inside local horizontal scroll wrappers instead of letting the message list pan sideways
+- chat markdown tables now render inside local horizontal scroll wrappers with the same behavior
+- the active chat message list itself now blocks horizontal dragging, so oversized content only scrolls within its own element
+- code blocks, KaTeX, and other existing local overflow surfaces keep their current behavior
+- validation for this pass:
+  - `npm run build`
+  - `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+## Latest Background And Header Pill State
+
+As of 2026-05-05:
+
+- the picture background is now limited to the empty new-conversation page only
+- active chat pages, loading history pages, and other non-empty chat states now use the settings-style dark radial background layer instead of the cover image
+- the title bar pill now uses one shared `header-card` surface in both history and new-conversation states
+- the active-page layout rule now only handles positioning and stacking; it no longer zeroes out the pill background or blur
+- root cause of the missing pill fill:
+  - the active-page transparent header rule was overriding the same pill element that should have stayed filled
+  - removing that override keeps the pill semitransparent and blurred in both states
+- validation for this pass:
+  - `npm run build`
+  - `npm run android:sync`
+  - `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+- device validation:
+  - debug APK rebuilt and installed on phone `c3fec216`
+  - screenshot check confirmed the historical conversation header pill is filled again instead of collapsing to a border-only outline
+
 ## Latest Chat Message Typography State
 
 As of 2026-05-05:
@@ -55,6 +166,17 @@ As of 2026-05-05:
 - the change is scoped to chat-page message cards, so settings, cover, and other markdown surfaces keep their existing sizing
 - validation for this pass:
   - `npm run build` failed in `npm run skill:sync:union-search` with `ENOTEMPTY` on `builtin-skills/union-search/scripts/lib/vendor/node_modules/htmlparser2`
+  - `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+## Latest Active Chat Scroll Range State
+
+As of 2026-05-05:
+
+- `src/App.tsx` now measures the active-chat summary bar and composer footer, then feeds those heights into the message list scroll padding
+- the topmost and bottommost conversation positions now stop at the bottom edge of the top chrome and the top edge of the bottom chrome
+- the visible chrome layout is unchanged; only the draggable scroll range moved
+- validation for this pass:
+  - `npm run build`
   - `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
 
 ## Latest Active-Page Overlay State
@@ -69,9 +191,10 @@ As of 2026-05-05:
 - the active chat page now renders the header, summary bar, and composer as true overlays instead of reserving flow space
 - the active-page outer rhythm now uses a shared 12px equal margin token:
   - the title pill now sits `12px` from the safe-top shell edge and `12px` from each side
+  - that inset is now applied as outer margin on the pill shell, not just inner padding on the pill contents
   - the bottom composer now uses the same `12px` spacing for control gaps, side gutters, and bottom gutter
   - the summary chips keep their existing internal spacing
-- the message list no longer adds top or bottom insets for those controls, so conversation text can continue directly underneath them
+- the message list now carries invisible top and bottom insets so dragging stops at the chrome edges while the overlays themselves stay fixed
 - the composer is explicitly anchored to the bottom edge again, while the visible control geometry remains unchanged:
   - header menu button
   - conversation title
@@ -83,6 +206,8 @@ As of 2026-05-05:
   - image picker
   - camera button
 - the active chat background now matches the settings page's dark radial treatment once a transcript exists, and the title bar pill now uses the same 14px glass blur treatment as the stats-style pills
+- the historical conversation header pill now uses the same fill and blur as the new-conversation header pill
+- title rename now crossfades between display and edit clones so the first and last animation frames match the live unedited and editing typography instead of snapping between two different font treatments
 - validation in this pass:
   - `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
   - `npm run build`
@@ -144,7 +269,7 @@ As of 2026-05-03:
   - the old `showChatBanner` daily-cover setting is removed from runtime settings and settings UI
 - the earlier Android-validated behavior still remains true:
   - there is no active-chat summary card
-  - `.app-header` and `.homepage-footer-dock` backgrounds are transparent
+  - the visible outer chrome around the pill stays transparent because it belongs to the page shell, not the pill surface itself
 - validation for this refinement was source-side only in this handoff:
   - `npm run lint`
   - `npm run build`
@@ -170,16 +295,14 @@ As of 2026-05-05:
 As of 2026-05-04:
 
 - the chat-page shell layers remain transparent:
-  - `.app-header`
   - `.chat-summary-bar`
   - `.composer.is-editorial-chat-shell`
   - `.homepage-footer-dock`
   - `.composer-panel`
   - `.composer-row`
   - `.composer-tools`
-- the title bar card itself is filled again:
-  - `.app-shell.chat-page-shell .header-card` now uses `var(--homepage-field-bg)`
-  - the title bar keeps its `14px` blur while the outer header shell stays transparent
+- the title bar pill itself is filled again:
+  - `.app-shell.chat-page-shell .header-card` now keeps the shared translucent pill surface and its `14px` blur in both new and historical conversations
 - the bottom dock shell stays transparent while the composer controls keep their own fills:
   - message input
   - send / stop button
