@@ -202,11 +202,6 @@
   font-weight: 400;
 }
 
-.app-shell.chat-page-shell .header-card .title-display,
-.app-shell.chat-page-shell .header-card .title-editor {
-  margin-top: calc(var(--safe-top-inset) * -1);
-}
-
 .app-shell.chat-page-shell .header-card .title-rename-button {
   width: 24px;
   height: 24px;

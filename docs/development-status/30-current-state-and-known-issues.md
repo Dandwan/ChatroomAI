@@ -1,16 +1,14 @@
 # Current State And Known Issues
 
-## Latest Chat Title Vertical Shift State
+## Latest Title Button Centering And Transition Match State
 
 As of 2026-05-05:
 
-- the active chat title block now sits one `--safe-top-inset` higher than the rest of the header chrome, so the conversation text can render into the status-bar area without moving the summary bar, composer, or drawer layout
-- the change is scoped to `.app-shell.chat-page-shell .header-card .title-display` and `.title-editor`, so only the title/rename region moves
+- the title pill's text and rename button are now vertically centered within the header card
+- the title rename transition buttons now use the same `tiny-button` class chain as the live editor controls, so letter spacing and color resolve through the same rule set instead of snapping to a separate overlay style
 - validation for this pass:
   - `npm run build`
   - `npm run lint` failed on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
-- validation gap:
-  - no fresh device screenshot pass was run in this turn
 
 # Current State And Known Issues
 

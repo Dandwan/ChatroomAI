@@ -1,16 +1,17 @@
 # Handoff Log
 
-## 2026-05-05 04:49 +08:00
+## 2026-05-05 11:06 +08:00
 
 ### Scope
 
-- raise the active chat title block so it can render into the status-bar area
-- keep the rest of the page layout unchanged
+- make the title rename transition buttons use the same typography and color chain as the live editor controls
+- restore vertical centering for the title text and rename button inside the header pill
 
 ### Current High-Signal State
 
-- `src/styles/app-editorial-redesign.css` now shifts `.app-shell.chat-page-shell .header-card .title-display` and `.title-editor` upward by one `--safe-top-inset`
-- only the title/rename region moves; the header pill, summary bar, message list, composer, and drawer positioning stay as they were
+- `src/App.tsx` now renders the transition-layer buttons with the same `tiny-button` classes used by the live title editor controls
+- `src/App.css` now routes those overlay buttons through the same title-editor button treatment, so letter spacing and base colors match the real edit state instead of a separate overlay-specific style
+- `src/styles/app-editorial-redesign.css` now removes the active chat title block's negative top offset, so the title text and rename button sit back on the header card's vertical centerline
 - proposal-and-confirmation gate status:
   - already completed in this handoff through the user's explicit confirmation before implementation
 
@@ -25,7 +26,7 @@
 
 ### Open Items
 
-- no fresh device screenshot pass was run in this turn
+- no fresh browser/device screenshot pass was run in this turn
 
 # Handoff Log
 

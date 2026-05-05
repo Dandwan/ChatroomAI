@@ -10045,10 +10045,10 @@ function App() {
               } as CSSProperties
             }
           >
-            <button type="button" className="title-transition-button title-save-button" tabIndex={-1}>
+            <button type="button" className="tiny-button title-save-button" tabIndex={-1}>
               保存
             </button>
-            <button type="button" className="title-transition-button title-cancel-button" tabIndex={-1}>
+            <button type="button" className="tiny-button title-cancel-button" tabIndex={-1}>
               取消
             </button>
           </div>
