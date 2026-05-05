@@ -1,5 +1,36 @@
 # Handoff Log
 
+## 2026-05-05 11:24 +08:00
+
+### Scope
+
+- increase the active chat top reserve after the visible message range was expanded under the title bar
+- keep the message list layout and styling unchanged
+
+### Current High-Signal State
+
+- `src/App.tsx` now measures the header card and summary bar together and uses the lower of their bottom edges as the top scroll stop line
+- the header ref is included in the resize observation set, so later title/header size changes continue to recompute the reserve
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleDebug`
+- `adb -s c3fec216 install --no-streaming -r android/app/build/outputs/apk/debug/app-debug.apk`
+- `adb -s c3fec216 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- no fresh screenshot pass was run in this turn
+
 ## 2026-05-05 11:21 +08:00
 
 ### Scope

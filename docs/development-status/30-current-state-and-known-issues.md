@@ -1,3 +1,13 @@
+## Latest Title Content Animation And Save Color State
+
+As of 2026-05-05:
+
+- the title transition now animates the title text and editor content itself with a small vertical shift, so entering edit mode no longer feels like a hard snap
+- the save button green is now brighter across both the live editor and the transition overlay
+- validation for this pass:
+  - `npm run build`
+  - `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
 ## Latest Shared Pill Surface State
 
 As of 2026-05-05:
@@ -7,6 +17,20 @@ As of 2026-05-05:
 - the pill surface itself no longer depends on page-state-specific style branches
 - validation for this pass:
   - `npm run build`
+  - `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+## Latest Active Chat Top Chrome Reserve State
+
+As of 2026-05-05:
+
+- the active chat top reserve now measures the header card and summary bar together, then uses whichever bottom edge sits lower as the scroll stop line
+- the header ref is observed alongside the summary bar, so later title/header size changes continue to recompute the reserve automatically
+- validation for this pass:
+  - `npm run build`
+  - `node scripts/cap-sync-android.mjs`
+  - `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleDebug`
+  - `adb -s c3fec216 install --no-streaming -r android/app/build/outputs/apk/debug/app-debug.apk`
+  - `adb -s c3fec216 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
   - `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
 
 ## Latest Active Chat Content Status-Bar Reach State
