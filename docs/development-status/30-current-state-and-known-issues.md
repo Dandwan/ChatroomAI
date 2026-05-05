@@ -1,3 +1,15 @@
+## Latest Chat Pill Source-Of-Truth State
+
+As of 2026-05-05:
+
+- active chat title pill styling is now explicitly sourced from the chat-page token block in `src/styles/app-editorial-redesign.css`
+- active chat stats pill styling is now explicitly sourced from the same chat-page token block and the `.chat-page-shell .chat-summary-bar span` rule in that file
+- the visible stats values were already coming from `chatSummarySnapshot` in `src/App.tsx`; the failure mode was editing the wrong style owner, not bad runtime numbers
+- `src/App.css` still contains generic `header-card` / `summary-bar span` rules, but that file is not the effective ownership point for the historical chat-page pill styling
+- validation for this pass:
+  - `npm run build`
+  - `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
 ## Latest Header Pill Only State
 
 As of 2026-05-05:

@@ -1,5 +1,35 @@
 # Handoff Log
 
+# 2026-05-05 17:29 +08:00
+
+### Scope
+
+- fix the active-chat title pill and stats pill source-of-truth so style edits land on the real chat-page selectors
+- avoid spreading the fix into unrelated in-flight `App.css` / `App.tsx` work
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now defines explicit chat-page tokens for the title pill content and summary pill surface values
+- the active chat title pill now reads from `.app-shell.chat-page-shell .chat-header-pill` token aliases instead of scattered hardcoded values
+- the active chat stats pill now reads from `.chat-page-shell .chat-summary-bar span` token aliases in the same file
+- the visible stats numbers in `src/App.tsx` were already sourced correctly; the real bug was that editing `src/App.css` did not touch the active chat page's effective styling path
+- `src/App.css` was intentionally left out of the fix because its generic pill rules are not the right ownership boundary and the file already has unrelated in-flight edits
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- if later tuning is needed, adjust the chat-page pill tokens in `src/styles/app-editorial-redesign.css` instead of the generic pill rules in `src/App.css`
+
 # 2026-05-05 11:59 +08:00
 
 ### Scope
