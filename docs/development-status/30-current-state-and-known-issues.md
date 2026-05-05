@@ -60,16 +60,16 @@ As of 2026-05-05:
 
 As of 2026-05-05:
 
-- the active chat now always reserves the top chrome overlap for real message threads, even when the transcript is short enough not to scroll
-- the bottom reserve is only added when the actual content stack plus the top reserve would be hidden by the composer/footer area
-- the measurement now uses the real content stack instead of the full `message-list` box, so `min-height: 100%` no longer makes short conversations look scrollable
+- the active chat top reserve is back on the scroll container edge, not the first message card or its inner markdown body
+- measuring inside the first card undercounted the reserve because the card chrome / padding got subtracted away with the content anchor
+- the bottom reserve is still only added when the actual content stack plus the top reserve would be hidden by the composer/footer area
 - validation for this pass:
   - `npm run build`
   - `node scripts/cap-sync-android.mjs`
   - `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleDebug`
-  - `adb -s c3fec216 install --no-streaming -r android/app/build/outputs/apk/debug/app-debug.apk`
-  - `adb -s c3fec216 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
   - `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+- validation gap:
+  - `adb` had no attached device when the latest install command ran, so the rebuilt APK could not be pushed back to `c3fec216`
 
 ## Latest Header Pill Stats Match State
 
