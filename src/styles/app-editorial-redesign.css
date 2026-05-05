@@ -11,9 +11,10 @@
   --chat-page-background:
     radial-gradient(circle at 50% -10%, rgba(186, 154, 124, 0.05), transparent 28%),
     #090b10;
-  --chat-header-pill-bg: rgba(10, 12, 18, 0.52);
-  --chat-header-pill-border: rgba(244, 239, 231, 0.16);
-  --chat-header-pill-blur: 14px;
+  --chat-header-pill-bg: rgba(10, 12, 18, 0.56);
+  --chat-header-pill-border: rgba(244, 247, 251, 0.12);
+  --chat-header-pill-shadow: 0 12px 28px rgba(3, 7, 18, 0.18);
+  --chat-header-pill-blur: 12px;
   --homepage-header-height: 52px;
   --homepage-composer-row-height: 46px;
   --homepage-composer-tool-height: 46px;
@@ -43,7 +44,7 @@
 }
 
 .app-shell.chat-page-shell .app-header {
-  padding-inline: var(--chat-header-inline);
+  margin-inline: var(--chat-equal-margin);
 }
 
 .app-shell.chat-page-shell.has-active-messages .app-shell-content {
@@ -133,6 +134,7 @@
   min-height: 0;
   padding-right: 0;
   overflow: auto;
+  overflow-x: hidden;
   background: transparent;
 }
 
@@ -149,8 +151,11 @@
   padding: 0 18px;
   background: var(--chat-header-pill-bg);
   border-color: var(--chat-header-pill-border);
-  backdrop-filter: blur(var(--chat-header-pill-blur));
-  -webkit-backdrop-filter: blur(var(--chat-header-pill-blur));
+  box-shadow: var(--chat-header-pill-shadow);
+  will-change: transform, backdrop-filter;
+  transform: translateZ(0);
+  backdrop-filter: blur(var(--chat-header-pill-blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--chat-header-pill-blur)) saturate(180%);
 }
 
 .app-shell.chat-page-shell .header-card .menu-button {
@@ -179,7 +184,8 @@
 }
 
 .app-shell.chat-page-shell .title-text,
-.app-shell.chat-page-shell .title-editor input {
+.app-shell.chat-page-shell .title-editor input,
+.app-shell.chat-page-shell .title-transition-input {
   font-family: var(--editorial-display-font);
 }
 
@@ -200,6 +206,23 @@
   font-family: var(--editorial-display-font);
   font-style: italic;
   font-weight: 400;
+  font-size: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+}
+
+.app-shell.chat-page-shell .header-card .title-display,
+.app-shell.chat-page-shell .header-card .title-editor {
+  margin-top: 0;
+}
+
+.app-shell.chat-page-shell .header-card .title-editor input,
+.app-shell.chat-page-shell .title-transition-input {
+  font-size: 14px;
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
 }
 
 .app-shell.chat-page-shell .header-card .title-rename-button {
@@ -270,7 +293,6 @@
   left: 0;
   right: 0;
   z-index: 4;
-  background: transparent;
 }
 
 .app-shell.chat-page-shell.has-active-messages .app-header {
@@ -295,16 +317,39 @@
 
 .chat-content-frame {
   --chat-content-gap: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--chat-content-gap);
   min-height: 100%;
+  min-width: 0;
   padding-inline: var(--chat-content-inline);
   padding-bottom: 0;
 }
 
 .chat-content-frame.is-homepage-empty {
   --chat-content-gap: 0;
+}
+
+.chat-content-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--chat-content-gap);
+  min-width: 0;
+}
+
+.chat-scroll-placeholder {
+  flex: 0 0 auto;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  pointer-events: none;
+  user-select: none;
+  visibility: hidden;
+}
+
+.chat-scroll-placeholder--top {
+  margin-bottom: calc(var(--chat-content-gap) * -1);
+}
+
+.chat-scroll-placeholder--bottom {
+  margin-top: calc(var(--chat-content-gap) * -1);
 }
 
 .homepage-send-transition-layer {
@@ -367,14 +412,14 @@
   }
 }
 
-.chat-page-shell .message-card .markdown-content {
-  font-size: 14px;
-  line-height: 1.58;
-}
-
 .message-card.assistant {
   gap: 8px;
   padding: 2px 2px 10px;
+}
+
+.chat-page-shell .message-card .markdown-content {
+  font-size: 14px;
+  line-height: 1.58;
 }
 
 .chat-page-shell.has-active-messages .message-card.user {
@@ -790,8 +835,7 @@
 
 .composer.is-editorial-chat-shell {
   margin-top: 0;
-  padding-inline: var(--chat-footer-inline);
-  padding-bottom: calc(var(--homepage-footer-safe-bottom) + var(--chat-equal-margin));
+  padding: 0;
 }
 
 .homepage-footer-dock {
@@ -804,6 +848,9 @@
 
 .composer.is-editorial-chat-shell .composer-panel {
   gap: var(--homepage-footer-gap);
+  width: 100%;
+  padding-inline: var(--chat-footer-inline);
+  padding-bottom: calc(var(--homepage-footer-safe-bottom) + var(--chat-equal-margin));
 }
 
 .composer.is-editorial-chat-shell .composer-row {
@@ -2278,7 +2325,7 @@
 
   .composer.is-editorial-chat-shell {
     margin-top: 0;
-    padding-inline: var(--chat-footer-inline);
+    padding: 0;
   }
 
   .settings-page {

@@ -18,7 +18,7 @@ import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 import { Geolocation } from '@capacitor/geolocation'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -2340,13 +2340,54 @@ const MarkdownMessage = memo(({ text }: { text: string }) => {
   const normalizedText = useMemo(() => normalizeLatexDelimiters(text), [text])
 
   return (
-    <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS}>
+    <ReactMarkdown
+      remarkPlugins={REMARK_PLUGINS}
+      rehypePlugins={REHYPE_PLUGINS}
+      components={MARKDOWN_COMPONENTS}
+    >
       {normalizedText}
     </ReactMarkdown>
   )
 })
 
 MarkdownMessage.displayName = 'MarkdownMessage'
+
+const ChatScrollPlaceholder = memo(
+  ({ heightPx, position }: { heightPx: number; position: 'top' | 'bottom' }) => {
+    if (heightPx <= 0) {
+      return null
+    }
+
+    return (
+      <div
+        aria-hidden="true"
+        className={`chat-scroll-placeholder chat-scroll-placeholder--${position}`}
+        style={{ height: `${heightPx}px` }}
+      />
+    )
+  },
+)
+
+ChatScrollPlaceholder.displayName = 'ChatScrollPlaceholder'
+
+const MARKDOWN_COMPONENTS: Components = {
+  img: ({ node, ...props }) => {
+    void node
+    return (
+      <span className="markdown-media-scroll">
+        <img {...props} />
+      </span>
+    )
+  },
+  table: ({ node, ...props }) => {
+    void node
+    return (
+      <div className="markdown-table-scroll">
+        <table {...props} />
+      </div>
+    )
+  },
+}
 
 function App() {
   const initialSettingsRef = useRef<AppSettings | null>(null)
@@ -2444,6 +2485,10 @@ function App() {
     bottomOffset: 0,
     viewportHeight: 0,
   })
+  const [activeChatScrollInsets, setActiveChatScrollInsets] = useState({
+    top: 0,
+    bottom: 0,
+  })
   const [skillRecords, setSkillRecords] = useState<SkillRecord[]>([])
   const [runtimeRecords, setRuntimeRecords] = useState<RuntimeRecord[]>([])
   const [isLoadingExtensions, setIsLoadingExtensions] = useState(true)
@@ -2495,11 +2540,12 @@ function App() {
   const titleInputRef = useRef<HTMLInputElement | null>(null)
   const titleActionsRef = useRef<HTMLDivElement | null>(null)
   const messageListRef = useRef<HTMLElement | null>(null)
+  const chatContentStackRef = useRef<HTMLDivElement | null>(null)
   const homepageShowcaseRef = useRef<HTMLElement | null>(null)
   const chatSummaryBarRef = useRef<HTMLElement | null>(null)
+  const composerFooterRef = useRef<HTMLElement | null>(null)
   const settingsPageRef = useRef<HTMLElement | null>(null)
   const conversationListRef = useRef<HTMLDivElement | null>(null)
-  const messageEndRef = useRef<HTMLDivElement | null>(null)
   const modelMenuRef = useRef<HTMLDivElement | null>(null)
   const storageWarningShownRef = useRef(false)
   const conversationPersistTaskIdRef = useRef(0)
@@ -2710,10 +2756,11 @@ function App() {
     activeMessages.length === 0
   const displayConversationTitle = activeConversation?.title ?? '新对话'
   const shouldShowTitleRenameButton = activeConversation !== null && !isHomepageEmptyState
-  const shouldShowHomepageBackground = resolvedDailyCover !== null
+  const shouldShowHomepageBackground = isHomepageEmptyState && resolvedDailyCover !== null
   const homepageBackgroundStyle = shouldShowHomepageBackground && resolvedDailyCover
     ? ({ '--homepage-cover-image': `url("${resolvedDailyCover.imageUrl}")` } as CSSProperties)
     : undefined
+  const shouldShowChatBackground = !isHomepageEmptyState
   const appShellStyle = {
     '--homepage-send-transition-duration': `${HOMEPAGE_SEND_TRANSITION_DURATION_MS}ms`,
     '--homepage-send-transition-easing': 'cubic-bezier(0.22, 1, 0.36, 1)',
@@ -7402,7 +7449,15 @@ function App() {
     }
 
     scrollMessageListToBottom()
-  }, [activeConversationId, activeMessages, isAutoFollowEnabled, isSending, scrollMessageListToBottom])
+  }, [
+    activeChatScrollInsets.bottom,
+    activeChatScrollInsets.top,
+    activeConversationId,
+    activeMessages,
+    isAutoFollowEnabled,
+    isSending,
+    scrollMessageListToBottom,
+  ])
 
   useLayoutEffect(() => {
     if (messageListProgrammaticScrollRef.current) {
@@ -7411,6 +7466,84 @@ function App() {
 
     syncMessageListScrollMetrics()
   }, [activeConversationId, activeMessages, isSending, syncMessageListScrollMetrics])
+
+  useLayoutEffect(() => {
+    if (!hasActiveMessages) {
+      setActiveChatScrollInsets((previous) =>
+        previous.top === 0 && previous.bottom === 0 ? previous : { top: 0, bottom: 0 },
+      )
+      return
+    }
+
+    const syncActiveChatScrollInsets = (): void => {
+      const messageList = messageListRef.current
+      const chatContentStack = chatContentStackRef.current
+      const summaryBar = chatSummaryBarRef.current
+      const footer = composerFooterRef.current
+      if (!messageList || !chatContentStack || !summaryBar || !footer) {
+        return
+      }
+
+      const messageListRect = messageList.getBoundingClientRect()
+      const summaryRect = summaryBar.getBoundingClientRect()
+      const footerRect = footer.getBoundingClientRect()
+      const topInset = Math.max(0, Math.round(summaryRect.bottom - messageListRect.top))
+      const bottomInset = Math.max(0, Math.round(messageListRect.bottom - footerRect.top))
+      const visibleContentHeight = Math.max(0, Math.round(messageList.clientHeight - bottomInset))
+      const contentHeightWithoutInsets = Math.max(
+        0,
+        Math.round(chatContentStack.scrollHeight - activeChatScrollInsets.top - activeChatScrollInsets.bottom),
+      )
+      const shouldReserveBottomInset = contentHeightWithoutInsets + topInset > visibleContentHeight + 1
+      const nextTop = topInset
+      const nextBottom = shouldReserveBottomInset ? bottomInset : 0
+
+      setActiveChatScrollInsets((previous) =>
+        previous.top === nextTop && previous.bottom === nextBottom
+          ? previous
+          : {
+              top: nextTop,
+              bottom: nextBottom,
+            },
+      )
+    }
+
+    syncActiveChatScrollInsets()
+
+    const resizeObserver =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(() => {
+            syncActiveChatScrollInsets()
+          })
+
+    if (resizeObserver) {
+      const observedElements = [
+        messageListRef.current,
+        chatContentStackRef.current,
+        chatSummaryBarRef.current,
+        composerFooterRef.current,
+      ].filter((element): element is HTMLElement => element !== null)
+      observedElements.forEach((element) => resizeObserver.observe(element))
+    } else {
+      window.addEventListener('resize', syncActiveChatScrollInsets)
+    }
+
+    return () => {
+      resizeObserver?.disconnect()
+      if (!resizeObserver) {
+        window.removeEventListener('resize', syncActiveChatScrollInsets)
+      }
+    }
+  }, [
+    activeChatScrollInsets.bottom,
+    activeChatScrollInsets.top,
+    activeConversationId,
+    activeMessages,
+    hasActiveMessages,
+    isSending,
+    pendingImages.length,
+  ])
 
   useEffect(() => {
     if (shouldShowScrollToBottomButton) {
@@ -7844,7 +7977,7 @@ function App() {
   )
 
   const renderComposerFooter = (): ReactNode => (
-    <footer className="composer is-editorial-chat-shell">
+    <footer ref={composerFooterRef} className="composer is-editorial-chat-shell">
       {scrollToBottomButtonMounted ? (
         <button
           type="button"
@@ -7874,88 +8007,90 @@ function App() {
         </button>
       ) : null}
 
-      {pendingImages.length > 0 ? (
-        <div className="pending-image-strip">
-          {pendingImages.map((image) => (
-            <div key={image.id} className="pending-image-item">
-              <button
-                type="button"
-                className="pending-image-preview"
-                onClick={() => openImageViewer(buildPendingImageViewerKey(image.id), image)}
-                aria-label={`查看图片 ${image.name}`}
-              >
-                <img src={image.dataUrl} alt={image.name} />
-              </button>
-              <button
-                type="button"
-                className="pending-image-remove-button"
-                onClick={() => removePendingImage(image.id)}
-                aria-label={`移除图片 ${image.name}`}
-              >
-                ×
-              </button>
-              <div className="pending-image-controls">
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={image.compressionRate}
-                  onChange={(event) =>
-                    updatePendingImageCompression(image.id, Number(event.target.value))
-                  }
-                  aria-label={`压缩率 ${image.name}`}
-                />
-                <span>{image.compressionRate}%</span>
+      <div className="composer-panel">
+        {pendingImages.length > 0 ? (
+          <div className="pending-image-strip">
+            {pendingImages.map((image) => (
+              <div key={image.id} className="pending-image-item">
+                <button
+                  type="button"
+                  className="pending-image-preview"
+                  onClick={() => openImageViewer(buildPendingImageViewerKey(image.id), image)}
+                  aria-label={`查看图片 ${image.name}`}
+                >
+                  <img src={image.dataUrl} alt={image.name} />
+                </button>
+                <button
+                  type="button"
+                  className="pending-image-remove-button"
+                  onClick={() => removePendingImage(image.id)}
+                  aria-label={`移除图片 ${image.name}`}
+                >
+                  ×
+                </button>
+                <div className="pending-image-controls">
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={image.compressionRate}
+                    onChange={(event) =>
+                      updatePendingImageCompression(image.id, Number(event.target.value))
+                    }
+                    aria-label={`压缩率 ${image.name}`}
+                  />
+                  <span>{image.compressionRate}%</span>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
+            ))}
+          </div>
+        ) : null}
 
-      <div className="composer-row">
-        <ChatInputBox
-          ref={composerInputRef}
-          className="chat-input-box composer-input"
-          value={draft}
-          onChange={(event) => {
-            if (!activeConversation) {
-              return
-            }
-            updateConversationDraft(activeConversation.id, event.target.value)
-          }}
-          placeholder={isComposerLocked ? '请先等待历史对话载入完成' : '输入消息'}
-          maxHeight={188}
-          disabled={isComposerLocked}
-        />
+        <div className="composer-row">
+          <ChatInputBox
+            ref={composerInputRef}
+            className="chat-input-box composer-input"
+            value={draft}
+            onChange={(event) => {
+              if (!activeConversation) {
+                return
+              }
+              updateConversationDraft(activeConversation.id, event.target.value)
+            }}
+            placeholder={isComposerLocked ? '请先等待历史对话载入完成' : '输入消息'}
+            maxHeight={188}
+            disabled={isComposerLocked}
+          />
 
-        {isSending ? (
-          canAppendWhileSending ? (
-            <button type="button" className="composer-send-button" onClick={handleAppend}>
-              追加
-            </button>
+          {isSending ? (
+            canAppendWhileSending ? (
+              <button type="button" className="composer-send-button" onClick={handleAppend}>
+                追加
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="composer-send-button danger-button"
+                onClick={stopGeneration}
+              >
+                停止
+              </button>
+            )
           ) : (
             <button
               type="button"
-              className="composer-send-button danger-button"
-              onClick={stopGeneration}
+              className="composer-send-button"
+              disabled={!canSend}
+              onClick={() => void handleSend()}
             >
-              停止
+              发送
             </button>
-          )
-        ) : (
-          <button
-            type="button"
-            className="composer-send-button"
-            disabled={!canSend}
-            onClick={() => void handleSend()}
-          >
-            发送
-          </button>
-        )}
-      </div>
+          )}
+        </div>
 
-      {renderComposerTools()}
+        {renderComposerTools()}
+      </div>
     </footer>
   )
 
@@ -9938,7 +10073,7 @@ function App() {
         <div className={`homepage-empty-background ${resolvedDailyCover ? 'has-cover' : 'is-fallback'}`} aria-hidden="true" />
       ) : null}
 
-      {hasActiveMessages ? <div className="chat-active-background" aria-hidden="true" /> : null}
+      {shouldShowChatBackground ? <div className="chat-active-background" aria-hidden="true" /> : null}
 
       {homepageSendTransition ? (
         <div
@@ -9980,7 +10115,7 @@ function App() {
       {titleTransition ? (
         <div className="title-transition-layer" aria-hidden="true">
           <div
-            className={`title-transition-title ${titleTransition.phase} ${
+            className={`title-transition-title title-transition-title--display ${
               titleTransition.playing ? 'is-playing' : ''
             }`}
             style={
@@ -9993,10 +10128,42 @@ function App() {
                 '--title-end-top': `${titleTransition.titleEndRect.top}px`,
                 '--title-end-width': `${titleTransition.titleEndRect.width}px`,
                 '--title-end-height': `${titleTransition.titleEndRect.height}px`,
+                '--title-start-opacity': titleTransition.phase === 'opening' ? 1 : 0,
+                '--title-end-opacity': titleTransition.phase === 'opening' ? 0 : 1,
               } as CSSProperties
             }
           >
-            {titleTransition.titleText}
+            <span className="title-text homepage-title-text conversation-title-shell">
+              动话 · <em>{titleTransition.titleText}</em>
+            </span>
+          </div>
+
+          <div
+            className={`title-transition-title title-transition-title--editor ${
+              titleTransition.playing ? 'is-playing' : ''
+            }`}
+            style={
+              {
+                '--title-start-left': `${titleTransition.titleStartRect.left}px`,
+                '--title-start-top': `${titleTransition.titleStartRect.top}px`,
+                '--title-start-width': `${titleTransition.titleStartRect.width}px`,
+                '--title-start-height': `${titleTransition.titleStartRect.height}px`,
+                '--title-end-left': `${titleTransition.titleEndRect.left}px`,
+                '--title-end-top': `${titleTransition.titleEndRect.top}px`,
+                '--title-end-width': `${titleTransition.titleEndRect.width}px`,
+                '--title-end-height': `${titleTransition.titleEndRect.height}px`,
+                '--title-start-opacity': titleTransition.phase === 'opening' ? 0 : 1,
+                '--title-end-opacity': titleTransition.phase === 'opening' ? 1 : 0,
+              } as CSSProperties
+            }
+          >
+            <input
+              className="title-transition-input"
+              value={titleTransition.titleText}
+              readOnly
+              tabIndex={-1}
+              aria-hidden="true"
+            />
           </div>
 
           <div
@@ -10168,40 +10335,48 @@ function App() {
             <div
               className={`chat-content-frame ${isHomepageEmptyState ? 'is-homepage-empty' : 'has-active-messages'}`}
             >
-              {isActiveConversationLoadError ? (
-                <section className="empty-state">
-                  <h2>历史对话加载失败</h2>
-                  <p className="empty-state-line">
-                    {activeConversation?.storageLoadError ?? chatStateLoadError ?? '未知错误'}
-                  </p>
-                  <button
-                    type="button"
-                    className="tiny-button"
-                    onClick={() => {
-                      if (!activeConversation) {
-                        return
-                      }
-                      hydrateConversationById(activeConversation.id)
-                    }}
-                  >
-                    重试加载
-                  </button>
-                </section>
-              ) : isActiveConversationLoading ? (
-                <section className="empty-state">
-                  <h2>{displayConversationTitle}</h2>
-                  <p className="empty-state-line">正在载入这段历史对话…</p>
-                </section>
-              ) : activeMessages.length === 0 ? (
-                <NewConversationShowcase
-                  rootRef={homepageShowcaseRef}
-                  cover={resolvedDailyCover}
-                  highlightStats={homepageHighlightStats}
-                  responseModeLabel={getResponseModeLabel(activeConversationResponseMode)}
-                />
-              ) : null}
+              <div
+                ref={chatContentStackRef}
+                className={`chat-content-stack ${isHomepageEmptyState ? 'is-homepage-empty' : 'has-active-messages'}`}
+              >
+                {hasActiveMessages ? (
+                  <ChatScrollPlaceholder heightPx={activeChatScrollInsets.top} position="top" />
+                ) : null}
 
-              {!isActiveConversationLoadError && !isActiveConversationLoading ? activeMessages.map((message) => {
+                {isActiveConversationLoadError ? (
+                  <section className="empty-state">
+                    <h2>历史对话加载失败</h2>
+                    <p className="empty-state-line">
+                      {activeConversation?.storageLoadError ?? chatStateLoadError ?? '未知错误'}
+                    </p>
+                    <button
+                      type="button"
+                      className="tiny-button"
+                      onClick={() => {
+                        if (!activeConversation) {
+                          return
+                        }
+                        hydrateConversationById(activeConversation.id)
+                      }}
+                    >
+                      重试加载
+                    </button>
+                  </section>
+                ) : isActiveConversationLoading ? (
+                  <section className="empty-state">
+                    <h2>{displayConversationTitle}</h2>
+                    <p className="empty-state-line">正在载入这段历史对话…</p>
+                  </section>
+                ) : activeMessages.length === 0 ? (
+                  <NewConversationShowcase
+                    rootRef={homepageShowcaseRef}
+                    cover={resolvedDailyCover}
+                    highlightStats={homepageHighlightStats}
+                    responseModeLabel={getResponseModeLabel(activeConversationResponseMode)}
+                  />
+                ) : null}
+
+                {!isActiveConversationLoadError && !isActiveConversationLoading ? activeMessages.map((message) => {
           const editing = editingMessageId === message.id
           const textValue = message.text.trim()
           const hasReasoning = Boolean(message.reasoning?.trim())
@@ -10432,7 +10607,10 @@ function App() {
           )
               }) : null}
 
-                <div ref={messageEndRef} />
+                {hasActiveMessages ? (
+                  <ChatScrollPlaceholder heightPx={activeChatScrollInsets.bottom} position="bottom" />
+                ) : null}
+              </div>
               </div>
             </main>
 
