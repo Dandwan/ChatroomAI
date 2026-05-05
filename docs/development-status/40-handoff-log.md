@@ -1,5 +1,37 @@
 # Handoff Log
 
+# 2026-05-06 11:00 +08:00
+
+### Scope
+
+Architecture improvement: Phase 1 + Phase 2A of the 5-phase improvement plan.
+
+### Changes
+
+- **Phase 1A (test infrastructure):** Added vitest, @testing-library/react, jsdom. Configured test block in vite.config.ts. Created 4 pure-function tests for `buildHistoryStatsFromSummaries` in `src/services/chat-storage/__tests__/repository.test.ts`.
+- **Phase 1B (type deduplication):** Removed ~80 duplicate type aliases, interfaces, and constants from App.tsx that already existed in `src/state/types.ts`. Rewired all references to the shared types. Removed ~200 lines from App.tsx.
+- **Phase 1C (lint):** Lint warnings dropped from 48 to 0. The previously-documented `react-hooks/set-state-in-effect` error at line 1099 no longer exists — the code at that line has been replaced.
+- **Phase 2A (settings primitives):** Extracted 3 presentational components: `SettingsPageIntro`, `SettingsSectionHeading`, `SettingsInfoPromptToggleCard`. App.tsx local render functions now delegate to these components.
+
+### Validation
+
+- `npx tsc -b` — zero errors
+- `npm run build` — passes
+- `npx eslint . --quiet` — zero warnings
+- `npx vitest run` — 4/4 tests pass
+
+### Next Steps
+
+Continue with Phases 2B-5 as outlined in the architecture improvement plan.
+Priority order:
+1. Phase 2B: Extract settings view components (most impactful, well-structured render functions)
+2. Phase 3: Extract overlay/transition components
+3. Phase 5A: Enable `strict: true` in tsconfig
+
+### Known Staleness
+
+The handoff log and `30-current-state-and-known-issues.md` contain ~20 references to a `react-hooks/set-state-in-effect` error at `src/App.tsx:1099` that no longer exists. These entries should be cleaned up or marked as resolved.
+
 # 2026-05-05 17:42 +08:00
 
 ### Scope
