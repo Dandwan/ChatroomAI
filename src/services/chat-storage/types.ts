@@ -1,15 +1,9 @@
-import type {
-  TranscriptConversation,
-  TranscriptContentPart,
-  TranscriptEvent,
-  TranscriptImageAttachment,
-  TranscriptTokenUsage,
-} from '../chat-transcript'
+import type { TranscriptConversation } from '../chat-transcript'
 
-export type ChatStorageTokenUsage = TranscriptTokenUsage
-export type ChatStorageImageAttachment = TranscriptImageAttachment
-export type ChatStorageContentPart = TranscriptContentPart
-export type ChatStorageTranscriptEvent = TranscriptEvent
+export type { TranscriptTokenUsage as ChatStorageTokenUsage } from '../chat-transcript'
+export type { TranscriptImageAttachment as ChatStorageImageAttachment } from '../chat-transcript'
+export type { TranscriptContentPart as ChatStorageContentPart } from '../chat-transcript'
+export type { TranscriptEvent as ChatStorageTranscriptEvent } from '../chat-transcript'
 
 export interface ChatStorageConversation {
   id: string

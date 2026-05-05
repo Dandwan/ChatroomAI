@@ -87,7 +87,6 @@ import {
   DEFAULT_READ_SYSTEM_PROMPT,
   DEFAULT_RUN_SYSTEM_PROMPT,
   DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT,
-  LEGACY_DEFAULT_TAG_SYSTEM_PROMPT,
   migrateLegacyTagSystemPrompts,
 } from './services/skills/default-system-prompts'
 import {
@@ -123,6 +122,10 @@ import type {
   SkillRecord,
 } from './services/skills/types'
 import ChatInputBox from './components/ChatInputBox'
+import DeleteConfirmDialog from './components/DeleteConfirmDialog'
+import NoticeBanner from './components/NoticeBanner'
+import ChatSummaryBar from './components/ChatSummaryBar'
+import ChatHeader from './components/ChatHeader'
 import ImageViewer, { type ImageViewerItem } from './components/ImageViewer'
 import NewConversationShowcase from './components/NewConversationShowcase'
 import SettingsPopoverSelect from './components/SettingsPopoverSelect'
@@ -166,6 +169,11 @@ import {
   type ChatStoragePersistState,
 } from './services/chat-storage'
 import { compressImageDataUrl, createImageAttachments } from './utils/images'
+import type { DeleteDialogState } from './state/types'
+import { useUIStore } from './state/ui-store'
+import { useExtensionsStore } from './state/extensions-store'
+import { useChatStore } from './state/chat-store'
+import { useSettingsStore } from './state/settings-store'
 import './App.css'
 import './styles/app-editorial-redesign.css'
 
@@ -231,11 +239,6 @@ interface PendingImageAttachment extends ImageAttachment {
   originalDataUrl: string
   originalMimeType: string
   compressionRate: number
-}
-
-interface ImageViewerState {
-  items: ImageViewerItem[]
-  initialIndex: number
 }
 
 type TokenUsage = TranscriptTokenUsage
@@ -425,15 +428,6 @@ interface ChatSummarySnapshot {
   estimatedCount: number
 }
 
-interface HomepageSendTransitionState {
-  cover: ResolvedDailyCover | null
-  showcaseRect: RectSnapshot
-  summaryRect?: RectSnapshot
-  highlightStats: HomepageHighlightStat[]
-  responseModeLabel: string
-  summary: ChatSummarySnapshot
-}
-
 type TitleTransitionPhase = 'opening' | 'closing'
 
 interface PendingTitleTransition {
@@ -550,7 +544,6 @@ const TITLE_EDIT_TRANSITION_TRAVEL_MIN_PX = 12
 const TITLE_EDIT_TRANSITION_TRAVEL_MAX_PX = 26
 const MESSAGE_LIST_BOTTOM_THRESHOLD_PX = 28
 const MESSAGE_LIST_INTERACTION_IDLE_MS = 140
-const MESSAGE_LIST_SCROLL_BUTTON_ANIMATION_MS = 180
 const MESSAGE_LIST_SCROLL_BUTTON_DISTANCE_FACTOR = 1
 const MESSAGE_LIST_AUTO_SCROLL_MAX_MS = 96
 const MESSAGE_LIST_SMOOTH_SCROLL_MAX_SPEED_PX_PER_MS = 13.2
@@ -1079,55 +1072,7 @@ const normalizeThemeMode = (value: unknown): ThemeMode => {
   return DEFAULT_SETTINGS.themeMode
 }
 
-const ThemeToggle = memo(function ThemeToggle({
-  themeMode,
-  onToggle,
-}: {
-  themeMode: ThemeMode
-  onToggle: (nextMode: ThemeMode) => void
-}) {
-  const [resolved, setResolved] = useState<'light' | 'dark'>('dark')
-
-  useEffect(() => {
-    const computeResolved = (): 'light' | 'dark' => {
-      if (themeMode === 'system') {
-        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-      }
-      return themeMode as 'light' | 'dark'
-    }
-
-    setResolved(computeResolved())
-
-    if (themeMode !== 'system') return
-
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const handler = (): void => setResolved(computeResolved())
-    mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
-  }, [themeMode])
-
-  const isDark = resolved === 'dark'
-
-  return (
-    <button
-      type="button"
-      className={`theme-toggle-button ${isDark ? 'is-dark' : 'is-light'}`}
-      aria-label={isDark ? '切换到浅色模式' : '切换到深色模式'}
-      onClick={() => onToggle(isDark ? 'light' : 'dark')}
-    >
-      {isDark ? (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" strokeWidth="2" />
-          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-        </svg>
-      ) : (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      )}
-    </button>
-  )
-})
+// ThemeToggle extracted to src/components/ThemeToggle.tsx
 
 const normalizeProviderModels = (value: unknown): ProviderModel[] => {
   if (!Array.isArray(value)) {
@@ -1929,51 +1874,6 @@ const normalizeLatexDelimiters = (text: string): string =>
     .replace(/\\\[((?:.|\n)*?)\\\]/g, (_, captured: string) => `$$${captured}$$`)
     .replace(/\\\(((?:.|\n)*?)\\\)/g, (_, captured: string) => `$${captured}$`)
 
-const useAnimatedVisibility = (
-  durationMs: number,
-): {
-  mounted: boolean
-  visible: boolean
-  open: () => void
-  close: () => void
-} => {
-  const [mounted, setMounted] = useState(false)
-  const [visible, setVisible] = useState(false)
-  const closeTimerRef = useRef<number | null>(null)
-
-  const open = useCallback((): void => {
-    if (closeTimerRef.current !== null) {
-      window.clearTimeout(closeTimerRef.current)
-      closeTimerRef.current = null
-    }
-    setMounted(true)
-    window.requestAnimationFrame(() => setVisible(true))
-  }, [])
-
-  const close = useCallback((): void => {
-    if (closeTimerRef.current !== null) {
-      window.clearTimeout(closeTimerRef.current)
-      closeTimerRef.current = null
-    }
-    setVisible(false)
-    closeTimerRef.current = window.setTimeout(() => {
-      setMounted(false)
-      closeTimerRef.current = null
-    }, durationMs)
-  }, [durationMs])
-
-  useEffect(
-    () => () => {
-      if (closeTimerRef.current !== null) {
-        window.clearTimeout(closeTimerRef.current)
-      }
-    },
-    [],
-  )
-
-  return { mounted, visible, open, close }
-}
-
 const normalizePermissionToggles = (value: unknown): PermissionToggles => {
   if (!isRecord(value)) {
     return DEFAULT_PERMISSION_TOGGLES
@@ -2213,7 +2113,7 @@ const loadSettings = (): AppSettings => {
     const legacyGlobalTagSystemPrompt =
       storedTagSystemPrompts.legacyGlobalTagSystemPrompt ??
       (typeof parsed.generalTagSystemPrompt === 'string' &&
-      parsed.generalTagSystemPrompt.trim() === LEGACY_DEFAULT_TAG_SYSTEM_PROMPT
+      parsed.generalTagSystemPrompt.trim() === DEFAULT_RUN_SYSTEM_PROMPT
         ? parsed.generalTagSystemPrompt
         : undefined)
     const nextDeprecatedTagPrompts = legacyGlobalTagSystemPrompt
@@ -2400,135 +2300,196 @@ function App() {
     initialStateRef.current = createInitialChatState(initialSettingsRef.current.defaultResponseMode)
   }
 
-  const [settings, setSettings] = useState<AppSettings>(initialSettingsRef.current)
-  const [numericSettingDrafts, setNumericSettingDrafts] = useState<NumericSettingDrafts>(() =>
-    createNumericSettingDrafts(initialSettingsRef.current as AppSettings),
-  )
-  const [settingsView, setSettingsView] = useState<SettingsView>('main')
-  const settingsRef = useRef<AppSettings>(initialSettingsRef.current as AppSettings)
-  const conversationsRef = useRef<Conversation[]>(initialStateRef.current.conversations)
-  const [conversations, setConversations] = useState<Conversation[]>(
-    initialStateRef.current.conversations,
-  )
-  const [activeConversationId, setActiveConversationId] = useState<string>(
-    initialStateRef.current.activeConversationId,
-  )
-  const [draftsByConversation, setDraftsByConversation] = useState<ConversationDrafts>(
-    initialStateRef.current.draftsByConversation,
-  )
-  const [historyStats, setHistoryStats] = useState<ChatStorageHistoryStats>(
-    initialStateRef.current.historyStats,
-  )
-  const [chatStateLoadError, setChatStateLoadError] = useState<string | null>(null)
-  const [chatStateLoaded, setChatStateLoaded] = useState(false)
-  const [pendingImages, setPendingImages] = useState<PendingImageAttachment[]>([])
+  // Initialize zustand stores once from lazy-loaded initial state.
+  const storeInitRef = useRef(false)
+  if (!storeInitRef.current) {
+    storeInitRef.current = true
+    const initialSettings = initialSettingsRef.current as AppSettings
+    const initialChatState = initialStateRef.current
+    useSettingsStore.setState({
+      settings: initialSettings,
+      numericSettingDrafts: createNumericSettingDrafts(initialSettings),
+      providerNumericSettingDrafts: createProviderNumericSettingDrafts(null),
+    })
+    useChatStore.setState({
+      conversations: initialChatState.conversations,
+      activeConversationId: initialChatState.activeConversationId,
+      draftsByConversation: initialChatState.draftsByConversation,
+      historyStats: initialChatState.historyStats,
+    })
+  }
+
+  // ── Settings store ──
+  const settings = useSettingsStore((s) => s.settings)
+  const setSettings = useSettingsStore((s) => s.setSettings)
+  const numericSettingDrafts = useSettingsStore((s) => s.numericSettingDrafts)
+  const setNumericSettingDrafts = useSettingsStore((s) => s.setNumericSettingDrafts)
+  const providerNumericSettingDrafts = useSettingsStore((s) => s.providerNumericSettingDrafts)
+  const setProviderNumericSettingDrafts = useSettingsStore((s) => s.setProviderNumericSettingDrafts)
+
+  // ── Chat store ──
+  const conversations = useChatStore((s) => s.conversations)
+  const setConversations = useChatStore((s) => s.setConversations)
+  const activeConversationId = useChatStore((s) => s.activeConversationId)
+  const setActiveConversationId = useChatStore((s) => s.setActiveConversationId)
+  const draftsByConversation = useChatStore((s) => s.draftsByConversation)
+  const setDraftsByConversation = useChatStore((s) => s.setDraftsByConversation)
+  const historyStats = useChatStore((s) => s.historyStats)
+  const setHistoryStats = useChatStore((s) => s.setHistoryStats)
+  const chatStateLoadError = useChatStore((s) => s.chatStateLoadError)
+  const setChatStateLoadError = useChatStore((s) => s.setChatStateLoadError)
+  const chatStateLoaded = useChatStore((s) => s.chatStateLoaded)
+  const setChatStateLoaded = useChatStore((s) => s.setChatStateLoaded)
+  const pendingImages = useChatStore((s) => s.pendingImages)
+  const setPendingImages = useChatStore((s) => s.setPendingImages)
   const pendingImageCompressionTaskIdRef = useRef<Record<string, number>>({})
-  const {
-    mounted: settingsMounted,
-    visible: settingsVisible,
-    open: openSettings,
-    close: closeSettings,
-  } = useAnimatedVisibility(240)
-  const {
-    mounted: drawerMounted,
-    visible: drawerVisible,
-    open: openDrawer,
-    close: closeDrawer,
-  } = useAnimatedVisibility(240)
-  const {
-    mounted: modelMenuMounted,
-    visible: modelMenuVisible,
-    open: openModelMenu,
-    close: closeModelMenu,
-  } = useAnimatedVisibility(180)
-  const {
-    mounted: imageViewerMounted,
-    visible: imageViewerVisible,
-    open: showImageViewerOverlay,
-    close: hideImageViewerOverlay,
-  } = useAnimatedVisibility(220)
-  const {
-    mounted: scrollToBottomButtonMounted,
-    visible: scrollToBottomButtonVisible,
-    open: showScrollToBottomButton,
-    close: hideScrollToBottomButton,
-  } = useAnimatedVisibility(MESSAGE_LIST_SCROLL_BUTTON_ANIMATION_MS)
-  const [providerDetailTargetId, setProviderDetailTargetId] = useState<string | null>(null)
-  const [manualModelDraft, setManualModelDraft] = useState('')
-  const [providerModelSearch, setProviderModelSearch] = useState('')
-  const [providerNumericSettingDrafts, setProviderNumericSettingDrafts] =
-    useState<ProviderNumericSettingDrafts>(() => createProviderNumericSettingDrafts(null))
-  const [modelHealth, setModelHealth] = useState<Record<string, ModelHealth>>({})
-  const [notice, setNotice] = useState<Notice | null>(null)
-  const [isSending, setIsSending] = useState(false)
-  const [activeRequestConversationId, setActiveRequestConversationId] = useState<string | null>(null)
-  const [isFetchingModelsByProviderId, setIsFetchingModelsByProviderId] = useState<Record<string, boolean>>({})
-  const [deleteModeEnabled, setDeleteModeEnabled] = useState(false)
-  const [deleteDialogConversationId, setDeleteDialogConversationId] = useState<string | null>(null)
-  const [deleteDialogProviderId, setDeleteDialogProviderId] = useState<string | null>(null)
-  const [deleteDialogSkillId, setDeleteDialogSkillId] = useState<string | null>(null)
-  const [deleteDialogRuntimeId, setDeleteDialogRuntimeId] = useState<string | null>(null)
-  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
-  const [editingText, setEditingText] = useState('')
-  const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null)
-  const [openReasoningByMessage, setOpenReasoningByMessage] = useState<Record<string, boolean>>({})
-  const [openSkillResultByStep, setOpenSkillResultByStep] = useState<Record<string, boolean>>({})
-  const [isEditingTitle, setIsEditingTitle] = useState(false)
-  const [titleDraft, setTitleDraft] = useState('')
-  const [titleTransition, setTitleTransition] = useState<TitleTransitionState | null>(null)
-  const [abortController, setAbortController] = useState<AbortController | null>(null)
-  const [collapsedConversationGroups, setCollapsedConversationGroups] = useState<Record<string, boolean>>({})
-  const [swipingConversationId, setSwipingConversationId] = useState<string | null>(null)
-  const [swipeOffsetX, setSwipeOffsetX] = useState(0)
-  const [isAutoFollowEnabled, setIsAutoFollowEnabled] = useState(true)
-  const [messageListScrollMetrics, setMessageListScrollMetrics] = useState<MessageListScrollMetrics>({
-    bottomOffset: 0,
-    viewportHeight: 0,
-  })
-  const [activeChatScrollInsets, setActiveChatScrollInsets] = useState({
-    top: 0,
-    bottom: 0,
-  })
-  const [skillRecords, setSkillRecords] = useState<SkillRecord[]>([])
-  const [runtimeRecords, setRuntimeRecords] = useState<RuntimeRecord[]>([])
-  const [isLoadingExtensions, setIsLoadingExtensions] = useState(true)
-  const [isInstallingSkillArchive, setIsInstallingSkillArchive] = useState(false)
-  const [isInstallingRuntimeArchive, setIsInstallingRuntimeArchive] = useState(false)
-  const [skillConfigTargetId, setSkillConfigTargetId] = useState<string | null>(null)
-  const [skillConfigDraft, setSkillConfigDraft] = useState('')
-  const [skillConfigValue, setSkillConfigValue] = useState<JsonObjectValue>({})
-  const [skillConfigRawError, setSkillConfigRawError] = useState<string | null>(null)
-  const [isLoadingSkillConfig, setIsLoadingSkillConfig] = useState(false)
-  const [isSavingSkillConfig, setIsSavingSkillConfig] = useState(false)
+
+  // ── UI store: animated visibility ──
+  const settingsMounted = useUIStore((s) => s.settingsMounted)
+  const settingsVisible = useUIStore((s) => s.settingsVisible)
+  const openSettings = useCallback((): void => {
+    useUIStore.getState().setSettingsVisibility(true, true)
+  }, [])
+  const closeSettings = useCallback((): void => {
+    useUIStore.getState().setSettingsVisibility(false, false)
+  }, [])
+  const drawerMounted = useUIStore((s) => s.drawerMounted)
+  const drawerVisible = useUIStore((s) => s.drawerVisible)
+  const openDrawer = useCallback((): void => {
+    useUIStore.getState().setDrawerVisibility(true, true)
+  }, [])
+  const closeDrawer = useCallback((): void => {
+    useUIStore.getState().setDrawerVisibility(false, false)
+  }, [])
+  const modelMenuMounted = useUIStore((s) => s.modelMenuMounted)
+  const modelMenuVisible = useUIStore((s) => s.modelMenuVisible)
+  const openModelMenu = useCallback((): void => {
+    useUIStore.getState().setModelMenuVisibility(true, true)
+  }, [])
+  const closeModelMenu = useCallback((): void => {
+    useUIStore.getState().setModelMenuVisibility(false, false)
+  }, [])
+  const imageViewerMounted = useUIStore((s) => s.imageViewerMounted)
+  const imageViewerVisible = useUIStore((s) => s.imageViewerVisible)
+  const showImageViewerOverlay = useCallback((): void => {
+    useUIStore.getState().setImageViewerVisibility(true, true)
+  }, [])
+  const hideImageViewerOverlay = useCallback((): void => {
+    useUIStore.getState().setImageViewerVisibility(false, false)
+  }, [])
+  const scrollToBottomButtonMounted = useUIStore((s) => s.scrollToBottomButtonMounted)
+  const scrollToBottomButtonVisible = useUIStore((s) => s.scrollToBottomButtonVisible)
+  const showScrollToBottomButton = useCallback((): void => {
+    useUIStore.getState().setScrollToBottomButtonVisibility(true, true)
+  }, [])
+  const hideScrollToBottomButton = useCallback((): void => {
+    useUIStore.getState().setScrollToBottomButtonVisibility(false, false)
+  }, [])
+
+  // ── UI store: settings navigation ──
+  const settingsView = useUIStore((s) => s.settingsView)
+  const providerDetailTargetId = useUIStore((s) => s.providerDetailTargetId)
+  const setProviderDetailTargetId = useUIStore((s) => s.setProviderDetailTargetId)
+  const manualModelDraft = useUIStore((s) => s.manualModelDraft)
+  const setManualModelDraft = useUIStore((s) => s.setManualModelDraft)
+  const providerModelSearch = useUIStore((s) => s.providerModelSearch)
+  const setProviderModelSearch = useUIStore((s) => s.setProviderModelSearch)
+  const isFetchingModelsByProviderId = useUIStore((s) => s.isFetchingModelsByProviderId)
+  const setIsFetchingModelsByProviderId = useUIStore((s) => s.setIsFetchingModelsByProviderId)
+
+  // ── UI store: prompt editors ──
+  const openPromptEditors = useUIStore((s) => s.openPromptEditors)
+  const openProviderPromptEditors = useUIStore((s) => s.openProviderPromptEditors)
+  const setOpenProviderPromptEditors = useUIStore((s) => s.setOpenProviderPromptEditors)
+
+  // ── UI store: delete / edit / notice / sending ──
+  const deleteModeEnabled = useUIStore((s) => s.deleteModeEnabled)
+  const setDeleteModeEnabled = useUIStore((s) => s.setDeleteModeEnabled)
+  const deleteDialog = useUIStore((s) => s.deleteDialog)
+  const deleteDialogConversationId = deleteDialog?.type === 'conversation' ? deleteDialog.targetId : null
+  const deleteDialogProviderId = deleteDialog?.type === 'provider' ? deleteDialog.targetId : null
+  const deleteDialogSkillId = deleteDialog?.type === 'skill' ? deleteDialog.targetId : null
+  const deleteDialogRuntimeId = deleteDialog?.type === 'runtime' ? deleteDialog.targetId : null
+  const editingMessageId = useUIStore((s) => s.editingMessageId)
+  const setEditingMessageId = useUIStore((s) => s.setEditingMessage)
+  const editingText = useUIStore((s) => s.editingText)
+  const setEditingText = useUIStore((s) => s.setEditingText)
+  const imageViewer = useUIStore((s) => s.imageViewer)
+  const openReasoningByMessage = useUIStore((s) => s.openReasoningByMessage)
+  const openSkillResultByStep = useUIStore((s) => s.openSkillResultByStep)
+  const isEditingTitle = useUIStore((s) => s.isEditingTitle)
+  const titleDraft = useUIStore((s) => s.titleDraft)
+  const titleTransition = useUIStore((s) => s.titleTransition)
+  const setTitleTransition = useUIStore((s) => s.setTitleTransition)
+  const setTitleDraft = useUIStore((s) => s.setTitleDraft)
+  const setIsEditingTitle = useUIStore((s) => s.setIsEditingTitle)
+  const setImageViewer = useUIStore((s) => s.setImageViewer)
+  const setHomepageSendTransition = useUIStore((s) => s.setHomepageSendTransition)
+  const notice = useUIStore((s) => s.notice)
+  const setNotice = useUIStore((s) => s.setNotice)
+  const isSending = useUIStore((s) => s.isSending)
+  const setIsSending = useUIStore((s) => s.setIsSending)
+  const activeRequestConversationId = useUIStore((s) => s.activeRequestConversationId)
+  const setActiveRequestConversationId = useUIStore((s) => s.setActiveRequestConversationId)
+
+  // ── UI store: drawer ──
+  const collapsedConversationGroups = useUIStore((s) => s.collapsedConversationGroups)
+  const setCollapsedConversationGroups = useUIStore((s) => s.setCollapsedConversationGroups)
+  const swipingConversationId = useUIStore((s) => s.swipingConversationId)
+  const setSwipingConversationId = useUIStore((s) => s.setSwipingConversation)
+  const swipeOffsetX = useUIStore((s) => s.swipeOffsetX)
+  const setSwipeOffsetX = useUIStore((s) => s.setSwipeOffsetX)
+
+  // ── UI store: scroll ──
+  const isAutoFollowEnabled = useUIStore((s) => s.isAutoFollowEnabled)
+  const setIsAutoFollowEnabled = useUIStore((s) => s.setIsAutoFollowEnabled)
+  const messageListScrollMetrics = useUIStore((s) => s.messageListScrollMetrics)
+  const setMessageListScrollMetrics = useUIStore((s) => s.setMessageListScrollMetrics)
+  const activeChatScrollInsets = useUIStore((s) => s.activeChatScrollInsets)
+  const setActiveChatScrollInsets = useUIStore((s) => s.setActiveChatScrollInsets)
+
+  // ── UI store: transitions ──
+  const homepageSendTransition = useUIStore((s) => s.homepageSendTransition)
+
+  // ── UI store: permissions ──
+  const requestingPermissionByKey = useUIStore((s) => s.requestingPermissionByKey)
+  const setRequestingPermissionByKey = useUIStore((s) => s.setRequestingPermissionByKey)
+
+  // ── Extensions store ──
+  const skillRecords = useExtensionsStore((s) => s.skillRecords)
+  const setSkillRecords = useExtensionsStore((s) => s.setSkillRecords)
+  const runtimeRecords = useExtensionsStore((s) => s.runtimeRecords)
+  const setRuntimeRecords = useExtensionsStore((s) => s.setRuntimeRecords)
+  const isLoadingExtensions = useExtensionsStore((s) => s.isLoadingExtensions)
+  const setIsLoadingExtensions = useExtensionsStore((s) => s.setIsLoadingExtensions)
+  const isInstallingSkillArchive = useExtensionsStore((s) => s.isInstallingSkillArchive)
+  const setIsInstallingSkillArchive = useExtensionsStore((s) => s.setIsInstallingSkillArchive)
+  const isInstallingRuntimeArchive = useExtensionsStore((s) => s.isInstallingRuntimeArchive)
+  const setIsInstallingRuntimeArchive = useExtensionsStore((s) => s.setIsInstallingRuntimeArchive)
+  const skillConfigTargetId = useExtensionsStore((s) => s.skillConfigTargetId)
+  const setSkillConfigTargetId = useExtensionsStore((s) => s.setSkillConfigTargetId)
+  const skillConfigDraft = useExtensionsStore((s) => s.skillConfigDraft)
+  const setSkillConfigDraft = useExtensionsStore((s) => s.setSkillConfigDraft)
+  const skillConfigValue = useExtensionsStore((s) => s.skillConfigValue)
+  const setSkillConfigValue = useExtensionsStore((s) => s.setSkillConfigValue)
+  const skillConfigRawError = useExtensionsStore((s) => s.skillConfigRawError)
+  const setSkillConfigRawError = useExtensionsStore((s) => s.setSkillConfigRawError)
+  const isLoadingSkillConfig = useExtensionsStore((s) => s.isLoadingSkillConfig)
+  const setIsLoadingSkillConfig = useExtensionsStore((s) => s.setIsLoadingSkillConfig)
+  const isSavingSkillConfig = useExtensionsStore((s) => s.isSavingSkillConfig)
+  const setIsSavingSkillConfig = useExtensionsStore((s) => s.setIsSavingSkillConfig)
+  const modelHealth = useExtensionsStore((s) => s.modelHealth)
+  const setModelHealth = useExtensionsStore((s) => s.setModelHealth)
+
   const [resolvedDailyCover, setResolvedDailyCover] = useState<ResolvedDailyCover | null>(() =>
     resolveBundledDailyCover(getLocalDateKey()),
   )
-  const [homepageSendTransition, setHomepageSendTransition] = useState<HomepageSendTransitionState | null>(null)
-  const [openPromptEditors, setOpenPromptEditors] = useState<Record<TagPromptEditorKey, boolean>>({
-    systemPrompt: false,
-    topLevelTagSystemPrompt: false,
-      generalTagSystemPrompt: false,
-      readSystemPrompt: false,
-      skillCallSystemPrompt: false,
-      editSystemPrompt: false,
-      deprecatedTagPrompts: false,
-    })
-  const [openProviderPromptEditors, setOpenProviderPromptEditors] = useState<Record<PromptEditorKey, boolean>>({
-    systemPrompt: false,
-    topLevelTagSystemPrompt: false,
-    generalTagSystemPrompt: false,
-    readSystemPrompt: false,
-    skillCallSystemPrompt: false,
-    editSystemPrompt: false,
-  })
-  const [requestingPermissionByKey, setRequestingPermissionByKey] = useState<
-    Record<AppPermissionKey, boolean>
-  >({
-    location: false,
-    camera: false,
-    microphone: false,
-    notifications: false,
-  })
+  const [abortController, setAbortController] = useState<AbortController | null>(null)
+
+  // Delete dialog helpers (unified store interface)
+  const openDeleteDialog = useCallback((dialog: DeleteDialogState): void => {
+    useUIStore.getState().openDeleteDialog(dialog)
+  }, [])
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const cameraInputRef = useRef<HTMLInputElement | null>(null)
@@ -2667,9 +2628,8 @@ function App() {
     ): void => {
       const next =
         typeof nextState === 'function'
-          ? (nextState as (previous: Conversation[]) => Conversation[])(conversationsRef.current)
+          ? (nextState as (previous: Conversation[]) => Conversation[])(useChatStore.getState().conversations)
           : nextState
-      conversationsRef.current = next
       setConversations(next)
     },
     [],
@@ -3049,17 +3009,11 @@ function App() {
   }, [applySkillConfigValue, pushNotice, skillConfigDraft])
 
   const togglePromptEditor = useCallback((key: TagPromptEditorKey): void => {
-    setOpenPromptEditors((previous) => ({
-      ...previous,
-      [key]: !previous[key],
-    }))
+    useUIStore.getState().togglePromptEditor(key)
   }, [])
 
   const toggleProviderPromptEditor = useCallback((key: PromptEditorKey): void => {
-    setOpenProviderPromptEditors((previous) => ({
-      ...previous,
-      [key]: !previous[key],
-    }))
+    useUIStore.getState().toggleProviderPromptEditor(key)
   }, [])
 
   const resetProviderDetailState = useCallback((): void => {
@@ -3078,7 +3032,7 @@ function App() {
   }, [])
 
   const openSettingsHome = useCallback((): void => {
-    setSettingsView('main')
+    navigateSettingsView('main')
     resetProviderDetailState()
     setSkillConfigTargetId(null)
     setSkillConfigDraft('')
@@ -3123,13 +3077,13 @@ function App() {
 
   const navigateSettingsView = useCallback((nextView: SettingsView): void => {
     rememberSettingsScrollPosition()
-    setSettingsView(nextView)
+    useUIStore.getState().navigateSettingsView(nextView)
   }, [rememberSettingsScrollPosition])
 
   const openProviderDetail = useCallback((providerId: string): void => {
     rememberSettingsScrollPosition()
     const targetProvider =
-      settingsRef.current.providers.find((provider) => provider.id === providerId) ?? null
+      useSettingsStore.getState().settings.providers.find((provider) => provider.id === providerId) ?? null
     startTransition(() => {
       setManualModelDraft('')
       setProviderModelSearch('')
@@ -3143,13 +3097,13 @@ function App() {
         editSystemPrompt: false,
       })
       setProviderDetailTargetId(providerId)
-      setSettingsView('provider-detail')
+      navigateSettingsView('provider-detail')
     })
   }, [rememberSettingsScrollPosition])
 
   const closeSettingsPanel = useCallback((): void => {
     rememberSettingsScrollPosition()
-    setSettingsView('main')
+    navigateSettingsView('main')
     resetProviderDetailState()
     setSkillConfigTargetId(null)
     setSkillConfigDraft('')
@@ -3161,7 +3115,7 @@ function App() {
   const handleSettingsBack = useCallback((): void => {
     if (settingsView === 'skill-config') {
       rememberSettingsScrollPosition()
-      setSettingsView('skills')
+      navigateSettingsView('skills')
       setSkillConfigTargetId(null)
       setSkillConfigDraft('')
       setSkillConfigValue({})
@@ -3171,17 +3125,17 @@ function App() {
     if (settingsView === 'provider-detail') {
       rememberSettingsScrollPosition()
       resetProviderDetailState()
-      setSettingsView('providers')
+      navigateSettingsView('providers')
       return
     }
     if (settingsView === 'provider-tag-prompts') {
       rememberSettingsScrollPosition()
-      setSettingsView('provider-detail')
+      navigateSettingsView('provider-detail')
       return
     }
     if (settingsView !== 'main') {
       rememberSettingsScrollPosition()
-      setSettingsView('main')
+      navigateSettingsView('main')
       return
     }
     closeSettingsPanel()
@@ -3231,7 +3185,7 @@ function App() {
 
   const openSkillConfigEditor = useCallback(async (skillId: string): Promise<void> => {
     rememberSettingsScrollPosition()
-    setSettingsView('skill-config')
+    navigateSettingsView('skill-config')
     setSkillConfigTargetId(skillId)
     setIsLoadingSkillConfig(true)
     try {
@@ -3243,7 +3197,7 @@ function App() {
     } catch (error) {
       const message = error instanceof Error ? error.message : '读取 skill 配置失败'
       pushNotice(`读取配置失败：${message}`, 'error')
-      setSettingsView('skills')
+      navigateSettingsView('skills')
       setSkillConfigTargetId(null)
       setSkillConfigDraft('')
       setSkillConfigValue({})
@@ -3351,7 +3305,7 @@ function App() {
     try {
       await deleteSkill(skillId)
       if (skillConfigTargetId === skillId) {
-        setSettingsView('skills')
+        navigateSettingsView('skills')
         setSkillConfigTargetId(null)
         setSkillConfigDraft('')
         setSkillConfigValue({})
@@ -3366,11 +3320,8 @@ function App() {
   }, [pushNotice, refreshExtensions, skillConfigTargetId])
 
   const requestDeleteSkill = useCallback((skillId: string): void => {
-    setDeleteDialogConversationId(null)
-    setDeleteDialogProviderId(null)
-    setDeleteDialogRuntimeId(null)
-    setDeleteDialogSkillId(skillId)
-  }, [])
+    openDeleteDialog({ type: 'skill', targetId: skillId })
+  }, [openDeleteDialog])
 
   const handleSetRuntimeEnabled = useCallback(async (runtimeId: string, enabled: boolean): Promise<void> => {
     try {
@@ -3396,11 +3347,8 @@ function App() {
   }, [pushNotice, refreshExtensions])
 
   const requestDeleteRuntime = useCallback((runtimeId: string): void => {
-    setDeleteDialogConversationId(null)
-    setDeleteDialogProviderId(null)
-    setDeleteDialogSkillId(null)
-    setDeleteDialogRuntimeId(runtimeId)
-  }, [])
+    openDeleteDialog({ type: 'runtime', targetId: runtimeId })
+  }, [openDeleteDialog])
 
   const handleSetDefaultRuntime = useCallback(
     async (runtime: RuntimeRecord): Promise<void> => {
@@ -3450,11 +3398,7 @@ function App() {
   }, [pushNotice])
 
   const applySettingsUpdate = useCallback((updater: (previous: AppSettings) => AppSettings): void => {
-    setSettings((previous) => {
-      const next = ensureValidCurrentModelSelection(updater(previous))
-      settingsRef.current = next
-      return next
-    })
+    setSettings((previous) => ensureValidCurrentModelSelection(updater(previous)))
   }, [])
 
   const updateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]): void => {
@@ -3567,7 +3511,7 @@ function App() {
   const finalizeNumericSettingDraft = (key: NumericSettingKey): void => {
     setNumericSettingDrafts((previous) => ({
       ...previous,
-      [key]: normalizeNumericSettingDraft(key, settingsRef.current[key]),
+      [key]: normalizeNumericSettingDraft(key, useSettingsStore.getState().settings[key]),
     }))
   }
 
@@ -3602,7 +3546,7 @@ function App() {
 
   const addProvider = useCallback((): void => {
     rememberSettingsScrollPosition()
-    const provider = createProviderConfig(createProviderNameCandidate(settingsRef.current.providers))
+    const provider = createProviderConfig(createProviderNameCandidate(useSettingsStore.getState().settings.providers))
     setManualModelDraft('')
     setProviderModelSearch('')
     setProviderNumericSettingDrafts(createProviderNumericSettingDrafts(provider))
@@ -3615,7 +3559,7 @@ function App() {
       editSystemPrompt: false,
     })
     setProviderDetailTargetId(provider.id)
-    setSettingsView('provider-detail')
+    navigateSettingsView('provider-detail')
     applySettingsUpdate((previous) => ({
       ...previous,
       providers: [...previous.providers, provider],
@@ -3624,7 +3568,7 @@ function App() {
 
   const deleteProvider = useCallback(
     (providerId: string): void => {
-      const targetProvider = settingsRef.current.providers.find((provider) => provider.id === providerId)
+      const targetProvider = useSettingsStore.getState().settings.providers.find((provider) => provider.id === providerId)
       const providerLabel = targetProvider?.name.trim() || '未命名服务商'
 
       applySettingsUpdate((previous) => ({
@@ -3644,7 +3588,7 @@ function App() {
 
       if (providerDetailTargetId === providerId) {
         resetProviderDetailState()
-        setSettingsView('providers')
+        navigateSettingsView('providers')
       }
 
       pushNotice(`已删除服务商：${providerLabel}`, 'success')
@@ -3653,11 +3597,8 @@ function App() {
   )
 
   const requestDeleteProvider = useCallback((providerId: string): void => {
-    setDeleteDialogConversationId(null)
-    setDeleteDialogProviderId(providerId)
-    setDeleteDialogSkillId(null)
-    setDeleteDialogRuntimeId(null)
-  }, [])
+    openDeleteDialog({ type: 'provider', targetId: providerId })
+  }, [openDeleteDialog])
 
   const updateProviderField = useCallback(
     (providerId: string, key: 'name' | 'apiBaseUrl' | 'apiKey', value: string): void => {
@@ -3693,7 +3634,7 @@ function App() {
 
   const updateProviderInfoPromptOverride = useCallback(
     (providerId: string, key: ProviderBooleanSettingKey, enabled: boolean): void => {
-      const globalValue = settingsRef.current[key]
+      const globalValue = useSettingsStore.getState().settings[key]
       updateProviderById(providerId, (provider) => {
         const nextValue = enabled === globalValue ? undefined : enabled
         if (provider[key] === nextValue) {
@@ -3761,7 +3702,7 @@ function App() {
     }
 
     const provider =
-      settingsRef.current.providers.find((item) => item.id === providerDetailTargetId) ?? null
+      useSettingsStore.getState().settings.providers.find((item) => item.id === providerDetailTargetId) ?? null
     const nextValue = provider?.[key]
     setProviderNumericSettingDrafts((previous) => ({
       ...previous,
@@ -3881,7 +3822,7 @@ function App() {
   const buildTurnHistoryTranscript = useCallback(
     (conversationId: string, turnId: string): TranscriptEvent[] | null => {
       const conversation =
-        conversationsRef.current.find((item) => item.id === conversationId) ?? null
+        useChatStore.getState().conversations.find((item) => item.id === conversationId) ?? null
       if (!conversation) {
         return null
       }
@@ -4266,7 +4207,7 @@ function App() {
       pushNotice('请先选择已启用模型。', 'error')
       if (enabledModelOptions.length === 0) {
         openSettings()
-        setSettingsView('providers')
+        navigateSettingsView('providers')
       } else {
         openModelMenu()
       }
@@ -5781,7 +5722,7 @@ function App() {
   }
 
   const fetchProviderModels = async (providerId: string): Promise<void> => {
-    const provider = settingsRef.current.providers.find((item) => item.id === providerId)
+    const provider = useSettingsStore.getState().settings.providers.find((item) => item.id === providerId)
     if (!provider) {
       return
     }
@@ -5851,7 +5792,7 @@ function App() {
   }
 
   const testProviderModel = async (providerId: string, modelId: string): Promise<void> => {
-    const provider = settingsRef.current.providers.find((item) => item.id === providerId)
+    const provider = useSettingsStore.getState().settings.providers.find((item) => item.id === providerId)
     if (!provider) {
       return
     }
@@ -6429,7 +6370,7 @@ function App() {
     closeDrawer()
     closeModelMenu()
     setDeleteModeEnabled(false)
-    setDeleteDialogConversationId(null)
+    closeDeleteDialog()
     pendingImageCompressionTaskIdRef.current = {}
     setPendingImages([])
     cancelEdit()
@@ -6471,7 +6412,10 @@ function App() {
       pushNotice(`删除对话工作区失败：${message}`, 'error')
     })
 
-    setDeleteDialogConversationId((previous) => (previous === conversationId ? null : previous))
+    const dlg = useUIStore.getState().deleteDialog
+    if (dlg?.type === 'conversation' && dlg.targetId === conversationId) {
+      closeDeleteDialog()
+    }
     setDraftsByConversation((previous) => {
       if (!Object.prototype.hasOwnProperty.call(previous, conversationId)) {
         return previous
@@ -6497,7 +6441,7 @@ function App() {
 
       const fallbackConversation =
         [...remaining].sort((left, right) => right.updatedAt - left.updatedAt)[0] ??
-        createConversation([], settingsRef.current.defaultResponseMode)
+        createConversation([], useSettingsStore.getState().settings.defaultResponseMode)
       nextActiveConversationId = fallbackConversation.id
       return remaining.length > 0 ? remaining : [fallbackConversation]
     })
@@ -6515,10 +6459,7 @@ function App() {
   }
 
   const closeDeleteDialog = useCallback((): void => {
-    setDeleteDialogConversationId(null)
-    setDeleteDialogProviderId(null)
-    setDeleteDialogSkillId(null)
-    setDeleteDialogRuntimeId(null)
+    useUIStore.getState().closeDeleteDialog()
   }, [])
 
   const confirmDeleteConversation = (): void => {
@@ -6570,10 +6511,7 @@ function App() {
       return
     }
 
-    setDeleteDialogProviderId(null)
-    setDeleteDialogSkillId(null)
-    setDeleteDialogRuntimeId(null)
-    setDeleteDialogConversationId(conversationId)
+    openDeleteDialog({ type: 'conversation', targetId: conversationId })
   }
 
   const handleConversationPointerDown = (
@@ -6707,10 +6645,7 @@ function App() {
   }
 
   const toggleConversationGroup = (groupId: string): void => {
-    setCollapsedConversationGroups((previous) => ({
-      ...previous,
-      [groupId]: !previous[groupId],
-    }))
+    useUIStore.getState().toggleConversationGroup(groupId)
   }
 
   const createNewConversation = (): void => {
@@ -6719,7 +6654,7 @@ function App() {
       isTranscriptConversationWorkspacePlaceholder(conversation, draftsByConversation[conversation.id] ?? ''),
     )
     const nextConversation =
-      existingPlaceholder ?? createConversation([], settingsRef.current.defaultResponseMode)
+      existingPlaceholder ?? createConversation([], useSettingsStore.getState().settings.defaultResponseMode)
 
     if (!existingPlaceholder) {
       setConversationsState((previous) => [nextConversation, ...previous])
@@ -6729,7 +6664,7 @@ function App() {
     closeDrawer()
     closeModelMenu()
     setDeleteModeEnabled(false)
-    setDeleteDialogConversationId(null)
+    closeDeleteDialog()
     pendingImageCompressionTaskIdRef.current = {}
     setPendingImages([])
     cancelEdit()
@@ -6737,17 +6672,11 @@ function App() {
   }
 
   const toggleReasoning = (messageId: string): void => {
-    setOpenReasoningByMessage((previous) => ({
-      ...previous,
-      [messageId]: !previous[messageId],
-    }))
+    useUIStore.getState().toggleReasoning(messageId)
   }
 
   const toggleSkillResult = (stepId: string): void => {
-    setOpenSkillResultByStep((previous) => ({
-      ...previous,
-      [stepId]: !previous[stepId],
-    }))
+    useUIStore.getState().toggleSkillResult(stepId)
   }
 
   const focusTitleInput = useCallback((): void => {
@@ -6828,10 +6757,6 @@ function App() {
   }
 
   useEffect(() => {
-    settingsRef.current = settings
-  }, [settings])
-
-  useEffect(() => {
     if (typeof document === 'undefined') {
       return
     }
@@ -6891,9 +6816,9 @@ function App() {
           return
         }
 
-        const existingConversationIds = new Set(conversationsRef.current.map((conversation) => conversation.id))
+        const existingConversationIds = new Set(useChatStore.getState().conversations.map((conversation) => conversation.id))
         const nextConversations = [
-          ...conversationsRef.current,
+          ...useChatStore.getState().conversations,
           ...loaded.conversations
             .filter((conversation) => !existingConversationIds.has(conversation.id))
             .map((conversation) => createSummaryConversation(conversation)),
@@ -6938,7 +6863,7 @@ function App() {
       }
 
       const targetConversation =
-        conversationsRef.current.find((conversation) => conversation.id === conversationId) ?? null
+        useChatStore.getState().conversations.find((conversation) => conversation.id === conversationId) ?? null
       if (
         !targetConversation ||
         (targetConversation.storageLoadState !== 'summary' &&
@@ -6965,7 +6890,7 @@ function App() {
           if (!loaded) {
             throw new Error('未找到该历史对话')
           }
-          if (!conversationsRef.current.some((conversation) => conversation.id === conversationId)) {
+          if (!useChatStore.getState().conversations.some((conversation) => conversation.id === conversationId)) {
             return
           }
 
@@ -7576,7 +7501,7 @@ function App() {
 
   useEffect(() => {
     if (conversations.length === 0) {
-      const fallback = createConversation([], settingsRef.current.defaultResponseMode)
+      const fallback = createConversation([], useSettingsStore.getState().settings.defaultResponseMode)
       setConversationsState([fallback])
       setActiveConversationId(fallback.id)
       return
@@ -7588,44 +7513,22 @@ function App() {
   }, [conversations, activeConversationId, setConversationsState])
 
   useEffect(() => {
-    if (!deleteDialogConversationId) {
+    if (!deleteDialog) {
       return
     }
 
-    if (!conversations.some((conversation) => conversation.id === deleteDialogConversationId)) {
-      setDeleteDialogConversationId(null)
-    }
-  }, [conversations, deleteDialogConversationId])
+    const { type, targetId } = deleteDialog
+    const exists =
+      type === 'conversation' ? conversations.some((c) => c.id === targetId)
+      : type === 'provider' ? settings.providers.some((p) => p.id === targetId)
+      : type === 'skill' ? skillRecords.some((s) => s.id === targetId)
+      : type === 'runtime' ? runtimeRecords.some((r) => r.id === targetId)
+      : true
 
-  useEffect(() => {
-    if (!deleteDialogProviderId) {
-      return
+    if (!exists) {
+      closeDeleteDialog()
     }
-
-    if (!settings.providers.some((provider) => provider.id === deleteDialogProviderId)) {
-      setDeleteDialogProviderId(null)
-    }
-  }, [deleteDialogProviderId, settings.providers])
-
-  useEffect(() => {
-    if (!deleteDialogSkillId) {
-      return
-    }
-
-    if (!skillRecords.some((skill) => skill.id === deleteDialogSkillId)) {
-      setDeleteDialogSkillId(null)
-    }
-  }, [deleteDialogSkillId, skillRecords])
-
-  useEffect(() => {
-    if (!deleteDialogRuntimeId) {
-      return
-    }
-
-    if (!runtimeRecords.some((runtime) => runtime.id === deleteDialogRuntimeId)) {
-      setDeleteDialogRuntimeId(null)
-    }
-  }, [deleteDialogRuntimeId, runtimeRecords])
+  }, [deleteDialog, conversations, settings.providers, skillRecords, runtimeRecords, closeDeleteDialog])
 
   useEffect(() => {
     pendingImageCompressionTaskIdRef.current = {}
@@ -7649,7 +7552,7 @@ function App() {
     setSwipingConversationId(null)
     setSwipeOffsetX(0)
     setDeleteModeEnabled(false)
-    setDeleteDialogConversationId(null)
+    closeDeleteDialog()
   }, [drawerMounted])
 
   useEffect(() => {
@@ -7833,7 +7736,7 @@ function App() {
                   onClick={() => {
                     closeModelMenu()
                     openSettings()
-                    setSettingsView('providers')
+                    navigateSettingsView('providers')
                   }}
                 >
                   去设置
@@ -10236,106 +10139,30 @@ function App() {
       ) : null}
 
       <div className="app-shell-content">
-        <header
-          ref={chatHeaderRef}
-          className={`app-header header-card chat-header-pill ${isEditingTitle ? 'is-editing-title' : ''}`}
-        >
-            <button
-              type="button"
-              className="menu-button"
-              aria-label="打开会话菜单"
-              onClick={openDrawer}
-            >
-              <span />
-              <span />
-              <span />
-            </button>
+        <ChatHeader
+          chatHeaderRef={chatHeaderRef}
+          titleTextRef={titleTextRef}
+          titleRenameButtonRef={titleRenameButtonRef}
+          titleInputRef={titleInputRef}
+          titleActionsRef={titleActionsRef}
+          isEditingTitle={isEditingTitle}
+          titleDraft={titleDraft}
+          titleTransition={titleTransition}
+          activeConversation={activeConversation}
+          displayConversationTitle={displayConversationTitle}
+          shouldShowTitleRenameButton={shouldShowTitleRenameButton}
+          themeMode={settings.themeMode}
+          openDrawer={openDrawer}
+          setTitleDraft={setTitleDraft}
+          saveRenameConversation={saveRenameConversation}
+          cancelRenameConversation={cancelRenameConversation}
+          beginRenameConversation={beginRenameConversation}
+          onThemeToggle={(nextMode) => updateSetting('themeMode', nextMode)}
+        />
 
-            <div className={`header-center ${isEditingTitle ? 'is-editing' : ''}`}>
-              {isEditingTitle && activeConversation ? (
-                <div className={`title-editor ${titleTransition ? 'is-hidden' : ''}`}>
-                  <input
-                    ref={titleInputRef}
-                    value={titleDraft}
-                    onChange={(event) => setTitleDraft(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault()
-                        saveRenameConversation()
-                      }
-                      if (event.key === 'Escape') {
-                        event.preventDefault()
-                        cancelRenameConversation()
-                      }
-                    }}
-                  />
-                  <div ref={titleActionsRef} className="title-actions">
-                    <button
-                      type="button"
-                      className="tiny-button title-save-button"
-                      onClick={saveRenameConversation}
-                    >
-                      保存
-                    </button>
-                    <button
-                      type="button"
-                      className="tiny-button title-cancel-button"
-                      onClick={cancelRenameConversation}
-                    >
-                      取消
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className={`title-display ${titleTransition ? 'is-hidden' : ''}`}>
-                  <span ref={titleTextRef} className="title-text homepage-title-text conversation-title-shell">
-                    动话 · <em>{displayConversationTitle}</em>
-                  </span>
-                  {shouldShowTitleRenameButton ? (
-                    <button
-                      ref={titleRenameButtonRef}
-                      type="button"
-                      className="icon-inline-button title-rename-button"
-                      aria-label="编辑对话名"
-                      onClick={beginRenameConversation}
-                    >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path
-                          d="M5.5 16.9V19h2.1l8.1-8.1-2.1-2.1-8.1 8.1Zm9-9 2.1 2.1 1.2-1.2a1.5 1.5 0 0 0 0-2.1l-1.2-1.2a1.5 1.5 0 0 0-2.1 0L13.3 6.7l1.2 1.2Z"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </button>
-                  ) : null}
-                </div>
-              )}
-            </div>
+        <ChatSummaryBar ref={chatSummaryBarRef} summary={chatSummarySnapshot} numberFormatter={numberFormatter} />
 
-            <ThemeToggle
-              themeMode={settings.themeMode}
-              onToggle={(nextMode) => updateSetting('themeMode', nextMode)}
-            />
-        </header>
-
-        <section ref={chatSummaryBarRef} className="summary-bar chat-summary-bar">
-          <span>轮次 {chatSummarySnapshot.rounds}</span>
-          <span>输入 {numberFormatter.format(chatSummarySnapshot.promptTokens)}</span>
-          <span>输出 {numberFormatter.format(chatSummarySnapshot.completionTokens)}</span>
-          <span>总计 {numberFormatter.format(chatSummarySnapshot.totalTokens)}</span>
-          {chatSummarySnapshot.estimatedCount > 0 ? (
-            <span className="summary-muted">含 {chatSummarySnapshot.estimatedCount} 条估算</span>
-          ) : null}
-        </section>
-
-        {notice ? (
-          <div className="chat-notice-layer">
-            <div className={`notice notice-${notice.type}`}>{notice.text}</div>
-          </div>
-        ) : null}
+        {notice ? <NoticeBanner notice={notice} /> : null}
 
         <>
           <main
@@ -10815,91 +10642,40 @@ function App() {
       ) : null}
 
       {deleteDialogConversation ? (
-        <div className="delete-dialog-overlay" onClick={closeDeleteDialog}>
-          <section className="delete-dialog frosted-surface" onClick={(event) => event.stopPropagation()}>
-            <h3>删除提醒</h3>
-            <p className="delete-dialog-text">确认删除「{deleteDialogConversation.title}」吗？</p>
-            {settings.deleteConfirmGraceSeconds > 0 ? (
-              <p className="delete-dialog-hint">
-                确认后，{settings.deleteConfirmGraceSeconds} 秒内再次点击垃圾桶将不再提醒。
-              </p>
-            ) : null}
-            <div className="delete-dialog-actions">
-              <button type="button" className="ghost-button" onClick={closeDeleteDialog}>
-                取消
-              </button>
-              <button type="button" className="danger-button" onClick={confirmDeleteConversation}>
-                删除
-              </button>
-            </div>
-          </section>
-        </div>
+        <DeleteConfirmDialog
+          entityName={deleteDialogConversation.title}
+          showGraceHint
+          graceSeconds={settings.deleteConfirmGraceSeconds}
+          onCancel={closeDeleteDialog}
+          onConfirm={confirmDeleteConversation}
+        />
       ) : null}
 
       {deleteDialogProvider ? (
-        <div className="delete-dialog-overlay" onClick={closeDeleteDialog}>
-          <section className="delete-dialog frosted-surface" onClick={(event) => event.stopPropagation()}>
-            <h3>删除提醒</h3>
-            <p className="delete-dialog-text">
-              确认删除「{deleteDialogProvider.name.trim() || '未命名服务商'}」吗？
-            </p>
-            <p className="delete-dialog-hint">
-              该服务商下的接口配置、模型列表和参数覆盖都会一并删除。
-            </p>
-            <div className="delete-dialog-actions">
-              <button type="button" className="ghost-button" onClick={closeDeleteDialog}>
-                取消
-              </button>
-              <button type="button" className="danger-button" onClick={confirmDeleteProvider}>
-                删除
-              </button>
-            </div>
-          </section>
-        </div>
+        <DeleteConfirmDialog
+          entityName={deleteDialogProvider.name.trim() || '未命名服务商'}
+          hint="该服务商下的接口配置、模型列表和参数覆盖都会一并删除。"
+          onCancel={closeDeleteDialog}
+          onConfirm={confirmDeleteProvider}
+        />
       ) : null}
 
       {deleteDialogSkill ? (
-        <div className="delete-dialog-overlay" onClick={closeDeleteDialog}>
-          <section className="delete-dialog frosted-surface" onClick={(event) => event.stopPropagation()}>
-            <h3>删除提醒</h3>
-            <p className="delete-dialog-text">
-              确认删除 skill「{deleteDialogSkill.frontmatter.name || deleteDialogSkill.id}」吗？
-            </p>
-            <p className="delete-dialog-hint">
-              该 skill 的配置文件与启用状态都会一起移除。若它覆盖了同名内置 skill，删除后将回退到内置版本。
-            </p>
-            <div className="delete-dialog-actions">
-              <button type="button" className="ghost-button" onClick={closeDeleteDialog}>
-                取消
-              </button>
-              <button type="button" className="danger-button" onClick={confirmDeleteSkill}>
-                删除
-              </button>
-            </div>
-          </section>
-        </div>
+        <DeleteConfirmDialog
+          entityName={deleteDialogSkill.frontmatter.name || deleteDialogSkill.id}
+          hint="该 skill 的配置文件与启用状态都会一起移除。若它覆盖了同名内置 skill，删除后将回退到内置版本。"
+          onCancel={closeDeleteDialog}
+          onConfirm={confirmDeleteSkill}
+        />
       ) : null}
 
       {deleteDialogRuntime ? (
-        <div className="delete-dialog-overlay" onClick={closeDeleteDialog}>
-          <section className="delete-dialog frosted-surface" onClick={(event) => event.stopPropagation()}>
-            <h3>删除提醒</h3>
-            <p className="delete-dialog-text">
-              确认删除运行时「{deleteDialogRuntime.displayName || deleteDialogRuntime.id}」吗？
-            </p>
-            <p className="delete-dialog-hint">
-              删除后，依赖该运行时的 skill 执行可能失败；如果它当前是默认运行时，也会失去默认指向。
-            </p>
-            <div className="delete-dialog-actions">
-              <button type="button" className="ghost-button" onClick={closeDeleteDialog}>
-                取消
-              </button>
-              <button type="button" className="danger-button" onClick={confirmDeleteRuntime}>
-                删除
-              </button>
-            </div>
-          </section>
-        </div>
+        <DeleteConfirmDialog
+          entityName={deleteDialogRuntime.displayName || deleteDialogRuntime.id}
+          hint="删除后，依赖该运行时的 skill 执行可能失败；如果它当前是默认运行时，也会失去默认指向。"
+          onCancel={closeDeleteDialog}
+          onConfirm={confirmDeleteRuntime}
+        />
       ) : null}
 
       {settingsMounted ? (

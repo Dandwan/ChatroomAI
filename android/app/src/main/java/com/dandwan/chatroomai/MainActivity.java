@@ -10,9 +10,6 @@ import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
-    private static final String CLEAR_DRAFTS_SCRIPT =
-        "try { localStorage.removeItem('chatroom.drafts.v1'); } catch (e) {}";
-
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(SkillRuntimePlugin.class);
@@ -50,11 +47,4 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    @Override
-    public void onDestroy() {
-        if (isFinishing() && !isChangingConfigurations() && bridge != null && bridge.getWebView() != null) {
-            bridge.getWebView().evaluateJavascript(CLEAR_DRAFTS_SCRIPT, null);
-        }
-        super.onDestroy();
-    }
 }

@@ -1,4 +1,3 @@
-import { clearConversationImageManifest } from '../../utils/conversation-image-storage'
 import {
   MAX_READ_LIST_ENTRIES,
   isTextFileLikely,
@@ -20,16 +19,6 @@ import {
   writeJsonFile,
 } from './filesystem'
 import { deletePath as deleteSkillHostPath, joinRelativePath as joinSkillRelativePath } from '../skills/storage'
-import {
-  LEGACY_ACTIVE_CONVERSATION_STORAGE_KEY,
-  LEGACY_CONVERSATIONS_STORAGE_KEY,
-  LEGACY_DRAFTS_STORAGE_KEY,
-  LEGACY_IMAGE_MANIFEST_STORAGE_KEY,
-  LEGACY_MESSAGES_STORAGE_KEY,
-  hasLegacyChatState,
-  loadLegacyChatState,
-  loadLegacyImageDataUrl,
-} from './legacy'
 import {
   inferConversationResponseModeFromTranscript,
   normalizeConversationResponseMode,
@@ -246,16 +235,6 @@ const sortWorkspaceEntries = (
     return left.path.localeCompare(right.path)
   })
 
-const removeLocalStorageItem = (key: string): void => {
-  if (typeof localStorage === 'undefined') {
-    return
-  }
-  try {
-    localStorage.removeItem(key)
-  } catch {
-    // Ignore best-effort cleanup failures.
-  }
-}
 
 const getDataUrlParts = (dataUrl: string): { mimeType: string; base64: string } | null => {
   const match = /^data:([^;,]+)?(?:;charset=[^;,]+)?;base64,(.+)$/i.exec(dataUrl.trim())
@@ -1259,108 +1238,9 @@ const cleanupDeletedConversations = async (keepConversationIds: Set<string>): Pr
   }
 }
 
-const migrateLegacyStorage = async (): Promise<void> => {
-  const legacyState = await loadLegacyChatState()
-  const persistedConversations = legacyState.conversations.filter((conversation) =>
-    isConversationPersistable(conversation, legacyState.draftsByConversation[conversation.id]),
-  )
-
-  await ensureDirectory(CHAT_STORAGE_DIRECTORIES.root)
-  await ensureDirectory(CHAT_STORAGE_DIRECTORIES.conversations)
-
-  for (const conversation of persistedConversations) {
-    const migratedTranscript = await Promise.all(
-      conversation.transcript.map(async (event) => {
-        if (event.kind !== 'user_message') {
-          return event
-        }
-        return {
-          ...event,
-          content: await Promise.all(
-            event.content.map(async (part) =>
-              part.type !== 'image'
-                ? part
-                : {
-                    type: 'image' as const,
-                    image: {
-                      ...part.image,
-                      dataUrl: await loadLegacyImageDataUrl(part.image),
-                    },
-                  },
-            ),
-          ),
-        }
-      }),
-    )
-    const migratedResponseMode = inferConversationResponseModeFromTranscript(migratedTranscript)
-    const migratedConversation: ChatStorageConversation = {
-      ...conversation,
-      preferences: migratedResponseMode
-        ? {
-            responseMode: migratedResponseMode,
-          }
-        : undefined,
-      transcript: migratedTranscript,
-    }
-    const serialized = await serializeConversation(
-      migratedConversation,
-      legacyState.draftsByConversation[conversation.id] ?? '',
-    )
-    const conversationDirectory = buildConversationDirectory(conversation.id)
-    await ensureDirectory(conversationDirectory)
-    await ensureDirectory(buildConversationFilesDirectory(conversation.id))
-    await writeJsonFile(buildConversationDocumentPath(conversation.id), serialized.document)
-  }
-
-  await writeIndexFile(
-    persistedConversations.map((conversation) =>
-      buildConversationSummary(conversation, legacyState.draftsByConversation[conversation.id] ?? ''),
-    ),
-  )
-  const activeConversationId =
-    persistedConversations.some((conversation) => conversation.id === legacyState.activeConversationId)
-      ? legacyState.activeConversationId
-      : undefined
-  await writeMetaFile(activeConversationId)
-
-  const migratedState = await loadConversationsFromNewStorage()
-  if (migratedState.conversations.length !== persistedConversations.length) {
-    throw new Error('Legacy migration verification failed')
-  }
-
-  removeLocalStorageItem(LEGACY_CONVERSATIONS_STORAGE_KEY)
-  removeLocalStorageItem(LEGACY_MESSAGES_STORAGE_KEY)
-  removeLocalStorageItem(LEGACY_DRAFTS_STORAGE_KEY)
-  removeLocalStorageItem(LEGACY_ACTIVE_CONVERSATION_STORAGE_KEY)
-  removeLocalStorageItem(LEGACY_IMAGE_MANIFEST_STORAGE_KEY)
-  clearConversationImageManifest()
-  await deletePath('conversation-images').catch(() => {
-    // Ignore best-effort cleanup failures.
-  })
-}
-
-const hasNewStorageArtifacts = async (): Promise<boolean> => {
-  if (await pathExists(META_PATH)) {
-    return true
-  }
-  if (await pathExists(INDEX_PATH)) {
-    return true
-  }
-  const conversationEntries = await listConversationIdsFromDirectories()
-  return conversationEntries.length > 0
-}
-
 const ensureInitialized = async (): Promise<void> => {
   await ensureDirectory(CHAT_STORAGE_DIRECTORIES.root)
   await ensureDirectory(CHAT_STORAGE_DIRECTORIES.conversations)
-
-  const hasNewStorage = await hasNewStorageArtifacts()
-  if (hasNewStorage) {
-    return
-  }
-  if (hasLegacyChatState()) {
-    await migrateLegacyStorage()
-  }
 }
 
 export const initializeChatStorage = async (): Promise<void> => {

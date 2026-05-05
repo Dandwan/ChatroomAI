@@ -1,3 +1,5 @@
+/* Override base .app-shell from App.css with editorial layout values.
+   This file loads after App.css via JS import so these take precedence. */
 .app-shell {
   width: min(100%, 1040px);
   gap: 14px;
@@ -420,17 +422,6 @@
   z-index: 1;
 }
 
-@keyframes slide-homepage-scene-out {
-  from {
-    transform: translate3d(0, 0, 0);
-    opacity: 1;
-  }
-
-  to {
-    transform: translate3d(0, calc(-100% - 44px), 0);
-    opacity: 1;
-  }
-}
 
 .message-card.assistant {
   gap: 8px;
@@ -1040,7 +1031,7 @@
   font-size: 28px;
   line-height: 0.98;
   letter-spacing: -0.02em;
-  color: #f4efe7;
+  color: var(--text-primary);
 }
 
 .drawer-conversation-list {
@@ -1109,7 +1100,7 @@
   font-size: 18px;
   line-height: 1.04;
   letter-spacing: -0.02em;
-  color: #f4efe7;
+  color: var(--text-primary);
 }
 
 .drawer-conversation-item.active .drawer-conversation-item-title {
@@ -1414,7 +1405,7 @@
   background:
     radial-gradient(circle at 50% -10%, rgba(186, 154, 124, 0.05), transparent 28%),
     #090b10;
-  color: #f4efe7;
+  color: var(--text-primary);
 }
 
 .settings-page {
@@ -1489,7 +1480,7 @@
   line-height: 0.98;
   letter-spacing: -0.03em;
   font-weight: 400;
-  color: #f4efe7;
+  color: var(--text-primary);
 }
 
 .settings-page-copy {
@@ -1545,7 +1536,7 @@
   line-height: 1.02;
   letter-spacing: -0.025em;
   font-weight: 400;
-  color: #f4efe7;
+  color: var(--text-primary);
 }
 
 .settings-section-copy {
@@ -1607,7 +1598,7 @@
   font-size: 19px;
   line-height: 1.04;
   letter-spacing: -0.02em;
-  color: #f4efe7;
+  color: var(--text-primary);
 }
 
 .settings-screen .settings-entry-meta,
@@ -1697,7 +1688,7 @@
   font-size: 19px;
   line-height: 1.04;
   letter-spacing: -0.02em;
-  color: #f4efe7;
+  color: var(--text-primary);
 }
 
 .settings-screen .json-node-body-inner {
@@ -1861,7 +1852,7 @@
   font-family: var(--editorial-italic-font);
   font-size: clamp(16px, 4.8vw, 22px);
   line-height: 1.02;
-  color: #f4efe7;
+  color: var(--text-primary);
 }
 
 .settings-hero-copy,
@@ -2103,7 +2094,7 @@
 
 .settings-screen .reasoning-toggle {
   padding: 0;
-  color: #f4efe7;
+  color: var(--text-primary);
   font-family: var(--editorial-display-font);
   font-size: 24px;
   line-height: 1.04;
