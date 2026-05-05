@@ -1,5 +1,33 @@
 # Handoff Log
 
+## 2026-05-05 11:21 +08:00
+
+### Scope
+
+- make the chat header pill a single shared surface across empty and active chat states
+- reuse one glass token set for both the pill and the summary chips
+
+### Current High-Signal State
+
+- `src/App.tsx` now marks the chat header with a dedicated `chat-header-pill` class
+- `src/styles/app-editorial-redesign.css` now defines one `--chat-glass-*` token set and uses it for both the header pill and summary chips
+- the pill surface no longer depends on page-state-specific style branches
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- no fresh screenshot pass was run in this turn
+
 ## 2026-05-05 11:14 +08:00
 
 ### Scope
