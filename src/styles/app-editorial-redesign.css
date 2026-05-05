@@ -15,6 +15,25 @@
   --chat-header-pill-border: rgba(244, 247, 251, 0.12);
   --chat-header-pill-shadow: 0 12px 28px rgba(3, 7, 18, 0.18);
   --chat-header-pill-blur: 12px;
+  --chat-header-pill-content-color: rgba(244, 247, 251, 0.92);
+  --chat-header-pill-menu-line: rgba(244, 247, 251, 0.86);
+  --chat-header-pill-menu-line-muted: rgba(244, 247, 251, 0.62);
+  --header-card-bg: var(--chat-header-pill-bg);
+  --header-card-border: var(--chat-header-pill-border);
+  --header-card-shadow: var(--chat-header-pill-shadow);
+  --header-card-content-color: var(--chat-header-pill-content-color);
+  --chat-summary-pill-bg: rgba(10, 12, 18, 0.56);
+  --chat-summary-pill-border: rgba(244, 247, 251, 0.12);
+  --chat-summary-pill-color: rgba(244, 247, 251, 0.78);
+  --chat-summary-pill-font-size: 9px;
+  --chat-summary-pill-letter-spacing: 0.14em;
+  --chat-summary-pill-padding-inline: 7px;
+  --summary-pill-bg: var(--chat-summary-pill-bg);
+  --summary-pill-border: var(--chat-summary-pill-border);
+  --summary-pill-color: var(--chat-summary-pill-color);
+  --summary-pill-font-size: var(--chat-summary-pill-font-size);
+  --summary-pill-letter-spacing: var(--chat-summary-pill-letter-spacing);
+  --summary-pill-padding-inline: var(--chat-summary-pill-padding-inline);
   --homepage-header-height: 52px;
   --homepage-composer-row-height: 46px;
   --homepage-composer-tool-height: 46px;
@@ -149,9 +168,9 @@
   gap: 12px;
   min-height: var(--homepage-header-height);
   padding: 0 18px;
-  background: var(--chat-header-pill-bg);
-  border-color: var(--chat-header-pill-border);
-  box-shadow: var(--chat-header-pill-shadow);
+  background: var(--header-card-bg);
+  border-color: var(--header-card-border);
+  box-shadow: var(--header-card-shadow);
   will-change: transform, backdrop-filter;
   transform: translateZ(0);
   backdrop-filter: blur(var(--chat-header-pill-blur)) saturate(180%);
@@ -170,17 +189,17 @@
 
 .app-shell.chat-page-shell .chat-header-pill .menu-button span {
   height: 1px;
-  background: rgba(244, 247, 251, 0.86);
+  background: var(--chat-header-pill-menu-line);
 }
 
 .app-shell.chat-page-shell .chat-header-pill .menu-button span:nth-child(2) {
-  background: rgba(244, 247, 251, 0.62);
+  background: var(--chat-header-pill-menu-line-muted);
 }
 
 .app-shell.chat-page-shell .chat-header-pill .title-display,
 .app-shell.chat-page-shell .chat-header-pill .title-editor input,
 .app-shell.chat-page-shell .chat-header-pill .title-rename-button {
-  color: rgba(244, 247, 251, 0.92);
+  color: var(--header-card-content-color);
 }
 
 .app-shell.chat-page-shell .title-text,
@@ -271,15 +290,15 @@
 
 .chat-page-shell .chat-summary-bar span {
   min-height: 22px;
-  padding: 0 7px;
+  padding: 0 var(--chat-summary-pill-padding-inline);
   border-radius: 999px;
-  border-color: rgba(244, 247, 251, 0.12);
-  background: rgba(10, 12, 18, 0.56);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  color: rgba(244, 247, 251, 0.78);
-  font-size: 9px;
-  letter-spacing: 0.14em;
+  border-color: var(--chat-summary-pill-border);
+  background: var(--chat-summary-pill-bg);
+  backdrop-filter: blur(var(--chat-header-pill-blur));
+  -webkit-backdrop-filter: blur(var(--chat-header-pill-blur));
+  color: var(--chat-summary-pill-color);
+  font-size: var(--chat-summary-pill-font-size);
+  letter-spacing: var(--chat-summary-pill-letter-spacing);
   text-transform: uppercase;
 }
 
