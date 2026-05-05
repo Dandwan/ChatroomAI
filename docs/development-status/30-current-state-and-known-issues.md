@@ -1,3 +1,14 @@
+## Latest Shared Pill Surface State
+
+As of 2026-05-05:
+
+- the chat header pill now has a dedicated `chat-header-pill` class in addition to the generic `header-card`
+- the shared glass recipe is now sourced from `--chat-glass-*` tokens and reused by both the pill and the summary chips
+- the pill surface itself no longer depends on page-state-specific style branches
+- validation for this pass:
+  - `npm run build`
+  - `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
 ## Latest Active Chat Content Status-Bar Reach State
 
 As of 2026-05-05:

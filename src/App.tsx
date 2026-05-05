@@ -10223,7 +10223,7 @@ function App() {
       ) : null}
 
       <div className="app-shell-content">
-        <header className={`app-header header-card ${isEditingTitle ? 'is-editing-title' : ''}`}>
+        <header className={`app-header header-card chat-header-pill ${isEditingTitle ? 'is-editing-title' : ''}`}>
             <button
               type="button"
               className="menu-button"
