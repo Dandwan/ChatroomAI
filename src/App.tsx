@@ -10139,8 +10139,8 @@ function App() {
                 '--title-end-height': `${titleTransition.titleEndRect.height}px`,
                 '--title-start-opacity': titleTransition.phase === 'opening' ? 1 : 0,
                 '--title-end-opacity': titleTransition.phase === 'opening' ? 0 : 1,
-                '--title-content-start-translate-y': titleTransition.phase === 'opening' ? '0px' : '6px',
-                '--title-content-end-translate-y': titleTransition.phase === 'opening' ? '-6px' : '0px',
+                '--title-content-start-scale': titleTransition.phase === 'opening' ? '1' : '0.988',
+                '--title-content-end-scale': titleTransition.phase === 'opening' ? '0.988' : '1',
               } as CSSProperties
             }
           >
@@ -10165,8 +10165,8 @@ function App() {
                 '--title-end-height': `${titleTransition.titleEndRect.height}px`,
                 '--title-start-opacity': titleTransition.phase === 'opening' ? 0 : 1,
                 '--title-end-opacity': titleTransition.phase === 'opening' ? 1 : 0,
-                '--title-content-start-translate-y': titleTransition.phase === 'opening' ? '6px' : '0px',
-                '--title-content-end-translate-y': titleTransition.phase === 'opening' ? '0px' : '-6px',
+                '--title-content-start-scale': titleTransition.phase === 'opening' ? '0.988' : '1',
+                '--title-content-end-scale': titleTransition.phase === 'opening' ? '1' : '0.988',
               } as CSSProperties
             }
           >

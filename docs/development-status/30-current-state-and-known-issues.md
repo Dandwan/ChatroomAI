@@ -25,7 +25,7 @@ As of 2026-05-05:
 
 As of 2026-05-05:
 
-- the title transition now animates the title text and editor content itself with a small vertical shift, so entering edit mode no longer feels like a hard snap
+- the title transition now animates the title text and editor content itself with a tiny non-directional scale change, so entering edit mode no longer feels like a hard snap
 - the save button green is now brighter across both the live editor and the transition overlay
 - validation for this pass:
   - `npm run build`
@@ -158,7 +158,8 @@ As of 2026-05-05:
 - the button uses the shared `12px` equal-margin token for both its right offset and its offset above the composer block
 - the composer controls keep their existing internal spacing inside the new inner panel wrapper
 - validation for this pass:
-  - not run yet; the user will run the manual device/browser checks
+  - `npm run build`
+  - `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
 
 ## Latest Header Title Overflow Fix State
 
