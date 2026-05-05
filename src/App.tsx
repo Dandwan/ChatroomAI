@@ -7490,8 +7490,12 @@ function App() {
       const headerRect = chatHeader.getBoundingClientRect()
       const summaryRect = summaryBar.getBoundingClientRect()
       const footerRect = footer.getBoundingClientRect()
+      const chatEqualMargin = Number.parseFloat(
+        window.getComputedStyle(messageList).getPropertyValue('--chat-equal-margin'),
+      )
+      const equalMarginInset = Number.isFinite(chatEqualMargin) ? chatEqualMargin : 0
       const topChromeBottom = Math.max(headerRect.bottom, summaryRect.bottom)
-      const topInset = Math.max(0, Math.round(topChromeBottom - messageListRect.top))
+      const topInset = Math.max(0, Math.round(topChromeBottom - messageListRect.top + equalMarginInset))
       const bottomInset = Math.max(0, Math.round(messageListRect.bottom - footerRect.top))
       const visibleContentHeight = Math.max(0, Math.round(messageList.clientHeight - bottomInset))
       const contentHeightWithoutInsets = Math.max(

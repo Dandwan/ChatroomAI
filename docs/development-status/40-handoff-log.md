@@ -1,5 +1,90 @@
 # Handoff Log
 
+# 2026-05-05 11:59 +08:00
+
+### Scope
+
+- fix the active-chat top reserve so it measures from the scroll container edge again
+- stop subtracting the first card's internal chrome and padding from the draggable range
+
+### Current High-Signal State
+
+- `src/App.tsx` now uses `messageListRect.top` again for the top reserve baseline
+- the earlier first-card / inner-content anchor was undercounting the blank space and putting the first message too high in the chrome
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+- `node scripts/cap-sync-android.mjs`
+- `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleDebug`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- the latest `adb install` attempt could not run because no device was attached when `adb` checked for `c3fec216`
+
+## 2026-05-05 11:41 +08:00
+
+### Scope
+
+- remove the upward title-content offset from the transition
+- keep the title content animating without a directional jump
+
+### Current High-Signal State
+
+- `src/App.tsx` now passes scale-based content transition variables instead of `translateY` values
+- `src/App.css` now animates the title content with a tiny non-directional scale change
+- the title text no longer shifts upward during the transition
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- not created in this handoff
+
+### Open Items
+
+- no fresh screenshot pass was run in this turn
+
+## 2026-05-05 11:35 +08:00
+
+### Scope
+
+- verify the title rename transition content animation and save color
+- confirm the chat header title and edit button stay vertically centered
+
+### Current High-Signal State
+
+- the title transition layer already animates the title text content itself, not just the container
+- the save button green is set to a brighter mint in both the live editor and transition overlay
+- the chat-header pill title row and rename control stay vertically centered with `margin-top: 0`
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- not created in this handoff
+
+### Open Items
+
+- no fresh screenshot pass was run in this turn
+
 ## 2026-05-05 11:34 +08:00
 
 ### Scope
