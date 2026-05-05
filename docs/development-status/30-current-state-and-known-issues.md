@@ -1,3 +1,14 @@
+## Latest Header Pill Only State
+
+As of 2026-05-05:
+
+- the title pill keeps the dedicated `chat-header-pill` class and the shared header glass tokens
+- the summary chips beneath it have been restored to their own independent glass styling
+- the title pill surface no longer pulls its look from the summary chips
+- validation for this pass:
+  - `npm run build`
+  - `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
 ## Latest Title Content Animation And Save Color State
 
 As of 2026-05-05:

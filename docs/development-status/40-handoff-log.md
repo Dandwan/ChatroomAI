@@ -1,5 +1,88 @@
 # Handoff Log
 
+## 2026-05-05 11:34 +08:00
+
+### Scope
+
+- restore the summary chip styling under the title pill
+- keep the title pill on a single shared surface source
+
+### Current High-Signal State
+
+- `src/styles/app-editorial-redesign.css` now keeps the title pill on `chat-header-pill` / `--chat-header-pill-*`
+- the summary chips have their own explicit styling again instead of inheriting the pill glass tokens
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- no fresh screenshot pass was run in this turn
+
+## 2026-05-05 11:31 +08:00
+
+### Scope
+
+- build the current debug APK and install it onto phone `c3fec216`
+
+### Current High-Signal State
+
+- `android/.gradlew-unix` was used to avoid the tracked CRLF `android/gradlew` wrapper issue
+- the debug APK installed successfully on the connected phone
+- the app launch command reached the currently running top-most `com.dandwan.chatroomai/.MainActivity` instance
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `cd android && JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=/home/dandwan/Android/Sdk ANDROID_SDK_ROOT=/home/dandwan/Android/Sdk GRADLE_USER_HOME=/home/dandwan/Projects/ChatroomAI/.gradle-local-v120 sh ./.gradlew-unix assembleDebug`
+- `adb -s c3fec216 install --no-streaming -r android/app/build/outputs/apk/debug/app-debug.apk`
+- `adb -s c3fec216 shell am start -W -n com.dandwan.chatroomai/.MainActivity`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- none
+
+## 2026-05-05 11:26 +08:00
+
+### Scope
+
+- add a small content-level animation to the title rename transition
+- brighten the save button green in both the live editor and transition overlay
+
+### Current High-Signal State
+
+- `src/App.tsx` now tags the transition-layer title text with a dedicated content class and passes phase-specific vertical offsets for the display and editor clones
+- `src/App.css` now animates the title content itself with a short vertical shift, instead of only moving the outer transition containers
+- the save button green is now a brighter mint across the live editor and transition overlay
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- pending
+
+### Open Items
+
+- no fresh browser/device screenshot pass was run in this turn
+
 ## 2026-05-05 11:24 +08:00
 
 ### Scope

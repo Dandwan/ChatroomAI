@@ -11,14 +11,10 @@
   --chat-page-background:
     radial-gradient(circle at 50% -10%, rgba(186, 154, 124, 0.05), transparent 28%),
     #090b10;
-  --chat-glass-bg: rgba(10, 12, 18, 0.56);
-  --chat-glass-border: rgba(244, 247, 251, 0.12);
-  --chat-glass-shadow: 0 12px 28px rgba(3, 7, 18, 0.18);
-  --chat-glass-blur: 12px;
-  --chat-header-pill-bg: var(--chat-glass-bg);
-  --chat-header-pill-border: var(--chat-glass-border);
-  --chat-header-pill-shadow: var(--chat-glass-shadow);
-  --chat-header-pill-blur: var(--chat-glass-blur);
+  --chat-header-pill-bg: rgba(10, 12, 18, 0.56);
+  --chat-header-pill-border: rgba(244, 247, 251, 0.12);
+  --chat-header-pill-shadow: 0 12px 28px rgba(3, 7, 18, 0.18);
+  --chat-header-pill-blur: 12px;
   --homepage-header-height: 52px;
   --homepage-composer-row-height: 46px;
   --homepage-composer-tool-height: 46px;
@@ -153,13 +149,13 @@
   gap: 12px;
   min-height: var(--homepage-header-height);
   padding: 0 18px;
-  background: var(--chat-glass-bg);
-  border-color: var(--chat-glass-border);
-  box-shadow: var(--chat-glass-shadow);
+  background: var(--chat-header-pill-bg);
+  border-color: var(--chat-header-pill-border);
+  box-shadow: var(--chat-header-pill-shadow);
   will-change: transform, backdrop-filter;
   transform: translateZ(0);
-  backdrop-filter: blur(var(--chat-glass-blur)) saturate(180%);
-  -webkit-backdrop-filter: blur(var(--chat-glass-blur)) saturate(180%);
+  backdrop-filter: blur(var(--chat-header-pill-blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--chat-header-pill-blur)) saturate(180%);
 }
 
 .app-shell.chat-page-shell .chat-header-pill .menu-button {
@@ -277,10 +273,10 @@
   min-height: 22px;
   padding: 0 7px;
   border-radius: 999px;
-  border-color: var(--chat-glass-border);
-  background: var(--chat-glass-bg);
-  backdrop-filter: blur(var(--chat-glass-blur));
-  -webkit-backdrop-filter: blur(var(--chat-glass-blur));
+  border-color: rgba(244, 247, 251, 0.12);
+  background: rgba(10, 12, 18, 0.56);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   color: rgba(244, 247, 251, 0.78);
   font-size: 9px;
   letter-spacing: 0.14em;
