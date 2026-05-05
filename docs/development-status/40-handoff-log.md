@@ -1,5 +1,35 @@
 # Handoff Log
 
+# 2026-05-05 17:42 +08:00
+
+### Scope
+
+- consolidate the in-flight `App.tsx` / `App.css` UI polish into one committed change set
+- refresh the repo-tracked handoff state and validate the current worktree
+
+### Current High-Signal State
+
+- the title rename transition now uses scale-based content motion instead of a directional vertical shift
+- the save action stays on the brighter mint green across the live editor and transition overlay
+- active chat markdown images and tables stay inside local horizontal scroll wrappers, and the message list blocks sideways panning
+- the floating `回到底部` button keeps the shared equal-margin token for both horizontal and vertical placement
+- `src/App.tsx` and `src/App.css` remain the only code files in this worktree change set
+- proposal-and-confirmation gate status:
+  - already completed in this handoff through the user's explicit confirmation before implementation
+
+### Validation Snapshot
+
+- `npm run build`
+- `npm run lint` still fails on the existing `react-hooks/set-state-in-effect` error in `src/App.tsx:1099`
+
+### Commit
+
+- created in this handoff
+
+### Open Items
+
+- none beyond the existing lint issue above
+
 # 2026-05-05 17:29 +08:00
 
 ### Scope
