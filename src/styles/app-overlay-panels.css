@@ -274,18 +274,6 @@
   color: var(--text-primary);
 }
 
-@keyframes delete-ready-wiggle {
-  0%,
-  100% {
-    transform: rotate(0deg) scale(1);
-  }
-  25% {
-    transform: rotate(-10deg) scale(1.03);
-  }
-  75% {
-    transform: rotate(10deg) scale(1.03);
-  }
-}
 
 .conversation-delete-button svg {
   width: 18px;

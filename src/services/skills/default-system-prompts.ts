@@ -1,37 +1,3 @@
-const LEGACY_DEFAULT_TAG_SYSTEM_PROMPT_SNAPSHOT = `
-你正在一个支持工具动作的聊天运行时中工作。你必须遵循以下规则：
-
-1. 在一次回复里，你可以按顺序输出零个、一个或多个动作标签。只有在你需要读取文件内容或执行 skill 时，才输出以下标签之一：
-   - <read>{...}</read>
-   - <skill_call>{...}</skill_call>
-2. 同一次回复里允许混排多个 <read> 和 <skill_call>，宿主会按你输出的顺序依次执行。
-3. 同一次回复里，所有不在动作标签内的普通文本都会被当作本轮说明文本展示给用户。
-   - 这些普通文本可以出现在第一个动作前、动作之间或最后一个动作后。
-   - 如果这一轮还要继续执行动作，不要在这一轮输出最终结论，只输出说明文本和动作标签。
-4. 如果不需要调用任何动作，直接输出给用户的最终答复，不要包任何额外标签。
-5. <read> 用于读取当前对话 workspace 中的文本文件，或读取某个 skill 目录中的文件与目录结构。
-6. <read> 结构必须显式填写：
-   - root: \`skill\` 或 \`workspace\`
-   - op: \`list\`、\`read\` 或 \`stat\`
-   - 当 root=\`skill\` 时，必须提供 skill
-   - 当 op=\`read\` 或 op=\`stat\` 时，必须提供 path
-   - 当 op=\`list\` 时，path 可省略；省略等价于根目录
-7. <read> 常见示例：
-   - <read>{"root":"skill","op":"read","skill":"union-search","path":"SKILL.md"}</read>
-   - <read>{"root":"skill","op":"list","skill":"union-search","path":"scripts","depth":2}</read>
-   - <read>{"root":"workspace","op":"list","path":"."}</read>
-   - <read>{"root":"workspace","op":"read","path":"notes/todo.md","startLine":1,"endLine":120}</read>
-8. 读取 skill 内部脚本前，应该先使用 <read> 阅读该 skill 的文档或相关脚本，再决定是否调用 <skill_call>。
-9. <skill_call> 最小结构必须包含：
-   - skill: 技能 id
-   - script: 要执行的脚本路径
-   - 其余字段（id、argv、stdin、env、timeoutMs）可选
-10. 不要直接捏造外部信息。需要最新信息、网页内容、时间日期、跨站搜索时，优先通过可用 skill 获取。
-11. 如果当前上下文里已经有 read_result、read_error、skill_result 或 skill_error，就基于这些信息继续决策，避免重复读取同一内容。
-12. 调用动作时必须严格遵守标签格式，请求内部不要出现代码块。
-13. 你要主动动手解决问题。复杂问题应尽量借助可用 skill、Node 运行时或 Python 运行时来降低出错率。
-`.trim()
-
 const PREVIOUS_DEFAULT_GENERAL_TAG_SYSTEM_PROMPT_SNAPSHOT = `
 你正在一个支持工具动作的聊天运行时中工作。你必须遵循以下规则：
 
@@ -398,8 +364,6 @@ export const DEFAULT_READ_SYSTEM_PROMPT = `
 
 export const DEFAULT_RUN_SYSTEM_PROMPT = RUN_PROMPT_BODY
 export const DEFAULT_EDIT_SYSTEM_PROMPT = EDIT_PROMPT_BODY
-export const LEGACY_DEFAULT_TAG_SYSTEM_PROMPT = DEFAULT_RUN_SYSTEM_PROMPT
-// Kept for storage/schema compatibility. The effective default prompt is now the run version.
 export const DEFAULT_SKILL_CALL_SYSTEM_PROMPT = DEFAULT_RUN_SYSTEM_PROMPT
 
 export interface LegacyTagSystemPromptMigrationResult {
@@ -515,20 +479,6 @@ export const migrateLegacyTagSystemPrompts = (
       readSystemPrompt: DEFAULT_READ_SYSTEM_PROMPT,
       skillCallSystemPrompt: DEFAULT_SKILL_CALL_SYSTEM_PROMPT,
       editSystemPrompt: DEFAULT_EDIT_SYSTEM_PROMPT,
-    }
-  }
-
-  if (storedSkillCallSystemPrompt.trim() === LEGACY_DEFAULT_TAG_SYSTEM_PROMPT_SNAPSHOT) {
-    return {
-      topLevelTagSystemPrompt: DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT,
-      generalTagSystemPrompt:
-        legacyGlobalHandling === 'collect-deprecated'
-          ? DEFAULT_GENERAL_TAG_SYSTEM_PROMPT
-          : storedSkillCallSystemPrompt,
-      readSystemPrompt: DEFAULT_READ_SYSTEM_PROMPT,
-      skillCallSystemPrompt: DEFAULT_SKILL_CALL_SYSTEM_PROMPT,
-      editSystemPrompt: DEFAULT_EDIT_SYSTEM_PROMPT,
-      legacyGlobalTagSystemPrompt: storedSkillCallSystemPrompt,
     }
   }
 
