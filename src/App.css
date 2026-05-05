@@ -336,7 +336,7 @@
   opacity: var(--actions-end-opacity);
 }
 
-.title-transition-actions .title-transition-button {
+.title-transition-actions .tiny-button {
   border: none;
   border-radius: 0;
   background: transparent;
@@ -352,7 +352,7 @@
 }
 
 .title-transition-actions .title-save-button {
-  color: #4ade80;
+  color: var(--status-success);
 }
 
 .title-display {
@@ -572,9 +572,9 @@ button:not(:disabled):hover {
 .title-editor .tiny-button:focus-visible,
 .title-editor .tiny-button:active,
 .title-editor .tiny-button:hover,
-.title-transition-actions .title-transition-button:focus-visible,
-.title-transition-actions .title-transition-button:active,
-.title-transition-actions .title-transition-button:hover {
+.title-transition-actions .tiny-button:focus-visible,
+.title-transition-actions .tiny-button:active,
+.title-transition-actions .tiny-button:hover {
   color: var(--accent-2);
 }
 
