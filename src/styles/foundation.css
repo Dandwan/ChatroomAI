@@ -3,43 +3,43 @@
 :root[data-theme='light'] {
   --native-top-inset: 0px;
   --safe-top-inset: max(env(safe-area-inset-top), var(--native-top-inset));
-  --text-primary: #171613;
-  --text-secondary: rgba(23, 22, 19, 0.64);
-  --border-color: rgba(23, 22, 19, 0.14);
-  --glass-bg: rgba(255, 252, 246, 0.92);
-  --btn-bg: rgba(255, 252, 246, 0.88);
-  --accent-2: #171613;
+  --text-primary: #161412;
+  --text-secondary: rgba(22, 20, 18, 0.66);
+  --border-color: rgba(22, 20, 18, 0.12);
+  --glass-bg: rgba(255, 252, 246, 0.94);
+  --btn-bg: rgba(255, 252, 246, 0.94);
+  --accent-2: #161412;
   --accent-cute: #8f785d;
-  --surface-panel: #efe8db;
-  --surface-card: rgba(255, 252, 246, 0.84);
-  --surface-card-strong: rgba(255, 252, 246, 0.94);
-  --surface-popover: rgba(255, 252, 246, 0.96);
-  --surface-overlay: rgba(236, 230, 216, 0.86);
-  --surface-overlay-strong: rgba(236, 230, 216, 0.96);
-  --surface-active: rgba(23, 22, 19, 0.08);
-  --surface-field: rgba(255, 252, 246, 0.74);
-  --surface-option: rgba(255, 252, 246, 0.72);
-  --surface-muted: rgba(23, 22, 19, 0.03);
-  --line-muted: rgba(23, 22, 19, 0.12);
-  --assistant-dot: rgba(23, 22, 19, 0.5);
-  --focus-ring: 0 0 0 1px rgba(23, 22, 19, 0.12);
-  --toggle-off-bg: rgba(23, 22, 19, 0.16);
-  --toggle-on-bg: rgba(23, 22, 19, 0.24);
-  --toggle-on-border: rgba(23, 22, 19, 0.34);
-  --status-info-bg: rgba(23, 22, 19, 0.08);
+  --surface-panel: #f5f1e8;
+  --surface-card: rgba(255, 252, 246, 0.90);
+  --surface-card-strong: rgba(255, 252, 246, 0.96);
+  --surface-popover: rgba(255, 252, 246, 0.98);
+  --surface-overlay: rgba(250, 247, 240, 0.90);
+  --surface-overlay-strong: rgba(250, 247, 240, 0.96);
+  --surface-active: rgba(22, 20, 18, 0.08);
+  --surface-field: rgba(255, 252, 246, 0.88);
+  --surface-option: rgba(255, 252, 246, 0.82);
+  --surface-muted: rgba(22, 20, 18, 0.03);
+  --line-muted: rgba(22, 20, 18, 0.10);
+  --assistant-dot: rgba(22, 20, 18, 0.5);
+  --focus-ring: 0 0 0 1px rgba(22, 20, 18, 0.12);
+  --toggle-off-bg: rgba(22, 20, 18, 0.16);
+  --toggle-on-bg: rgba(22, 20, 18, 0.24);
+  --toggle-on-border: rgba(22, 20, 18, 0.34);
+  --status-info-bg: rgba(22, 20, 18, 0.08);
   --status-success: #446b4b;
   --status-success-bg: rgba(68, 107, 75, 0.12);
   --status-success-border: rgba(68, 107, 75, 0.28);
   --status-danger: #8e4942;
   --status-danger-bg: rgba(142, 73, 66, 0.12);
   --status-danger-border: rgba(142, 73, 66, 0.26);
-  --shadow-soft: 0 18px 38px rgba(31, 24, 18, 0.12);
-  --shadow-elevated: 0 22px 50px rgba(31, 24, 18, 0.16);
+  --shadow-soft: 0 18px 38px rgba(22, 20, 18, 0.10);
+  --shadow-elevated: 0 22px 50px rgba(22, 20, 18, 0.14);
   --glass-blur: 14px;
   --glass-saturate: 1;
-  --glass-edge: rgba(255, 252, 246, 0.56);
-  --glass-edge-strong: rgba(23, 22, 19, 0.12);
-  --glass-shadow: 0 18px 38px rgba(31, 24, 18, 0.12);
+  --glass-edge: rgba(255, 252, 246, 0.60);
+  --glass-edge-strong: rgba(22, 20, 18, 0.10);
+  --glass-shadow: 0 18px 38px rgba(22, 20, 18, 0.10);
   --radius-card: 16px;
   --radius-pill: 999px;
   --size-pill-tag: 20px;
@@ -49,16 +49,16 @@
   --stats-pill-radius: var(--radius-pill);
   --control-height: var(--size-pill-control);
   --app-background:
-    radial-gradient(circle at 12% 0%, rgba(144, 119, 92, 0.12), transparent 36%),
-    radial-gradient(circle at 100% 0%, rgba(204, 184, 158, 0.14), transparent 34%),
-    linear-gradient(180deg, #f2efe8, #ece6d8);
-  --center-edge-highlight: rgba(255, 252, 246, 0.88);
+    radial-gradient(circle at 12% 0%, rgba(144, 119, 92, 0.08), transparent 36%),
+    radial-gradient(circle at 100% 0%, rgba(204, 184, 158, 0.10), transparent 34%),
+    linear-gradient(180deg, #faf7f0, #f2efe8);
+  --center-edge-highlight: rgba(255, 252, 246, 0.92);
   --center-edge-mask-glow: radial-gradient(
     1050px 760px at 50vw 50vh,
-    rgba(255, 252, 246, 0.9),
+    rgba(255, 252, 246, 0.94),
     rgba(255, 252, 246, 0) 72%
   );
-  --center-light-glow-color: rgba(255, 252, 246, 0.24);
+  --center-light-glow-color: rgba(255, 252, 246, 0.28);
   --center-light-glow: radial-gradient(
     1050px 760px at 50vw 50vh,
     var(--center-light-glow-color),
