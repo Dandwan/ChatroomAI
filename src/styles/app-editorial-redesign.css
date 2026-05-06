@@ -945,18 +945,18 @@
 .composer.is-editorial-chat-shell .icon-button,
 .composer.is-editorial-chat-shell .composer-model,
 .composer.is-editorial-chat-shell .composer-model-trigger {
-  background: rgba(10, 12, 18, 0.88);
-  border-color: rgba(244, 247, 251, 0.12);
-  color: rgba(244, 247, 251, 0.88);
+  background: var(--homepage-field-bg);
+  border-color: var(--homepage-field-border);
+  color: var(--text-primary);
   box-shadow: none;
 }
 
 .composer.is-editorial-chat-shell textarea.chat-input-box::placeholder {
-  color: rgba(244, 247, 251, 0.46);
+  color: var(--text-secondary);
 }
 
 .composer.is-editorial-chat-shell .icon-button {
-  color: rgba(244, 247, 251, 0.72);
+  color: var(--text-secondary);
 }
 
 .composer.is-editorial-chat-shell {
