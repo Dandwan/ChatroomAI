@@ -1,3 +1,25 @@
+## Latest Light Mode Color State
+
+As of 2026-05-06 (16:13 +08:00):
+
+- light mode now fully operational across all surfaces: chat page, settings (all sub-pages), drawer sidebar, homepage model popover, delete dialog
+- approach: scoped CSS custom properties on `.settings-screen` (22 semantic tokens) for settings-specific surfaces, global design tokens for drawer/popover/dialog surfaces
+- ~47 sections retrofitted in `app-editorial-redesign.css` second half that were previously dark-mode-only
+- dark mode completely unchanged — all dark values are scoped under `:root[data-theme='dark']`
+- layout and structure untouched
+- changes in four files:
+  - `src/styles/foundation.css` — refined light mode design tokens (surface, text, background, border, shadow, glass)
+  - `src/App.css` — scoped hardcoded dark editorial baseline values to `:root[data-theme='dark']`, added light mode defaults
+  - `src/styles/app-editorial-redesign.css` — settings scoped tokens, drawer footer tokenization, homepage model popover theme support, ~60+ settings section token replacements
+  - `src/styles/app-overlay-panels.css` — delete dialog content tokenized with global design tokens
+- cover-empty-state intentionally kept always-dark (overlays dark cover images)
+- validation:
+  - `npx tsc -b` — zero errors
+  - `npm run build` — passes
+  - `npx eslint . --quiet` — zero warnings
+  - `npx vitest run` — 23/23 tests pass
+  - CSS brace balance verified (379/379)
+
 ## Latest Chat Pill Source-Of-Truth State
 
 As of 2026-05-05:

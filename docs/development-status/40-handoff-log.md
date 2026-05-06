@@ -1,5 +1,107 @@
 # Handoff Log
 
+# 2026-05-06 16:13 +08:00
+
+### Scope
+
+Light mode completion: retrofitted the dark-mode-only second half of `app-editorial-redesign.css` (~47 sections, ~60+ hardcoded values), plus drawer footer and delete dialog, using scoped CSS custom properties and global design tokens.
+
+### Changes
+
+- **`src/styles/app-editorial-redesign.css`**:
+  - **Step 1**: Expanded `.settings-screen` scoped custom properties (lines 1360-1428) — added 22 semantic tokens (`--settings-text-*`, `--settings-line-*`, `--settings-button-*`, `--settings-popover-*`, `--settings-toggle-*`, `--settings-code-editor-*`, `--settings-header-nav-bg`, `--settings-hero-*`) with light defaults and `:root[data-theme='dark']` overrides
+  - **Step 2**: Deleted the unscoped `.settings-screen` block that unconditionally overrode background to `#090b10`
+  - **Step 3**: Replaced ~60+ hardcoded `rgba(244, …)` text/border/background values in the settings detail section (lines 1430-2519) with `var(--settings-*)` tokens
+  - **Step 4**: Fixed drawer editorial footer (lines 1298-1348) — replaced hardcoded dark colors with global design tokens (`var(--text-primary)`, `var(--line-muted)`, `var(--border-color)`, `var(--surface-card)`, `var(--surface-active)`), removed redundant `:root[data-theme='dark']` overrides for conversation-item-time (base already used `var(--text-secondary)`)
+  - **Step 5**: Fixed homepage model popover (lines 822-870) — converted to light-default + `:root[data-theme='dark']` override pattern for all child elements (model-option, model-mode-footer, model-mode-label, model-mode-button, .active states)
+- **`src/styles/app-overlay-panels.css`**: Fixed delete dialog content (lines 1260-1312) — replaced hardcoded dark colors with global tokens (`var(--text-primary)`, `var(--text-secondary)`, `var(--border-color)`, `var(--surface-popover)`, `var(--surface-card)`, `var(--shadow-elevated)`)
+
+### What Stays Unchanged
+
+- Cover empty state gradients (lines 103-104, 419-420): intentionally always-dark (overlays dark cover images)
+- Foundation design tokens: light/dark values verified correct
+- App.css editorial baseline (lines 2010+): fully verified in prior session
+
+### Validation
+
+- `npx tsc -b` — zero errors
+- `npm run build` — passes
+- `npx vitest run` — 23/23 tests pass
+- `npx eslint . --quiet` — zero warnings
+- CSS brace balance verified (379/379)
+
+### Next Steps
+
+- Manual visual check: toggle light/dark theme in browser devtools, inspect:
+  - Settings screen (all sub-pages: General, Models, Data, Daily Cover, Skills)
+  - Drawer sidebar (footer buttons)
+  - Homepage model popover (model options, mode buttons)
+  - Delete conversation dialog
+- Verify on-device (Android phone `c3fec216`)
+
+# 2026-05-06 14:53 +08:00
+
+### Scope
+
+Release APK build and phone install (no code changes).
+
+### Build Chain
+
+- `npm run build` — passed
+- `node scripts/cap-sync-android.mjs` — passed
+- `assembleRelease` with `.gradlew-unix` + Aliyun mirror init script — BUILD SUCCESSFUL
+- `adb -s c3fec216 install --no-streaming -r` — Success (215057905 bytes)
+- `adb shell am start -W -n com.dandwan.chatroomai/.MainActivity` — COLD start, Status: ok
+
+### Phone State
+
+- `versionName=1.5.0`, `versionCode=1500`, `lastUpdateTime=2026-05-06 14:52:58`
+
+### Proposal Gate
+
+Completed — no questions, no code changes, straightforward known build path.
+
+# 2026-05-06 13:05 +08:00
+
+### Scope
+
+Light mode color update: input boxes, buttons, page backgrounds → white gradients, text → black (referencing `docs/prototypes/actichat-product-pages/`). Dark mode and layout unchanged.
+
+### Changes
+
+- **`src/styles/foundation.css`**: Refined light mode design tokens to match prototype warm-white aesthetic:
+  - `--text-primary`: `#171613` → `#161412`, `--text-secondary`: `rgba(23, 22, 19, 0.64)` → `rgba(22, 20, 18, 0.66)`
+  - `--surface-field`: `rgba(255, 252, 246, 0.74)` → `0.88`, `--btn-bg`: `0.88` → `0.94`
+  - `--app-background`: now `#faf7f0 → #f2efe8` (cleaner white gradient)
+  - Updated all related surface, border, shadow, glass, toggle, status tokens to match new text base
+- **`src/App.css`** (Shared editorial baseline): Scoped 16 dark hardcoded background/text/border values to `:root[data-theme='dark']`, added light mode defaults using warm-white tokens:
+  - `.header-card`, `.notice`, `.notice-info`, `.markdown-content pre/code`
+  - `.skill-step-card`, `.reasoning-panel`, `.skill-step-result-panel`
+  - `textarea.chat-input-box`, `textarea.settings-chat-input`
+  - `.composer-send-button`, `.model-trigger`, `.icon-button` + hover states
+  - `.model-popover`, `.message-actions button:hover`
+  - `.pending-image-item`, `.pending-image-remove-button`, `.image-viewer-overlay`
+  - `.image-item-button img`, `.pending-image-preview img` border-color
+- **`src/styles/app-editorial-redesign.css`**: Added light mode defaults for chat page shell and settings screen custom properties, with `:root[data-theme='dark']` overrides preserving existing dark values:
+  - Chat page shell tokens: `--chat-page-background`, `--chat-header-pill-bg/border/content-color/menu-line`, `--chat-summary-pill-bg/border/color`, `--homepage-field-bg/border`
+  - Settings screen tokens: `--settings-editorial-field-*` (bg, border, caret, focus-ring, placeholder, text), settings background
+  - Settings header background and border, settings entry/static/entity card borders
+  - Message card user/assistant text colors, message action button colors, assistant divider/skill-step borders, reasoning/skill-step content colors, metric tags
+  - Chat header pill title rename button color, homepage model popover background/group-label color
+
+### Validation
+
+- `npx tsc -b` — zero errors
+- `npm run build` — passes
+- `npx eslint . --quiet` — zero warnings
+- `npx vitest run` — 23/23 tests pass
+
+### Next Steps
+
+- Verify light mode appearance on-device (Android emulator or physical phone `c3fec216`)
+- Cover-empty-state and transition overlay gradients intentionally kept dark (they sit on top of cover images)
+- Delete dialog and drawer overlays intentionally kept dark (modal-style surfaces)
+
 # 2026-05-06 11:10 +08:00
 
 ### Scope

@@ -1260,9 +1260,9 @@
 .delete-dialog {
   width: min(100%, 420px);
   border-radius: 0;
-  border-color: rgba(244, 239, 231, 0.12);
-  background: rgba(8, 10, 16, 0.96);
-  box-shadow: 0 24px 48px rgba(3, 7, 18, 0.22);
+  border-color: var(--border-color);
+  background: var(--surface-popover);
+  box-shadow: var(--shadow-elevated);
   padding: 18px 18px 16px;
 }
 
@@ -1272,12 +1272,12 @@
   line-height: 1.02;
   font-weight: 400;
   letter-spacing: -0.02em;
-  color: #f4efe7;
+  color: var(--text-primary);
 }
 
 .delete-dialog-text {
   margin-top: 12px;
-  color: rgba(244, 239, 231, 0.88);
+  color: var(--text-primary);
   font-family: var(--editorial-ui-font);
   font-size: 14px;
   line-height: 1.7;
@@ -1286,7 +1286,7 @@
 
 .delete-dialog-hint {
   margin-top: 10px;
-  color: rgba(244, 239, 231, 0.6);
+  color: var(--text-secondary);
   font-family: var(--editorial-ui-font);
   font-size: 12px;
   line-height: 1.6;
@@ -1300,15 +1300,15 @@
 .delete-dialog-actions button {
   min-height: 40px;
   border-radius: 2px;
-  border-color: rgba(244, 239, 231, 0.12);
-  background: rgba(255, 255, 255, 0.03);
+  border-color: var(--border-color);
+  background: var(--surface-card);
   box-shadow: none;
   font-family: var(--editorial-ui-font);
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: rgba(244, 239, 231, 0.88);
+  color: var(--text-primary);
 }
 
 .toggle-switch:disabled {
