@@ -1,5 +1,28 @@
 # Handoff Log
 
+# 2026-05-06 (current session)
+
+### Scope
+
+Light mode polish: fixed two light mode issues — (1) cover-empty-state center text now stays white regardless of theme, (2) composer controls (input, send, model, image, camera) now render black in light mode.
+
+### Changes
+
+- `src/styles/app-editorial-redesign.css`:
+  - cover-empty-state: 8 color references changed from `var(--settings-text-*)` to hardcoded light/white values
+  - composer controls: background/border changed from `var(--homepage-field-*)` to hardcoded dark values
+  - placeholder and hover colors changed from settings tokens to hardcoded light values
+- `docs/development-status/30-current-state-and-known-issues.md`: updated with latest state
+
+### Validation
+
+- `npm run build` — passes
+- dark mode visually unchanged (all hardcoded values match dark mode token resolution)
+
+### Proposal Gate
+
+- Completed: presented plan, user confirmed
+
 # 2026-05-06 16:13 +08:00
 
 ### Scope

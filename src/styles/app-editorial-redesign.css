@@ -665,7 +665,7 @@
   font-size: 9px;
   letter-spacing: 0.28em;
   text-transform: uppercase;
-  color: var(--settings-text-secondary);
+  color: rgba(244, 247, 251, 0.62);
 }
 
 .cover-empty-state-rule {
@@ -704,7 +704,7 @@
   align-items: center;
   font-size: 11px;
   line-height: 1.6;
-  color: var(--settings-text-emphasis);
+  color: rgba(244, 247, 251, 0.74);
 }
 
 .cover-empty-state-bottom-grid {
@@ -741,13 +741,13 @@
   font-size: 8px;
   letter-spacing: 0.24em;
   text-transform: uppercase;
-  color: var(--settings-text-muted);
+  color: rgba(244, 247, 251, 0.46);
 }
 
 .cover-empty-state-meta-cell .value {
   font-family: var(--editorial-display-font);
   font-size: 15px;
-  color: var(--settings-text-primary);
+  color: #f6f2ec;
 }
 
 .cover-empty-state-stats {
@@ -763,7 +763,7 @@
   align-content: start;
   padding: 12px 10px 10px;
   border-top: 1px solid rgba(244, 247, 251, 0.12);
-  background: var(--settings-button-bg);
+  background: rgba(244, 247, 251, 0.04);
 }
 
 .cover-empty-state-stat .label {
@@ -774,7 +774,7 @@
   letter-spacing: 0.22em;
   line-height: 1.35;
   text-transform: uppercase;
-  color: var(--settings-text-muted);
+  color: rgba(244, 247, 251, 0.46);
 }
 
 .cover-empty-state-stat .value {
@@ -782,14 +782,14 @@
   font-family: var(--editorial-display-font);
   font-size: 22px;
   line-height: 1;
-  color: var(--settings-text-primary);
+  color: #f6f2ec;
 }
 
 .cover-empty-state-stat .meta {
   margin-top: 6px;
   font-size: 11px;
   line-height: 1.5;
-  color: var(--settings-text-secondary);
+  color: rgba(244, 247, 251, 0.62);
 }
 
 .homepage-model-picker {
@@ -945,14 +945,14 @@
 .composer.is-editorial-chat-shell .icon-button,
 .composer.is-editorial-chat-shell .composer-model,
 .composer.is-editorial-chat-shell .composer-model-trigger {
-  background: var(--homepage-field-bg);
-  border-color: var(--homepage-field-border);
+  background: rgba(10, 12, 18, 0.88);
+  border-color: rgba(244, 247, 251, 0.12);
   color: rgba(244, 247, 251, 0.88);
   box-shadow: none;
 }
 
 .composer.is-editorial-chat-shell textarea.chat-input-box::placeholder {
-  color: var(--settings-text-muted);
+  color: rgba(244, 247, 251, 0.46);
 }
 
 .composer.is-editorial-chat-shell .icon-button {
@@ -1035,7 +1035,7 @@
 .composer.is-editorial-chat-shell .composer-model-trigger:hover {
   transform: none;
   background: rgba(14, 16, 24, 0.92);
-  color: var(--settings-text-primary);
+  color: rgba(244, 247, 251, 0.92);
   border-color: rgba(244, 247, 251, 0.2);
 }
 
