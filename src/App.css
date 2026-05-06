@@ -1426,7 +1426,7 @@ textarea.settings-chat-input.settings-chat-input-compact {
   pointer-events: none;
   backdrop-filter: blur(28px) saturate(180%);
   -webkit-backdrop-filter: blur(28px) saturate(180%);
-  transition: opacity 0.2s ease, transform 0.22s ease;
+  transition: opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1), transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .composer-model-popover {

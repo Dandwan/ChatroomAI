@@ -4,7 +4,7 @@
   background: transparent;
   z-index: 40;
   opacity: 0;
-  transition: opacity 0.22s ease;
+  transition: opacity 0.24s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: opacity;
 }
 
@@ -29,12 +29,16 @@
   flex-direction: column;
   gap: 10px;
   transform: translate3d(-104%, 0, 0);
-  transition: transform 0.24s ease;
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
   backface-visibility: hidden;
 }
 
 .drawer-overlay.is-open .drawer-panel {
   transform: translate3d(0, 0, 0);
+}
+
+.drawer-overlay.is-closing .drawer-panel {
+  transform: translate3d(-104%, 0, 0);
 }
 
 .drawer-header {

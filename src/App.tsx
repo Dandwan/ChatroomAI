@@ -122,13 +122,21 @@ import ChatSummaryBar from './components/ChatSummaryBar'
 import ChatHeader from './components/ChatHeader'
 import ImageViewer, { type ImageViewerItem } from './components/ImageViewer'
 import NewConversationShowcase from './components/NewConversationShowcase'
-import SettingsPageIntro from './components/SettingsPageIntro'
 import SettingsSectionHeading from './components/SettingsSectionHeading'
 import SettingsInfoPromptToggleCard from './components/SettingsInfoPromptToggleCard'
+import PermissionsSettings from './components/settings/PermissionsSettings'
+import ProvidersSettings from './components/settings/ProvidersSettings'
+import RuntimeSettings from './components/settings/RuntimeSettings'
+import SkillsSettings from './components/settings/SkillsSettings'
+import SkillConfigSettings from './components/settings/SkillConfigSettings'
+import DailyCoverSettingsComponent from './components/settings/DailyCoverSettings'
+import HomepageSendTransition from './components/HomepageSendTransition'
+import TitleTransition from './components/TitleTransition'
+import PromptEditorPanel from './components/PromptEditorPanel'
+import SettingsScreen from './components/SettingsScreen'
 import SettingsPopoverSelect from './components/SettingsPopoverSelect'
-import SkillConfigJsonEditor, { type JsonObjectValue } from './components/SkillConfigJsonEditor'
+import { type JsonObjectValue } from './components/SkillConfigJsonEditor'
 import {
-  BUNDLED_DAILY_COVER_POOL,
   DEFAULT_DAILY_COVER_SETTINGS,
   getLocalDateKey,
   resolveBundledDailyCover,
@@ -146,6 +154,8 @@ import {
   assistantFlowToPlainText,
   clearAssistantFlowRound,
   createAssistantTextFlow,
+  formatSkillStepStatus,
+  formatSkillStepTarget,
   markAssistantFlowRoundError,
   upsertAssistantFlowSkillNodeByToken,
   type AssistantFlowNode,
@@ -163,6 +173,9 @@ import {
   type ChatStoragePersistState,
 } from './services/chat-storage'
 import { compressImageDataUrl, createImageAttachments } from './utils/images'
+import { createProviderModelKey, modelHealthLabel } from './utils/model-utils'
+import { stripSkillParsingHintLines } from './utils/text-utils'
+import { formatMs } from './utils/time-utils'
 import type {
   ActiveProviderRequestSettings,
   AppSettings,
@@ -206,7 +219,6 @@ import type {
 } from './state/types'
 import {
   CHAT_STATE_PERSIST_DEBOUNCE_MS,
-  DAILY_COVER_API_METHOD_OPTIONS,
   DEFAULT_DELETE_CONFIRM_GRACE_SECONDS,
   DEFAULT_CONVERSATION_GROUP_GAP_MINUTES,
   DEFAULT_AUTO_COLLAPSE_CONVERSATIONS,
@@ -780,8 +792,6 @@ const toFiniteNumber = (value: unknown): number | undefined => {
 const clamp = (value: number, minimum: number, maximum: number): number =>
   Math.min(Math.max(value, minimum), maximum)
 
-const createProviderModelKey = (providerId: string, modelId: string): string => `${providerId}::${modelId}`
-
 const startOfLocalDay = (time: number): number => {
   const next = new Date(time)
   next.setHours(0, 0, 0, 0)
@@ -1191,84 +1201,6 @@ const estimateUsage = (promptMessages: ApiMessage[], responseText: string): Toke
   }
 }
 
-const modelHealthLabel = (state: ModelHealth | undefined): string => {
-  switch (state) {
-    case 'testing':
-      return '检测中'
-    case 'ok':
-      return '可用'
-    case 'error':
-      return '失败'
-    default:
-      return '检测'
-  }
-}
-
-const formatMs = (value: number | undefined): string => {
-  if (value === undefined || Number.isNaN(value)) {
-    return '--'
-  }
-  if (value < 1000) {
-    return `${Math.round(value)}ms`
-  }
-  return `${(value / 1000).toFixed(2)}s`
-}
-
-const formatSkillStepStatus = (status: AssistantFlowSkillNode['status']): string => {
-  switch (status) {
-    case 'running':
-      return '进行中'
-    case 'success':
-      return '已完成'
-    case 'error':
-      return '失败'
-    default:
-      return status
-  }
-}
-
-const formatReadLocation = ({
-  root,
-  skill,
-  path,
-}: {
-  root?: 'skill' | 'workspace' | 'home' | 'absolute'
-  skill?: string
-  path?: string
-}): string => {
-  const normalizedPath = path?.trim()
-  if (root === 'workspace') {
-    return normalizedPath && normalizedPath !== '.'
-      ? `workspace / ${normalizedPath}`
-      : 'workspace'
-  }
-  if (root === 'skill') {
-    if (skill && normalizedPath && normalizedPath !== '.') {
-      return `${skill} / ${normalizedPath}`
-    }
-    if (skill) {
-      return skill
-    }
-  }
-  if (root === 'home') {
-    return normalizedPath && normalizedPath !== '.'
-      ? `home / ${normalizedPath}`
-      : 'home'
-  }
-  if (root === 'absolute') {
-    return normalizedPath && normalizedPath !== '.'
-      ? `root / ${normalizedPath}`
-      : 'root'
-  }
-  if (skill && normalizedPath) {
-    return `${skill} / ${normalizedPath}`
-  }
-  if (skill) {
-    return skill
-  }
-  return normalizedPath && normalizedPath !== '.' ? normalizedPath : '读取'
-}
-
 const buildActionLocationField = (
   root?: 'skill' | 'workspace' | 'home' | 'absolute',
 ): {
@@ -1360,72 +1292,8 @@ const serializeEditResultForHost = (payload: EditExecutionResult): Record<string
   preview: payload.preview,
 })
 
-const formatSkillStepTarget = (step: AssistantFlowSkillNode): string => {
-  if (step.actionKind === 'read') {
-    const location = formatReadLocation({
-      root: step.root,
-      skill: step.skill,
-      path: step.path,
-    })
-    return step.op ? `${location} / ${step.op}` : location
-  }
-  if (step.actionKind === 'run') {
-    const rootLabel =
-      step.root === 'skill'
-        ? step.skill
-          ? `skill / ${step.skill}`
-          : 'skill'
-        : step.root === 'workspace'
-          ? 'workspace'
-        : step.root === 'home'
-          ? 'home'
-        : step.root === 'absolute'
-              ? 'root'
-              : 'run'
-    if (step.command) {
-      return `${rootLabel} / ${step.command}`
-    }
-    if (step.script) {
-      return `${rootLabel} / ${step.script}`
-    }
-    if (step.cwd) {
-      return `${rootLabel} / ${step.cwd}`
-    }
-    return rootLabel
-  }
-  if (step.actionKind === 'edit') {
-    const rootLabel =
-      step.root === 'workspace'
-        ? 'workspace'
-        : step.root === 'home'
-          ? 'home'
-          : step.root === 'absolute'
-            ? 'root'
-            : 'edit'
-    if (step.path) {
-      return `${rootLabel} / ${step.path}`
-    }
-    return rootLabel
-  }
-  if (step.actionKind === 'skill_call') {
-    if (step.skill && step.script) {
-      return `${step.skill} / ${step.script}`
-    }
-    if (step.skill) {
-      return step.skill
-    }
-  }
-  return '技能调用'
-}
-
 const formatSkillStepResult = (payload: unknown): string =>
   formatStructuredMarkdown(payload)
-
-const stripSkillParsingHintLines = (text: string): string => {
-  const withoutHint = text.replace(/模型正在解析[\s\u00a0]*skill[\s\u00a0]*调用[^\n\r]*/gim, '')
-  const compacted = withoutHint.replace(/\n{3,}/g, '\n\n')
-  return compacted
-}
 
 const vibrateInteraction = (): void => {
   void Haptics.vibrate({ duration: 10 }).catch(() => {
@@ -2156,18 +2024,40 @@ function App() {
   const drawerMounted = useUIStore((s) => s.drawerMounted)
   const drawerVisible = useUIStore((s) => s.drawerVisible)
   const openDrawer = useCallback((): void => {
-    useUIStore.getState().setDrawerVisibility(true, true)
+    useUIStore.getState().setDrawerVisibility(true, false)
+    if (drawerAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(drawerAnimationFrameRef.current)
+    }
+    drawerAnimationFrameRef.current = window.requestAnimationFrame(() => {
+      drawerAnimationFrameRef.current = null
+      useUIStore.getState().setDrawerVisibility(true, true)
+    })
   }, [])
   const closeDrawer = useCallback((): void => {
-    useUIStore.getState().setDrawerVisibility(false, false)
+    if (drawerAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(drawerAnimationFrameRef.current)
+      drawerAnimationFrameRef.current = null
+    }
+    useUIStore.getState().setDrawerVisibility(true, false)
   }, [])
   const modelMenuMounted = useUIStore((s) => s.modelMenuMounted)
   const modelMenuVisible = useUIStore((s) => s.modelMenuVisible)
   const openModelMenu = useCallback((): void => {
-    useUIStore.getState().setModelMenuVisibility(true, true)
+    useUIStore.getState().setModelMenuVisibility(true, false)
+    if (modelMenuAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(modelMenuAnimationFrameRef.current)
+    }
+    modelMenuAnimationFrameRef.current = window.requestAnimationFrame(() => {
+      modelMenuAnimationFrameRef.current = null
+      useUIStore.getState().setModelMenuVisibility(true, true)
+    })
   }, [])
   const closeModelMenu = useCallback((): void => {
-    useUIStore.getState().setModelMenuVisibility(false, false)
+    if (modelMenuAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(modelMenuAnimationFrameRef.current)
+      modelMenuAnimationFrameRef.current = null
+    }
+    useUIStore.getState().setModelMenuVisibility(true, false)
   }, [])
   const imageViewerMounted = useUIStore((s) => s.imageViewerMounted)
   const imageViewerVisible = useUIStore((s) => s.imageViewerVisible)
@@ -2351,6 +2241,8 @@ function App() {
     longPressTimerId: number | null
   } | null>(null)
   const ignoreNextConversationClickRef = useRef<string | null>(null)
+  const drawerAnimationFrameRef = useRef<number | null>(null)
+  const modelMenuAnimationFrameRef = useRef<number | null>(null)
   const openSettingsAfterDrawerTimerRef = useRef<number | null>(null)
   const queuedAssistantStreamDeltaRef = useRef<{
     conversationId: string
@@ -2940,6 +2832,13 @@ function App() {
     }
     closeSettingsPanel()
   }, [closeSettingsPanel, rememberSettingsScrollPosition, resetProviderDetailState, settingsView])
+
+  const onSettingsScroll = useCallback(
+    (event: UIEvent<HTMLElement>) => {
+      settingsScrollByViewRef.current[settingsView] = event.currentTarget.scrollTop
+    },
+    [settingsView],
+  )
 
   const refreshExtensions = useCallback(async (silent = false): Promise<void> => {
     if (!silent) {
@@ -7526,6 +7425,11 @@ function App() {
               modelMenuVisible ? 'is-open' : 'is-closing'
             }`}
             style={{ top: 'auto', bottom: 'calc(100% + 8px)', transformOrigin: 'center bottom' }}
+            onTransitionEnd={(event) => {
+              if (!modelMenuVisible && event.target === event.currentTarget) {
+                useUIStore.getState().setModelMenuVisibility(false, false)
+              }
+            }}
           >
             {enabledModelOptions.length === 0 ? (
               <div className="model-popover-empty">
@@ -7806,18 +7710,7 @@ function App() {
     </footer>
   )
 
-  const renderPromptEditorPanel = ({
-    isOpen,
-    onToggle,
-    title,
-    value,
-    onChange,
-    placeholder,
-    helperText,
-    actionLabel,
-    onAction,
-    actionDisabled = false,
-  }: {
+  const renderPromptEditorPanel = (props: {
     isOpen: boolean
     onToggle: () => void
     title: string
@@ -7828,38 +7721,7 @@ function App() {
     actionLabel?: string
     onAction?: () => void
     actionDisabled?: boolean
-  }) => (
-    <section className={`reasoning-panel settings-prompt-panel ${isOpen ? 'is-open' : ''}`}>
-      <button type="button" className="reasoning-toggle" onClick={onToggle}>
-        <span>{title}</span>
-        <span className={`arrow ${isOpen ? 'open' : ''}`}>▾</span>
-      </button>
-      <div className="reasoning-body">
-        <div className="settings-prompt-content">
-          {helperText ? <p className="settings-prompt-helper">{helperText}</p> : null}
-          <ChatInputBox
-            className="settings-chat-input settings-chat-input-card settings-prompt-input"
-            radiusMode="card"
-            value={value}
-            onChange={(event) => onChange(event.target.value)}
-            placeholder={placeholder}
-            maxHeight={420}
-          />
-          {actionLabel && onAction ? (
-            <div className="settings-prompt-actions">
-              <button type="button" className="tiny-button" onClick={onAction} disabled={actionDisabled}>
-                {actionLabel}
-              </button>
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </section>
-  )
-
-  const renderSettingsPageIntro = (props: { eyebrow: string; title: string; copy: string }) => (
-    <SettingsPageIntro {...props} />
-  )
+  }) => <PromptEditorPanel {...props} />
 
   const renderSettingsSectionHeading = (props: { label: string; title?: string; copy?: ReactNode }) => (
     <SettingsSectionHeading {...props} />
@@ -7884,168 +7746,13 @@ function App() {
   }) => <SettingsInfoPromptToggleCard {...props} />
 
   const renderDailyCoverSettings = () => (
-    <div className="daily-cover-settings-page">
-      <section className="settings-section">
-        <div className="settings-static-card daily-cover-hero-card">
-          {resolvedDailyCover ? <img src={resolvedDailyCover.imageUrl} alt={resolvedDailyCover.title} /> : null}
-          <div className="content-wrap">
-            <div className="daily-cover-kicker">
-              {resolvedDailyCover
-                ? `Today’s cover · ${resolvedDailyCover.sourceLabel}`
-                : 'Daily cover unavailable'}
-            </div>
-            <h3 className="daily-cover-title">
-              {resolvedDailyCover
-                ? `${resolvedDailyCover.title} · ${resolvedDailyCover.photographer}`
-                : 'Daily Cover'}
-            </h3>
-            <p className="daily-cover-copy">
-              {resolvedDailyCover?.description ?? '封面不可用时，界面会自动退回到安静的默认壳层。'}
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section className="settings-section">
-        {renderSettingsSectionHeading({
-          label: 'Display rules',
-          title: '显示策略',
-          copy: '默认图池保证稳定，自定义 API 负责增强；失败时永远回退到本地内置图池。',
-        })}
-
-        <div className="settings-static-card">
-          <div className="daily-cover-field-list">
-            <label className="daily-cover-field-row">
-              <span className="name">启用首页每日风景封面</span>
-              <input
-                className="toggle-switch"
-                type="checkbox"
-                checked={settings.dailyCover.enabled}
-                onChange={(event) => updateDailyCoverSetting('enabled', event.target.checked)}
-              />
-            </label>
-
-            <label className="daily-cover-field-row">
-              <span className="name">使用自定义每日一图 API</span>
-              <input
-                className="toggle-switch"
-                type="checkbox"
-                checked={settings.dailyCover.useApi}
-                onChange={(event) => updateDailyCoverSetting('useApi', event.target.checked)}
-              />
-            </label>
-          </div>
-        </div>
-      </section>
-
-      <section className="settings-section">
-        {renderSettingsSectionHeading({
-          label: 'Bundled pool',
-          title: '默认图池',
-          copy: '建议正式版本内置 12 到 24 张精选风景图。当前演示与真实设置都应把本地图池视为稳定回退层。',
-        })}
-
-        <div className="settings-static-card">
-          <p className="settings-entry-meta">
-            默认图池用于保证稳定与冷启动体验。即使自定义 API 失败，也会自动回退到本地图池。
-          </p>
-          <div className="daily-cover-thumb-grid">
-            {BUNDLED_DAILY_COVER_POOL.map((cover) => (
-              <figure key={cover.id} className="daily-cover-thumb">
-                <img src={cover.imageUrl} alt={cover.title} />
-                <span>{cover.title}</span>
-              </figure>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="settings-section">
-        {renderSettingsSectionHeading({
-          label: 'Daily image API',
-          title: '自定义每日一图接口',
-          copy: '不要把来源写死成某一家；正式实现时继续支持 endpoint、auth 和字段映射。',
-        })}
-
-        <div className="settings-static-card">
-          <label className="field">
-            <span>API Endpoint</span>
-            <ChatInputBox
-              className="settings-chat-input settings-chat-input-compact"
-              value={settings.dailyCover.apiEndpoint}
-              onChange={(event) => updateDailyCoverSetting('apiEndpoint', event.target.value)}
-              placeholder="https://example.com/api/daily-cover?date={YYYY-MM-DD}"
-              maxHeight={140}
-            />
-          </label>
-
-          <label className="field">
-            <span>Request Method</span>
-            <SettingsPopoverSelect
-              value={settings.dailyCover.apiMethod}
-              options={[...DAILY_COVER_API_METHOD_OPTIONS]}
-              ariaLabel="选择每日一图请求方法"
-              onChange={(nextValue) => updateDailyCoverSetting('apiMethod', nextValue)}
-            />
-          </label>
-
-          <label className="field">
-            <span>Authorization Header</span>
-            <ChatInputBox
-              className="settings-chat-input settings-chat-input-compact"
-              value={settings.dailyCover.apiAuthHeader}
-              onChange={(event) => updateDailyCoverSetting('apiAuthHeader', event.target.value)}
-              placeholder="Bearer YOUR_TOKEN"
-              maxHeight={140}
-            />
-          </label>
-
-          <label className="field">
-            <span>Image URL Path</span>
-            <ChatInputBox
-              className="settings-chat-input settings-chat-input-compact"
-              value={settings.dailyCover.apiImagePath}
-              onChange={(event) => updateDailyCoverSetting('apiImagePath', event.target.value)}
-              placeholder="data.image.url"
-              maxHeight={140}
-            />
-          </label>
-
-          <label className="field">
-            <span>Title Path</span>
-            <ChatInputBox
-              className="settings-chat-input settings-chat-input-compact"
-              value={settings.dailyCover.apiTitlePath}
-              onChange={(event) => updateDailyCoverSetting('apiTitlePath', event.target.value)}
-              placeholder="data.image.title"
-              maxHeight={140}
-            />
-          </label>
-
-          <label className="field">
-            <span>Credit Path</span>
-            <ChatInputBox
-              className="settings-chat-input settings-chat-input-compact"
-              value={settings.dailyCover.apiCreditPath}
-              onChange={(event) => updateDailyCoverSetting('apiCreditPath', event.target.value)}
-              placeholder="data.image.credit.name"
-              maxHeight={140}
-            />
-          </label>
-
-          <label className="field">
-            <span>Credit Link Path</span>
-            <ChatInputBox
-              className="settings-chat-input settings-chat-input-compact"
-              value={settings.dailyCover.apiLinkPath}
-              onChange={(event) => updateDailyCoverSetting('apiLinkPath', event.target.value)}
-              placeholder="data.image.credit.link"
-              maxHeight={140}
-            />
-          </label>
-        </div>
-      </section>
-    </div>
+    <DailyCoverSettingsComponent
+      resolvedDailyCover={resolvedDailyCover}
+      settings={settings.dailyCover}
+      onUpdate={(key: keyof DailyCoverSettings, value: string | boolean) =>
+        updateDailyCoverSetting(key, value as DailyCoverSettings[typeof key])
+      }
+    />
   )
 
   const renderMainSettings = () => {
@@ -8792,76 +8499,12 @@ function App() {
   )
 
   const renderProvidersSettings = () => (
-    <>
-      <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">服务商管理</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
-
-        <div className="model-tools">
-          <button type="button" onClick={addProvider}>
-            添加服务商
-          </button>
-        </div>
-      </section>
-
-      <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">已配置服务商</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
-
-        <div className="settings-entity-list">
-          {settings.providers.length === 0 ? (
-            <p className="summary-muted">暂无服务商，请先添加。</p>
-          ) : (
-            settings.providers.map((provider) => {
-              const enabledCount = provider.models.filter((model) => model.enabled).length
-              const isCurrent = provider.id === settings.currentProviderId
-              return (
-                <article key={provider.id} className="settings-entity-card">
-                  <div className="settings-entity-main">
-                    <div className="settings-entity-title-row">
-                      <strong>{provider.name.trim() || '未命名服务商'}</strong>
-                      <div className="summary-bar">
-                        <span>{provider.models.length} 个模型</span>
-                        <span>{enabledCount} 个启用</span>
-                        {isCurrent ? <span>当前服务商</span> : null}
-                        {isCurrent && settings.currentModel ? <span>{settings.currentModel}</span> : null}
-                      </div>
-                    </div>
-
-                    <p className="summary-muted">
-                      {provider.apiBaseUrl.trim() || '尚未填写 URL'}
-                    </p>
-                  </div>
-
-                  <div className="settings-entity-actions">
-                    <div className="settings-inline-buttons">
-                      <button
-                        type="button"
-                        className="tiny-button"
-                        onClick={() => openProviderDetail(provider.id)}
-                      >
-                        编辑
-                      </button>
-                      <button
-                        type="button"
-                        className="tiny-button danger-button"
-                        onClick={() => requestDeleteProvider(provider.id)}
-                      >
-                        删除
-                      </button>
-                    </div>
-                  </div>
-                </article>
-              )
-            })
-          )}
-        </div>
-      </section>
-    </>
+    <ProvidersSettings
+      settings={settings}
+      onAddProvider={addProvider}
+      onEditProvider={openProviderDetail}
+      onDeleteProvider={requestDeleteProvider}
+    />
   )
 
   const renderProviderDetailSettings = () => (
@@ -9207,354 +8850,57 @@ function App() {
   )
 
   const renderSkillsSettings = () => (
-    <>
-      <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">Skill 包管理</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
-
-        <div className="model-tools">
-          <button
-            type="button"
-            onClick={() => skillArchiveInputRef.current?.click()}
-            disabled={isInstallingSkillArchive}
-          >
-            {isInstallingSkillArchive ? '安装中...' : '安装 / 更新 Skill ZIP'}
-          </button>
-          <button type="button" onClick={() => void refreshExtensions(true)}>
-            刷新
-          </button>
-        </div>
-
-      </section>
-
-      <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">已安装 Skills</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
-
-        <div className="settings-entity-list">
-          {isLoadingExtensions ? (
-            <p className="summary-muted">正在加载 skills...</p>
-          ) : skillRecords.length === 0 ? (
-            <p className="summary-muted">暂无可用 skill。</p>
-          ) : (
-            skillRecords.map((skill) => (
-              <article
-                key={skill.id}
-                className={`settings-entity-card ${skill.loadError ? 'is-load-error' : ''}`}
-              >
-                <div className="settings-entity-main">
-                  <div className="settings-entity-title-row">
-                    <strong>{skill.frontmatter.name || skill.id}</strong>
-                    <div className="summary-bar">
-                      <span>{skill.id}</span>
-                      <span>{skill.source === 'builtin' ? '内置' : '外部'}</span>
-                      <span>{skill.frontmatter.version ? `v${skill.frontmatter.version}` : '未标版本'}</span>
-                      {skill.overrideBuiltin ? <span>覆盖内置</span> : null}
-                      {skill.loadError ? <span>加载失败</span> : null}
-                    </div>
-                  </div>
-
-                  <p className="summary-muted">{skill.frontmatter.description}</p>
-                  {skill.loadError ? (
-                    <p className="message-error">加载失败：{skill.loadError}</p>
-                  ) : null}
-                </div>
-
-                <div className="settings-entity-actions">
-                  <label
-                    className={`toggle-row settings-inline-toggle ${
-                      skill.loadError ? 'is-disabled' : ''
-                    }`}
-                  >
-                    <span>启用</span>
-                    <input
-                      className="toggle-switch"
-                      type="checkbox"
-                      checked={skill.enabled}
-                      disabled={Boolean(skill.loadError)}
-                      onChange={(event) =>
-                        void handleSetSkillEnabled(skill.id, event.target.checked)
-                      }
-                    />
-                  </label>
-
-                  <div className="settings-inline-buttons">
-                    <button
-                      type="button"
-                      className="tiny-button"
-                      disabled={Boolean(skill.loadError)}
-                      onClick={() => void openSkillConfigEditor(skill.id)}
-                    >
-                      配置
-                    </button>
-                    <button
-                      type="button"
-                      className="tiny-button danger-button"
-                      onClick={() => requestDeleteSkill(skill.id)}
-                    >
-                      删除
-                    </button>
-                  </div>
-                </div>
-              </article>
-            ))
-          )}
-        </div>
-      </section>
-    </>
+    <SkillsSettings
+      skillArchiveInputRef={skillArchiveInputRef}
+      isInstallingSkillArchive={isInstallingSkillArchive}
+      isLoadingExtensions={isLoadingExtensions}
+      skillRecords={skillRecords}
+      onRefresh={() => void refreshExtensions(true)}
+      onSetEnabled={handleSetSkillEnabled}
+      onOpenConfig={(id) => void openSkillConfigEditor(id)}
+      onDelete={requestDeleteSkill}
+    />
   )
 
   const renderSkillConfigSettings = () => (
-    <>
-      <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">当前 Skill</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
-
-        {skillConfigTarget ? (
-          <div className="settings-entry-list">
-            <div className="settings-static-card">
-              <div className="settings-entry-title">{skillConfigTarget.frontmatter.name || skillConfigTarget.id}</div>
-              <div className="summary-bar">
-                <span>{skillConfigTarget.id}</span>
-                <span>{skillConfigTarget.source === 'builtin' ? '内置' : '外部'}</span>
-                <span>
-                  {skillConfigTarget.frontmatter.version
-                    ? `v${skillConfigTarget.frontmatter.version}`
-                    : '未标版本'}
-                </span>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <p className="summary-muted">未找到目标 skill。</p>
-        )}
-      </section>
-
-      <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">可视化配置</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
-
-        {isLoadingSkillConfig ? (
-          <p className="summary-muted">正在读取配置...</p>
-        ) : skillConfigTarget ? (
-          <div className="skill-config-layout skill-config-loaded-content">
-            <p className="summary-muted">
-              已按当前 JSON 结构生成图形化编辑器，可新增字段、分组、数组元素，支持修改键名、类型和值。
-            </p>
-
-            {skillConfigRawError ? (
-              <div className="settings-static-card skill-config-warning-card">
-                <div className="settings-entry-title">原始 JSON 需要修复</div>
-                <div className="settings-entry-meta">
-                  当前图形界面展示的是最近一次合法配置。继续使用可视化编辑会覆盖当前无效的 JSON 文本。
-                </div>
-              </div>
-            ) : null}
-
-            <SkillConfigJsonEditor value={skillConfigValue} onChange={applySkillConfigValue} />
-          </div>
-        ) : (
-          <p className="summary-muted">未找到目标 skill。</p>
-        )}
-      </section>
-
-      <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">原始 JSON</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
-
-        {isLoadingSkillConfig ? (
-          <p className="summary-muted">正在读取配置...</p>
-        ) : skillConfigTarget ? (
-          <div className="skill-config-loaded-content">
-            <label className="field field-system-prompt skill-config-raw-field">
-              <span>编辑后保存，运行时会通过环境变量回传给 skill。文本框会按内容自动调整高度。</span>
-              <ChatInputBox
-                className="settings-code-editor settings-chat-input settings-chat-input-card settings-chat-input-code skill-config-raw-editor"
-                radiusMode="card"
-                value={skillConfigDraft}
-                onChange={(event) => handleSkillConfigDraftChange(event.target.value)}
-                placeholder={'{\n  "enabled": true\n}'}
-                spellCheck={false}
-                maxHeight={Math.max(420, Math.round(window.innerHeight * 0.62))}
-              />
-            </label>
-
-            {skillConfigRawError ? (
-              <p className="json-editor-error skill-config-raw-error">{skillConfigRawError}</p>
-            ) : null}
-
-            <div className="model-tools">
-              <button type="button" onClick={formatSkillConfigDraft}>
-                格式化 JSON
-              </button>
-              <button
-                type="button"
-                onClick={() => void saveSkillConfig()}
-                disabled={isSavingSkillConfig || Boolean(skillConfigRawError)}
-              >
-                {isSavingSkillConfig ? '保存中...' : '保存配置'}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <p className="summary-muted">未找到目标 skill。</p>
-        )}
-      </section>
-    </>
+    <SkillConfigSettings
+      skillConfigTarget={skillConfigTarget}
+      isLoadingSkillConfig={isLoadingSkillConfig}
+      skillConfigValue={skillConfigValue}
+      skillConfigDraft={skillConfigDraft}
+      skillConfigRawError={skillConfigRawError}
+      isSavingSkillConfig={isSavingSkillConfig}
+      onConfigValueChange={applySkillConfigValue}
+      onDraftChange={handleSkillConfigDraftChange}
+      onFormat={formatSkillConfigDraft}
+      onSave={() => void saveSkillConfig()}
+    />
   )
 
   const renderRuntimeSettings = () => (
-    <>
-      <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">运行时包管理</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
-
-        <div className="model-tools">
-          <button
-            type="button"
-            onClick={() => runtimeArchiveInputRef.current?.click()}
-            disabled={isInstallingRuntimeArchive}
-          >
-            {isInstallingRuntimeArchive ? '安装中...' : '安装 Python / Node ZIP'}
-          </button>
-          <button type="button" onClick={() => void refreshExtensions(true)}>
-            刷新
-          </button>
-        </div>
-
-      </section>
-
-      <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">已安装运行时</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
-
-        <div className="settings-entity-list">
-          {isLoadingExtensions ? (
-            <p className="summary-muted">正在加载运行时...</p>
-          ) : runtimeRecords.length === 0 ? (
-            <p className="summary-muted">尚未安装运行时。</p>
-          ) : (
-            runtimeRecords.map((runtime) => (
-              <article key={runtime.id} className="settings-entity-card">
-                <div className="settings-entity-main">
-                  <div className="settings-entity-title-row">
-                    <strong>{runtime.displayName || runtime.id}</strong>
-                    <div className="summary-bar">
-                      <span>{runtime.id}</span>
-                      <span>{runtime.type}</span>
-                      <span>{runtime.version || '未知版本'}</span>
-                      {runtime.isDefault ? <span>默认</span> : null}
-                    </div>
-                  </div>
-
-                  <p className="summary-muted">
-                    {runtime.executablePath
-                      ? `执行入口：${runtime.executablePath}`
-                      : '未识别到可执行入口'}
-                  </p>
-
-                  {runtime.testMessage ? (
-                    <p className="summary-muted">检测结果：{runtime.testMessage}</p>
-                  ) : null}
-                </div>
-
-                <div className="settings-entity-actions">
-                  <label className="toggle-row settings-inline-toggle">
-                    <span>启用</span>
-                    <input
-                      className="toggle-switch"
-                      type="checkbox"
-                      checked={runtime.enabled}
-                      onChange={(event) =>
-                        void handleSetRuntimeEnabled(runtime.id, event.target.checked)
-                      }
-                    />
-                  </label>
-
-                  <div className="settings-inline-buttons">
-                    <button
-                      type="button"
-                      className="tiny-button"
-                      onClick={() => void handleTestRuntime(runtime.id)}
-                    >
-                      检测
-                    </button>
-                    {runtime.type === 'python' || runtime.type === 'node' ? (
-                      <button
-                        type="button"
-                        className="tiny-button"
-                        onClick={() => void handleSetDefaultRuntime(runtime)}
-                      >
-                        设为默认
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="tiny-button danger-button"
-                      onClick={() => requestDeleteRuntime(runtime.id)}
-                    >
-                      删除
-                    </button>
-                  </div>
-                </div>
-              </article>
-            ))
-          )}
-        </div>
-      </section>
-    </>
+    <RuntimeSettings
+      runtimeArchiveInputRef={runtimeArchiveInputRef}
+      isInstallingRuntimeArchive={isInstallingRuntimeArchive}
+      isLoadingExtensions={isLoadingExtensions}
+      runtimeRecords={runtimeRecords}
+      onRefresh={() => void refreshExtensions(true)}
+      onSetEnabled={handleSetRuntimeEnabled}
+      onTest={handleTestRuntime}
+      onSetDefault={handleSetDefaultRuntime}
+      onDelete={requestDeleteRuntime}
+    />
   )
 
   const renderPermissionsSettings = () => (
-    <>
-      <section className="settings-section">
-        <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">权限管理</span>
-          <span className="conversation-group-dash" aria-hidden="true" />
-        </div>
-        <p className="summary-muted">
-          默认关闭。打开开关时才会向系统申请权限；关闭开关只会停止本应用使用该权限，不会撤销系统已授权。
-        </p>
-      </section>
-
-      <section className="settings-section">
-        <div className="field-grid">
-          {(Object.keys(PERMISSION_LABELS) as AppPermissionKey[]).map((key) => (
-            <label key={key} className="toggle-row">
-              <span>{PERMISSION_LABELS[key]}</span>
-              <input
-                className="toggle-switch"
-                type="checkbox"
-                checked={settings.permissionToggles[key]}
-                disabled={requestingPermissionByKey[key]}
-                onChange={(event) => {
-                  void handlePermissionToggle(key, event.target.checked)
-                }}
-              />
-            </label>
-          ))}
-        </div>
-      </section>
-    </>
+    <PermissionsSettings
+      permissionToggles={settings.permissionToggles}
+      requestingPermissionByKey={requestingPermissionByKey}
+      onToggle={handlePermissionToggle}
+    />
   )
 
   const renderSettingsPage = () => {
     const showBack = settingsView !== 'main'
-    const shouldAnimateSettingsView = settingsView !== 'main'
     let pageChrome = {
       eyebrow: 'Settings',
       title: '动话设置',
@@ -9640,78 +8986,18 @@ function App() {
     }
 
     return (
-      <section
-        ref={settingsPageRef}
-        className={`settings-page settings-page-view-${settingsView}`}
-        onScroll={(event) => {
-          settingsScrollByViewRef.current[settingsView] = event.currentTarget.scrollTop
-        }}
-      >
-        <div className={`settings-header settings-header-nav-only ${showBack ? 'is-back' : 'is-close'}`}>
-          <button
-            type="button"
-            className={`settings-nav-button ${showBack ? 'is-back' : 'is-close'}`}
-            aria-label={showBack ? '返回上一层设置' : '关闭设置'}
-            onClick={showBack ? handleSettingsBack : closeSettingsPanel}
-          >
-            {showBack ? (
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M14.75 6.75 9.5 12l5.25 5.25M10 12h8"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            ) : (
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <circle cx="12" cy="12" r="7.25" fill="none" stroke="currentColor" strokeWidth="1.8" />
-                <path
-                  d="m9.45 9.45 5.1 5.1m0-5.1-5.1 5.1"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                />
-              </svg>
-            )}
-          </button>
-        </div>
-
-        <div className="settings-page-shell">
-          {renderSettingsPageIntro(pageChrome)}
-          <div
-            key={settingsView}
-            className={`settings-view-content ${shouldAnimateSettingsView ? 'is-animated' : ''}`}
-          >
-            {settingsContent}
-          </div>
-        </div>
-      </section>
+      <SettingsScreen
+        settingsView={settingsView}
+        settingsPageRef={settingsPageRef}
+        pageChrome={pageChrome}
+        settingsContent={settingsContent}
+        showBack={showBack}
+        onScroll={onSettingsScroll}
+        onBack={handleSettingsBack}
+        onClose={closeSettingsPanel}
+      />
     )
   }
-
-  const homepageSendTransitionBackgroundStyle = homepageSendTransition?.cover
-    ? ({ '--homepage-transition-image': `url("${homepageSendTransition.cover.imageUrl}")` } as CSSProperties)
-    : undefined
-  const homepageSendTransitionShowcaseStyle = homepageSendTransition
-    ? ({
-        top: `${homepageSendTransition.showcaseRect.top}px`,
-        left: `${homepageSendTransition.showcaseRect.left}px`,
-        width: `${homepageSendTransition.showcaseRect.width}px`,
-        height: `${homepageSendTransition.showcaseRect.height}px`,
-      } as CSSProperties)
-    : undefined
-  const homepageSendTransitionSummaryStyle = homepageSendTransition?.summaryRect
-    ? ({
-        top: `${homepageSendTransition.summaryRect.top}px`,
-        left: `${homepageSendTransition.summaryRect.left}px`,
-        width: `${homepageSendTransition.summaryRect.width}px`,
-        height: `${homepageSendTransition.summaryRect.height}px`,
-      } as CSSProperties)
-    : undefined
 
   return (
     <div
@@ -9727,155 +9013,14 @@ function App() {
       {shouldShowChatBackground ? <div className="chat-active-background" aria-hidden="true" /> : null}
 
       {homepageSendTransition ? (
-        <div
-          className="homepage-send-transition-layer"
-          aria-hidden="true"
+        <HomepageSendTransition
+          transition={homepageSendTransition}
+          numberFormatter={numberFormatter}
           onAnimationEnd={() => setHomepageSendTransition(null)}
-        >
-          <div
-            className={`homepage-send-transition-background ${
-              homepageSendTransition.cover ? 'has-cover' : 'is-fallback'
-            }`}
-            style={homepageSendTransitionBackgroundStyle}
-          />
-          {homepageSendTransition.summaryRect ? (
-            <section
-              className="summary-bar chat-summary-bar homepage-send-transition-summary"
-              style={homepageSendTransitionSummaryStyle}
-            >
-              <span>轮次 {homepageSendTransition.summary.rounds}</span>
-              <span>输入 {numberFormatter.format(homepageSendTransition.summary.promptTokens)}</span>
-              <span>输出 {numberFormatter.format(homepageSendTransition.summary.completionTokens)}</span>
-              <span>总计 {numberFormatter.format(homepageSendTransition.summary.totalTokens)}</span>
-              {homepageSendTransition.summary.estimatedCount > 0 ? (
-                <span className="summary-muted">含 {homepageSendTransition.summary.estimatedCount} 条估算</span>
-              ) : null}
-            </section>
-          ) : null}
-          <div className="homepage-send-transition-showcase-shell" style={homepageSendTransitionShowcaseStyle}>
-            <NewConversationShowcase
-              cover={homepageSendTransition.cover}
-              highlightStats={homepageSendTransition.highlightStats}
-              responseModeLabel={homepageSendTransition.responseModeLabel}
-              className="is-transition-overlay"
-            />
-          </div>
-        </div>
+        />
       ) : null}
 
-      {titleTransition ? (
-        <div className="title-transition-layer" aria-hidden="true">
-          <div
-            className={`title-transition-title title-transition-title--display ${
-              titleTransition.playing ? 'is-playing' : ''
-            }`}
-            style={
-              {
-                '--title-start-left': `${titleTransition.titleStartRect.left}px`,
-                '--title-start-top': `${titleTransition.titleStartRect.top}px`,
-                '--title-start-width': `${titleTransition.titleStartRect.width}px`,
-                '--title-start-height': `${titleTransition.titleStartRect.height}px`,
-                '--title-end-left': `${titleTransition.titleEndRect.left}px`,
-                '--title-end-top': `${titleTransition.titleEndRect.top}px`,
-                '--title-end-width': `${titleTransition.titleEndRect.width}px`,
-                '--title-end-height': `${titleTransition.titleEndRect.height}px`,
-                '--title-start-opacity': titleTransition.phase === 'opening' ? 1 : 0,
-                '--title-end-opacity': titleTransition.phase === 'opening' ? 0 : 1,
-                '--title-content-start-scale': titleTransition.phase === 'opening' ? '1' : '0.988',
-                '--title-content-end-scale': titleTransition.phase === 'opening' ? '0.988' : '1',
-              } as CSSProperties
-            }
-          >
-            <span className="title-text title-transition-title-content homepage-title-text conversation-title-shell">
-              动话 · <em>{titleTransition.titleText}</em>
-            </span>
-          </div>
-
-          <div
-            className={`title-transition-title title-transition-title--editor ${
-              titleTransition.playing ? 'is-playing' : ''
-            }`}
-            style={
-              {
-                '--title-start-left': `${titleTransition.titleStartRect.left}px`,
-                '--title-start-top': `${titleTransition.titleStartRect.top}px`,
-                '--title-start-width': `${titleTransition.titleStartRect.width}px`,
-                '--title-start-height': `${titleTransition.titleStartRect.height}px`,
-                '--title-end-left': `${titleTransition.titleEndRect.left}px`,
-                '--title-end-top': `${titleTransition.titleEndRect.top}px`,
-                '--title-end-width': `${titleTransition.titleEndRect.width}px`,
-                '--title-end-height': `${titleTransition.titleEndRect.height}px`,
-                '--title-start-opacity': titleTransition.phase === 'opening' ? 0 : 1,
-                '--title-end-opacity': titleTransition.phase === 'opening' ? 1 : 0,
-                '--title-content-start-scale': titleTransition.phase === 'opening' ? '0.988' : '1',
-                '--title-content-end-scale': titleTransition.phase === 'opening' ? '1' : '0.988',
-              } as CSSProperties
-            }
-          >
-            <input
-              className="title-transition-input"
-              value={titleTransition.titleText}
-              readOnly
-              tabIndex={-1}
-              aria-hidden="true"
-            />
-          </div>
-
-          <div
-            className={`title-transition-pen ${titleTransition.playing ? 'is-playing' : ''}`}
-            style={
-              {
-                '--pen-start-left': `${titleTransition.penStartRect.left}px`,
-                '--pen-start-top': `${titleTransition.penStartRect.top}px`,
-                '--pen-start-width': `${titleTransition.penStartRect.width}px`,
-                '--pen-start-height': `${titleTransition.penStartRect.height}px`,
-                '--pen-end-left': `${titleTransition.penEndRect.left}px`,
-                '--pen-end-top': `${titleTransition.penEndRect.top}px`,
-                '--pen-end-width': `${titleTransition.penEndRect.width}px`,
-                '--pen-end-height': `${titleTransition.penEndRect.height}px`,
-                '--pen-start-opacity': titleTransition.phase === 'opening' ? 1 : 0,
-                '--pen-end-opacity': titleTransition.phase === 'opening' ? 0 : 1,
-              } as CSSProperties
-            }
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M5.5 16.9V19h2.1l8.1-8.1-2.1-2.1-8.1 8.1Zm9-9 2.1 2.1 1.2-1.2a1.5 1.5 0 0 0 0-2.1l-1.2-1.2a1.5 1.5 0 0 0-2.1 0L13.3 6.7l1.2 1.2Z"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
-
-          <div
-            className={`title-transition-actions ${titleTransition.playing ? 'is-playing' : ''}`}
-            style={
-              {
-                '--actions-start-left': `${titleTransition.actionsStartRect.left}px`,
-                '--actions-start-top': `${titleTransition.actionsStartRect.top}px`,
-                '--actions-start-width': `${titleTransition.actionsStartRect.width}px`,
-                '--actions-start-height': `${titleTransition.actionsStartRect.height}px`,
-                '--actions-end-left': `${titleTransition.actionsEndRect.left}px`,
-                '--actions-end-top': `${titleTransition.actionsEndRect.top}px`,
-                '--actions-end-width': `${titleTransition.actionsEndRect.width}px`,
-                '--actions-end-height': `${titleTransition.actionsEndRect.height}px`,
-                '--actions-start-opacity': titleTransition.phase === 'opening' ? 0 : 1,
-                '--actions-end-opacity': titleTransition.phase === 'opening' ? 1 : 0,
-              } as CSSProperties
-            }
-          >
-            <button type="button" className="tiny-button title-save-button" tabIndex={-1}>
-              保存
-            </button>
-            <button type="button" className="tiny-button title-cancel-button" tabIndex={-1}>
-              取消
-            </button>
-          </div>
-        </div>
-      ) : null}
+      {titleTransition ? <TitleTransition transition={titleTransition} /> : null}
 
       <div className="app-shell-content">
         <ChatHeader
@@ -10239,6 +9384,11 @@ function App() {
           <aside
             className="drawer-panel drawer-panel--editorial frosted-surface"
             onClick={(event) => event.stopPropagation()}
+            onTransitionEnd={(event) => {
+              if (!drawerVisible && event.target === event.currentTarget) {
+                useUIStore.getState().setDrawerVisibility(false, false)
+              }
+            }}
           >
             <div className="drawer-header drawer-header--editorial">
               <h2>动话</h2>
