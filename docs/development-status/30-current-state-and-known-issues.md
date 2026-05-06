@@ -1,3 +1,16 @@
+## Latest Composer Button Hover Light Mode Fix
+
+As of 2026-05-06:
+
+- composer control hover state (send button, model trigger, photo/camera icon buttons) no longer uses hardcoded dark-mode colors
+- hover now uses `--homepage-field-hover-{bg,color,border}` tokens defined in both light and dark mode blocks
+- light mode hover: subtle dark overlay (`rgba(22, 20, 18, 0.06)`) with dark text — matches App.css hover pattern
+- dark mode hover: unchanged (`rgba(14, 16, 24, 0.92)` background / light text)
+- changes in one file:
+  - `src/styles/app-editorial-redesign.css` — 6 lines added (tokens), 3 lines changed (hover rule)
+- validation:
+  - `npm run build` — passes
+
 ## Latest Homepage Cover Text & Composer Control Light Mode State
 
 As of 2026-05-06 (current session):

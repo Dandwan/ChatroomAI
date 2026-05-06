@@ -1,5 +1,31 @@
 # Handoff Log
 
+## 2026-05-06 18:00 +08:00 — Composer Button Hover Fix
+
+### Scope
+
+Fixed light mode bug: composer control buttons (model trigger, photo, camera, send) were turning near-black on hover/tap because the hover state used hardcoded dark-mode colors without a light-mode counterpart.
+
+### Root Cause
+
+`.composer.is-editorial-chat-shell .icon-button:hover` (and siblings) in `app-editorial-redesign.css` used hardcoded `rgba(14, 16, 24, 0.92)` background / `rgba(244, 247, 251, 0.92)` text — values that only look correct in dark mode. In light mode they made buttons turn black.
+
+### Fix
+
+Defined `--homepage-field-hover-{bg,color,border}` tokens in both the light mode (`.app-shell.chat-page-shell`) and dark mode (`:root[data-theme='dark'] .app-shell.chat-page-shell`) blocks, then referenced those tokens in the hover rule instead of hardcoded values.
+
+### Changes
+
+- `src/styles/app-editorial-redesign.css`: 6 lines added (3 light tokens + 3 dark tokens), 3 lines changed (hover rule)
+
+### Validation
+
+- `npm run build` — passes
+
+### Proposal Gate
+
+- Completed: presented plan, user confirmed
+
 # 2026-05-06 (current session)
 
 ### Scope
