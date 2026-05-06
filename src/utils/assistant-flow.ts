@@ -297,6 +297,119 @@ export const findAssistantFlowSkillNodeByToken = (
 ): AssistantFlowSkillNode | undefined =>
   flow?.find((node): node is AssistantFlowSkillNode => matchesScopedSkillNode(node, token, roundId))
 
+export const formatSkillStepStatus = (status: AssistantFlowSkillStatus): string => {
+  switch (status) {
+    case 'running':
+      return '进行中'
+    case 'success':
+      return '已完成'
+    case 'error':
+      return '失败'
+    default:
+      return status
+  }
+}
+
+const formatReadLocation = ({
+  root,
+  skill,
+  path,
+}: {
+  root?: 'skill' | 'workspace' | 'home' | 'absolute'
+  skill?: string
+  path?: string
+}): string => {
+  const normalizedPath = path?.trim()
+  if (root === 'workspace') {
+    return normalizedPath && normalizedPath !== '.'
+      ? `workspace / ${normalizedPath}`
+      : 'workspace'
+  }
+  if (root === 'skill') {
+    if (skill && normalizedPath && normalizedPath !== '.') {
+      return `${skill} / ${normalizedPath}`
+    }
+    if (skill) {
+      return skill
+    }
+  }
+  if (root === 'home') {
+    return normalizedPath && normalizedPath !== '.'
+      ? `home / ${normalizedPath}`
+      : 'home'
+  }
+  if (root === 'absolute') {
+    return normalizedPath && normalizedPath !== '.'
+      ? `root / ${normalizedPath}`
+      : 'root'
+  }
+  if (skill && normalizedPath) {
+    return `${skill} / ${normalizedPath}`
+  }
+  if (skill) {
+    return skill
+  }
+  return normalizedPath && normalizedPath !== '.' ? normalizedPath : '读取'
+}
+
+export const formatSkillStepTarget = (step: AssistantFlowSkillNode): string => {
+  if (step.actionKind === 'read') {
+    const location = formatReadLocation({
+      root: step.root,
+      skill: step.skill,
+      path: step.path,
+    })
+    return step.op ? `${location} / ${step.op}` : location
+  }
+  if (step.actionKind === 'run') {
+    const rootLabel =
+      step.root === 'skill'
+        ? step.skill
+          ? `skill / ${step.skill}`
+          : 'skill'
+        : step.root === 'workspace'
+          ? 'workspace'
+        : step.root === 'home'
+          ? 'home'
+        : step.root === 'absolute'
+            ? 'root'
+            : 'run'
+    if (step.command) {
+      return `${rootLabel} / ${step.command}`
+    }
+    if (step.script) {
+      return `${rootLabel} / ${step.script}`
+    }
+    if (step.cwd) {
+      return `${rootLabel} / ${step.cwd}`
+    }
+    return rootLabel
+  }
+  if (step.actionKind === 'edit') {
+    const rootLabel =
+      step.root === 'workspace'
+        ? 'workspace'
+        : step.root === 'home'
+          ? 'home'
+          : step.root === 'absolute'
+            ? 'root'
+            : 'edit'
+    if (step.path) {
+      return `${rootLabel} / ${step.path}`
+    }
+    return rootLabel
+  }
+  if (step.actionKind === 'skill_call') {
+    if (step.skill && step.script) {
+      return `${step.skill} / ${step.script}`
+    }
+    if (step.skill) {
+      return step.skill
+    }
+  }
+  return '技能调用'
+}
+
 export const clearAssistantFlowRound = (
   previous: AssistantFlowNode[] | undefined,
   roundId: string,
