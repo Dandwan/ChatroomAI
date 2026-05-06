@@ -46,9 +46,9 @@
   --homepage-field-radius: 4px;
   --homepage-field-border: rgba(22, 20, 18, 0.12);
   --homepage-field-bg: rgba(255, 252, 246, 0.88);
-  --homepage-field-hover-bg: rgba(22, 20, 18, 0.06);
+  --homepage-field-hover-bg: rgba(238, 230, 218, 0.94);
   --homepage-field-hover-color: #161412;
-  --homepage-field-hover-border: rgba(22, 20, 18, 0.18);
+  --homepage-field-hover-border: rgba(22, 20, 18, 0.22);
   --homepage-footer-safe-bottom: env(safe-area-inset-bottom);
   --homepage-footer-dock-height: calc(
     var(--homepage-composer-row-height) +
