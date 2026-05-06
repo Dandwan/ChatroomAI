@@ -46,6 +46,9 @@
   --homepage-field-radius: 4px;
   --homepage-field-border: rgba(22, 20, 18, 0.12);
   --homepage-field-bg: rgba(255, 252, 246, 0.88);
+  --homepage-field-hover-bg: rgba(22, 20, 18, 0.06);
+  --homepage-field-hover-color: #161412;
+  --homepage-field-hover-border: rgba(22, 20, 18, 0.18);
   --homepage-footer-safe-bottom: env(safe-area-inset-bottom);
   --homepage-footer-dock-height: calc(
     var(--homepage-composer-row-height) +
@@ -79,6 +82,9 @@
   --chat-summary-pill-color: rgba(244, 247, 251, 0.78);
   --homepage-field-border: rgba(244, 247, 251, 0.12);
   --homepage-field-bg: rgba(10, 12, 18, 0.88);
+  --homepage-field-hover-bg: rgba(14, 16, 24, 0.92);
+  --homepage-field-hover-color: rgba(244, 247, 251, 0.92);
+  --homepage-field-hover-border: rgba(244, 247, 251, 0.2);
 }
 
 .app-shell.chat-page-shell .chat-header-pill {
@@ -1034,9 +1040,9 @@
 .composer.is-editorial-chat-shell .composer-send-button:hover,
 .composer.is-editorial-chat-shell .composer-model-trigger:hover {
   transform: none;
-  background: rgba(14, 16, 24, 0.92);
-  color: rgba(244, 247, 251, 0.92);
-  border-color: rgba(244, 247, 251, 0.2);
+  background: var(--homepage-field-hover-bg);
+  color: var(--homepage-field-hover-color);
+  border-color: var(--homepage-field-hover-border);
 }
 
 .drawer-header h2,
