@@ -1,3 +1,16 @@
+## Latest Homepage Cover Text & Composer Control Light Mode State
+
+As of 2026-05-06 (current session):
+
+- `cover-empty-state` text (new conversation page center screen) now uses hardcoded light/white values instead of theme-dependent `--settings-text-*` tokens, so text stays white on the always-dark cover background regardless of light/dark mode
+- composer controls (input box, send button, model trigger, image/camera icon buttons) now use hardcoded dark background/border values (`rgba(10, 12, 18, 0.88)` / `rgba(244, 247, 251, 0.12)`) instead of theme-dependent `--homepage-field-*` tokens, making controls appear black in light mode
+- dark mode visually unchanged — all hardcoded values match what the tokens resolved to in dark mode
+- placeholder and hover text colors also changed from `--settings-text-*` tokens to hardcoded light values for consistent dark-background rendering
+- changes in one file:
+  - `src/styles/app-editorial-redesign.css` — 12 color references changed (6 cover-empty-state + 6 composer)
+- validation:
+  - `npm run build` — passes
+
 ## Latest Light Mode Color State
 
 As of 2026-05-06 (16:13 +08:00):
