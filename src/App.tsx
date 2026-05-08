@@ -83,6 +83,7 @@ import {
   DEFAULT_RUN_SYSTEM_PROMPT,
   DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT,
   migrateLegacyTagSystemPrompts,
+  migratePromptVersions,
 } from './services/skills/default-system-prompts'
 import {
   DEFAULT_INFO_PROMPT_SETTINGS,
@@ -589,6 +590,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   editSystemPrompt: DEFAULT_EDIT_SYSTEM_PROMPT,
   ...DEFAULT_INFO_PROMPT_SETTINGS,
   deprecatedTagPrompts: '',
+  promptVersions: {},
   themeMode: 'system',
   defaultResponseMode: DEFAULT_RESPONSE_MODE,
   temperature: 0.7,
@@ -1767,7 +1769,7 @@ const loadSettings = (): AppSettings => {
         })
       : deprecatedTagPrompts
 
-    return ensureValidCurrentModelSelection({
+    const assembled = ensureValidCurrentModelSelection({
       systemPrompt:
         typeof parsed.systemPrompt === 'string' ? parsed.systemPrompt : DEFAULT_SETTINGS.systemPrompt,
       topLevelTagSystemPrompt:
@@ -1787,6 +1789,15 @@ const loadSettings = (): AppSettings => {
           ? parsed.workspaceInfoPromptEnabled
           : DEFAULT_SETTINGS.workspaceInfoPromptEnabled,
       deprecatedTagPrompts: nextDeprecatedTagPrompts,
+      promptVersions: (
+        isRecord(parsed.promptVersions)
+          ? Object.fromEntries(
+              Object.entries(parsed.promptVersions).filter(
+                ([, v]) => typeof v === 'number',
+              ),
+            )
+          : {}
+      ) as Record<string, number>,
       themeMode: normalizeThemeMode(parsed.themeMode),
       defaultResponseMode,
       temperature:
@@ -1844,6 +1855,11 @@ const loadSettings = (): AppSettings => {
       permissionToggles: normalizePermissionToggles(parsed.permissionToggles),
       dailyCover: normalizeDailyCoverSettings(parsed.dailyCover),
     })
+    const migrated = migratePromptVersions(
+      assembled as unknown as Record<string, unknown>,
+      PROMPT_DEFAULTS,
+    )
+    return migrated.settings as unknown as AppSettings
   } catch {
     return createDefaultSettings()
   }

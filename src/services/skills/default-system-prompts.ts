@@ -1,3 +1,5 @@
+import type { GlobalPromptSettingKey } from '../../state/types'
+
 const PREVIOUS_DEFAULT_GENERAL_TAG_SYSTEM_PROMPT_SNAPSHOT = `
 你正在一个支持工具动作的聊天运行时中工作。你必须遵循以下规则：
 
@@ -370,6 +372,78 @@ export const DEFAULT_READ_SYSTEM_PROMPT = `
 export const DEFAULT_RUN_SYSTEM_PROMPT = RUN_PROMPT_BODY
 export const DEFAULT_EDIT_SYSTEM_PROMPT = EDIT_PROMPT_BODY
 export const DEFAULT_SKILL_CALL_SYSTEM_PROMPT = DEFAULT_RUN_SYSTEM_PROMPT
+
+export const PROMPT_VERSIONS: Record<GlobalPromptSettingKey, number> = {
+  systemPrompt: 1,
+  topLevelTagSystemPrompt: 1,
+  generalTagSystemPrompt: 1,
+  readSystemPrompt: 1,
+  skillCallSystemPrompt: 1,
+  editSystemPrompt: 1,
+}
+
+/**
+ * Snapshots of what each default prompt looked like at its previous version.
+ * When bumping a prompt version from N to N+1, store the version-N default here
+ * so the migration can detect whether the user modified it.
+ */
+export const PROMPT_PREVIOUS_VERSION_DEFAULTS: Partial<Record<GlobalPromptSettingKey, string>> = {}
+
+export interface MigratePromptVersionsResult {
+  settings: Record<string, unknown>
+  updatedKeys: GlobalPromptSettingKey[]
+}
+
+export const migratePromptVersions = (
+  settings: Record<string, unknown>,
+  promptDefaults: Record<GlobalPromptSettingKey, string>,
+): MigratePromptVersionsResult => {
+  const storedVersions: Record<string, unknown> =
+    isRecord(settings.promptVersions) ? { ...settings.promptVersions } : {}
+
+  const updatedSettings = { ...settings }
+  const updatedKeys: GlobalPromptSettingKey[] = []
+
+  const promptKeys: GlobalPromptSettingKey[] = [
+    'systemPrompt',
+    'topLevelTagSystemPrompt',
+    'generalTagSystemPrompt',
+    'readSystemPrompt',
+    'skillCallSystemPrompt',
+    'editSystemPrompt',
+  ]
+
+  for (const key of promptKeys) {
+    const storedVersion =
+      typeof storedVersions[key] === 'number' ? (storedVersions[key] as number) : 0
+    const currentVersion = PROMPT_VERSIONS[key]
+
+    if (storedVersion >= currentVersion) {
+      continue
+    }
+
+    const previousDefault = PROMPT_PREVIOUS_VERSION_DEFAULTS[key]
+    const storedText =
+      typeof settings[key] === 'string' ? (settings[key] as string) : ''
+
+    if (
+      previousDefault !== undefined &&
+      storedText.trim() === previousDefault.trim()
+    ) {
+      updatedSettings[key] = promptDefaults[key]
+      updatedKeys.push(key)
+    }
+
+    storedVersions[key] = currentVersion
+  }
+
+  updatedSettings.promptVersions = storedVersions
+
+  return { settings: updatedSettings, updatedKeys }
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 export interface LegacyTagSystemPromptMigrationResult {
   topLevelTagSystemPrompt: string

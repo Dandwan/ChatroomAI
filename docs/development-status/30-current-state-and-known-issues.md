@@ -1,3 +1,25 @@
+## Latest Default Prompt Versioning State
+
+As of 2026-05-08:
+
+- each of the 6 prompt fields (`systemPrompt`, `topLevelTagSystemPrompt`, `generalTagSystemPrompt`, `readSystemPrompt`, `skillCallSystemPrompt`, `editSystemPrompt`) now carries a version number stored in `AppSettings.promptVersions`
+- current versions all start at `1` (`PROMPT_VERSIONS` in `default-system-prompts.ts`)
+- on settings load, `migratePromptVersions()` compares stored version vs current version:
+  - if stored < current and text matches the previous default → auto-update to new default
+  - if stored < current and text differs → user modified, keep their text
+  - version is always bumped to current after check
+- `PROMPT_PREVIOUS_VERSION_DEFAULTS` is initially empty; when a default text changes, store the old default there before bumping the version number
+- the existing `migrateLegacyTagSystemPrompts()` format migration still runs first, before the version-based migration
+- changes in three files:
+  - `src/state/types.ts` — `promptVersions` field on `AppSettings`
+  - `src/services/skills/default-system-prompts.ts` — version constants + `migratePromptVersions()`
+  - `src/App.tsx` — `DEFAULT_SETTINGS` + `loadSettings()` integration
+- validation:
+  - `npx tsc -b` — zero errors
+  - `npx vitest run` — 23/23 tests pass
+  - `npm run build` — passes
+  - `npx eslint . --quiet` — zero warnings
+
 ## Latest Composer Button Hover Light Mode Fix
 
 As of 2026-05-06:
