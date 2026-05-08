@@ -390,6 +390,32 @@ const editableFileExists = async (
   return (await nativeStatAbsolutePath(path).catch(() => null)) !== null
 }
 
+const resolveReadOp = async (
+  root: ReadAction['root'],
+  conversationId: string,
+  skill: string | undefined,
+  path: string | undefined,
+): Promise<'list' | 'read'> => {
+  if (root === 'skill') {
+    if (!skill || !path) return 'list'
+    const stat = await statSkillPath(skill, path).catch(() => null)
+    return stat?.entryType === 'directory' ? 'list' : 'read'
+  }
+  if (root === 'workspace') {
+    if (!path) return 'list'
+    const stat = await statConversationWorkspacePath(conversationId, path).catch(() => null)
+    return stat?.entryType === 'directory' ? 'list' : 'read'
+  }
+  if (root === 'home') {
+    if (!path) return 'list'
+    const stat = await statHomePath(path).catch(() => null)
+    return stat?.entryType === 'directory' ? 'list' : 'read'
+  }
+  if (!path) return 'list'
+  const stat = await nativeStatAbsolutePath(normalizeAbsolutePath(path)).catch(() => null)
+  return stat?.entryType === 'directory' ? 'list' : 'read'
+}
+
 export const executeReadAction = async (
   action: ReadAction,
   conversationId: string,
@@ -402,18 +428,24 @@ export const executeReadAction = async (
   ) {
     throw new Error('read 缺少合法 root')
   }
-  if (action.op !== 'list' && action.op !== 'read' && action.op !== 'stat') {
-    throw new Error('read 缺少合法 op')
-  }
   if (action.root === 'skill' && !action.skill?.trim()) {
     throw new Error('read 在 skill root 下缺少 skill id')
   }
-  if ((action.op === 'read' || action.op === 'stat') && !action.path?.trim()) {
-    throw new Error(`read 在 ${action.op} 操作下缺少 path`)
+
+  const effectiveOp = action.op ?? (await resolveReadOp(action.root, conversationId, action.skill, action.path))
+
+  if (effectiveOp !== 'list' && effectiveOp !== 'read' && effectiveOp !== 'stat') {
+    throw new Error('read 缺少合法 op')
+  }
+  if ((effectiveOp === 'read' || effectiveOp === 'stat') && !action.path?.trim()) {
+    throw new Error(`read 在 ${effectiveOp} 操作下缺少 path`)
+  }
+  if (effectiveOp === 'list' && action.startLine !== undefined) {
+    throw new Error('目录列表不支持 startLine/endLine')
   }
 
   if (action.root === 'skill') {
-    if (action.op === 'list') {
+    if (effectiveOp === 'list') {
       const result = await listSkillDirectory(action.skill!, action.path, action.depth)
       return {
         kind: 'list',
@@ -426,7 +458,7 @@ export const executeReadAction = async (
       }
     }
 
-    if (action.op === 'stat') {
+    if (effectiveOp === 'stat') {
       const result = await statSkillPath(action.skill!, action.path!)
       return {
         kind: 'stat',
@@ -444,7 +476,7 @@ export const executeReadAction = async (
   }
 
   if (action.root === 'workspace') {
-    if (action.op === 'list') {
+    if (effectiveOp === 'list') {
       const result = await listConversationWorkspace(conversationId, action.path, action.depth)
       return {
         kind: 'list',
@@ -456,7 +488,7 @@ export const executeReadAction = async (
       }
     }
 
-    if (action.op === 'stat') {
+    if (effectiveOp === 'stat') {
       const result = await statConversationWorkspacePath(conversationId, action.path!)
       return {
         kind: 'stat',
@@ -473,7 +505,7 @@ export const executeReadAction = async (
   }
 
   if (action.root === 'home') {
-    if (action.op === 'list') {
+    if (effectiveOp === 'list') {
       const result = await listHomeDirectory(action.path, action.depth)
       return {
         kind: 'list',
@@ -485,7 +517,7 @@ export const executeReadAction = async (
       }
     }
 
-    if (action.op === 'stat') {
+    if (effectiveOp === 'stat') {
       const result = await statHomePath(action.path!)
       return {
         kind: 'stat',
@@ -501,7 +533,7 @@ export const executeReadAction = async (
     return buildReadTextResult(action, file.path, file.content)
   }
 
-  if (action.op === 'list') {
+  if (effectiveOp === 'list') {
     const absolutePath = normalizeAbsolutePath(action.path) || '/'
     const safeDepth = sanitizeReadDepth(action.depth)
     const result = await enumerateAbsoluteDirectory(absolutePath, safeDepth)
@@ -515,7 +547,7 @@ export const executeReadAction = async (
     }
   }
 
-  if (action.op === 'stat') {
+  if (effectiveOp === 'stat') {
     const absolutePath = normalizeAbsolutePath(action.path)
     if (!absolutePath) {
       throw new Error('read 在 stat 操作下缺少 root 绝对路径')

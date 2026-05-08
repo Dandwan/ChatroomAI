@@ -293,6 +293,49 @@ const parseDependencyNames = (entry) => {
   return dependencies
 }
 
+const fetchJson = async (url) => {
+  const response = await fetch(url)
+  if (!response.ok) {
+    throw new Error(`Failed to fetch ${url}: ${response.status}`)
+  }
+  return response.json()
+}
+
+const downloadSupplementalWheels = async (wheelCacheDir) => {
+  await mkdir(wheelCacheDir, { recursive: true })
+  const downloaded = []
+
+  for (const spec of SUPPLEMENTAL_WHEEL_SPECS) {
+    const existing = (await readdir(wheelCacheDir))
+      .filter((name) => name.endsWith('.whl'))
+      .filter((name) => spec.prefixes.some((prefix) => name.startsWith(prefix)))
+    if (existing.length > 0) {
+      downloaded.push(existing[0])
+      continue
+    }
+    if (spec.required === false) {
+      continue
+    }
+
+    const data = await fetchJson(`https://pypi.org/pypi/${spec.id}/json`)
+    const wheel = data.urls?.find(
+      (entry) =>
+        entry.packagetype === 'bdist_wheel' &&
+        /-none-any\.whl$/.test(entry.filename) &&
+        spec.prefixes.some((prefix) => entry.filename.startsWith(prefix)),
+    )
+    if (!wheel) {
+      throw new Error(`No pure-Python wheel found for ${spec.id} on PyPI`)
+    }
+
+    console.log(`Downloading wheel ${wheel.filename} from PyPI...`)
+    await fetchFile(wheel.url, join(wheelCacheDir, wheel.filename))
+    downloaded.push(wheel.filename)
+  }
+
+  return downloaded
+}
+
 const copyResolvedFile = async (source, destination) => {
   const sourceLinkStat = await lstat(source)
   if (sourceLinkStat.isSymbolicLink()) {
@@ -850,6 +893,10 @@ const main = async () => {
     const pythonLibVersion = await detectPythonLibVersion(runtimeLibDir)
     const pythonVersion = readPythonVersionFromStdlib(pythonLibVersion)
     const pythonLibDir = join(runtimeLibDir, pythonLibVersion)
+
+    if (!offline) {
+      await downloadSupplementalWheels(wheelCacheDir)
+    }
     const supplementalWheels = await installSupplementalWheels({
       wheelCacheDir,
       pythonLibDir,

@@ -39,6 +39,7 @@ interface ExecuteProcessOptions extends SkillExecutionRequest {
 interface ExecuteRunOptions {
   sessionId: string
   session?: string
+  conversationId: string
   workingDirectoryPath: string
   waitMs?: number
   stdin?: string

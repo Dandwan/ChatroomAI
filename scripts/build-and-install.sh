@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+SKIP_RUNTIME_PACKAGE="${SKIP_RUNTIME_PACKAGE:-false}"
+
+cd "$PROJECT_DIR"
+
+echo "==> 同步 union-search skill..."
+npm run skill:sync:union-search
+
+# ============================================================
+# 打包内置运行时（Node.js / Python）→ public/runtime-packages/
+# 这样 vite build 会将其复制到 dist/，最终打包进 APK
+# 可通过 SKIP_RUNTIME_PACKAGE=true 跳过（用 public/ 中已有包）
+# ============================================================
+if [ "$SKIP_RUNTIME_PACKAGE" = "true" ]; then
+  echo "==> [跳过] 跳过运行时打包 (SKIP_RUNTIME_PACKAGE=true)"
+else
+  echo "==> 打包 Node.js 运行时..."
+  NODE_OPTIONS="${NODE_OPTIONS:-} --use-system-ca" \
+    npm run runtime:package:node -- --output-dir public/runtime-packages || {
+    echo "  ⚠ Node.js 运行时打包失败（使用已有包继续）"
+  }
+
+  echo "==> 打包 Python 运行时..."
+  NODE_OPTIONS="${NODE_OPTIONS:-} --use-system-ca" \
+    npm run runtime:package:python -- --output-dir public/runtime-packages || {
+    echo "  ⚠ Python 运行时打包失败（使用已有包继续）"
+  }
+
+  echo "==> 运行时打包完成"
+fi
+
+# ============================================================
+# 构建 Android debug APK
+# ============================================================
+echo "==> 构建 Android debug APK..."
+npm run android:build:debug
+
+APK="$PROJECT_DIR/android/app/build/outputs/apk/debug/app-debug.apk"
+
+if [ ! -f "$APK" ]; then
+  echo "ERROR: APK 未找到: $APK"
+  exit 1
+fi
+
+# ============================================================
+# 检测设备并安装
+# ============================================================
+DEVICES=$(adb devices | tail -n +2 | grep -v '^$' | awk '{print $1}')
+
+if [ -z "$DEVICES" ]; then
+  echo "ERROR: 没有找到已连接的 Android 设备"
+  exit 1
+fi
+
+DEVICE_COUNT=$(echo "$DEVICES" | wc -l)
+
+if [ "$DEVICE_COUNT" -eq 1 ]; then
+  TARGET=$(echo "$DEVICES" | head -1)
+else
+  # Prefer physical device over emulator
+  PHYSICAL=$(echo "$DEVICES" | grep -v 'emulator' | head -1)
+  if [ -n "$PHYSICAL" ]; then
+    TARGET="$PHYSICAL"
+    echo "==> 检测到多个设备，默认选择物理设备: $TARGET"
+  else
+    TARGET=$(echo "$DEVICES" | head -1)
+    echo "==> 检测到多个模拟器，默认选择: $TARGET"
+  fi
+fi
+
+echo "==> 安装到设备: $TARGET"
+adb -s "$TARGET" install -r "$APK"
+
+echo "==> 完成!"

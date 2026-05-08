@@ -485,7 +485,7 @@
 }
 
 :root[data-theme='dark'] .chat-page-shell.has-active-messages .message-card.user {
-  border-color: var(--settings-line-strong);
+  border-color: rgba(244, 239, 231, 0.14);
   background: rgba(255, 255, 255, 0.04);
 }
 
@@ -516,7 +516,7 @@
 }
 
 :root[data-theme='dark'] .chat-page-shell.has-active-messages .message-action-button {
-  border-color: var(--settings-line-strong);
+  border-color: rgba(244, 239, 231, 0.14);
   color: var(--settings-text-emphasis);
 }
 
@@ -850,7 +850,7 @@
 }
 
 :root[data-theme='dark'] .homepage-model-popover .model-option {
-  border-top-color: var(--settings-line-color);
+  border-top-color: rgba(244, 239, 231, 0.08);
   color: var(--settings-text-emphasis);
 }
 :root[data-theme='dark'] .homepage-model-popover .model-option:first-of-type {
@@ -1108,7 +1108,7 @@
 }
 
 :root[data-theme='dark'] .conversation-item {
-  border-top-color: var(--settings-line-color);
+  border-top-color: rgba(244, 239, 231, 0.08);
 }
 
 :root[data-theme='dark'] .conversation-item:hover {
@@ -1145,7 +1145,7 @@
 }
 
 :root[data-theme='dark'] .drawer-footer {
-  border-top-color: var(--settings-line-color);
+  border-top-color: rgba(244, 239, 231, 0.08);
 }
 
 .drawer-footer .drawer-action-button {
@@ -1262,7 +1262,7 @@
 }
 
 :root[data-theme='dark'] .drawer-conversation-item {
-  border-top-color: var(--settings-line-color);
+  border-top-color: rgba(244, 239, 231, 0.08);
 }
 
 :root[data-theme='dark'] .drawer-conversation-item:hover {

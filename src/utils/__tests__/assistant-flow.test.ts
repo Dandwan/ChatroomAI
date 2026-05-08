@@ -17,14 +17,13 @@ describe('formatSkillStepStatus', () => {
 })
 
 describe('formatSkillStepTarget', () => {
-  it('formats read action with path and op', () => {
+  it('formats read action with path', () => {
     expect(formatSkillStepTarget({
       ...baseStep,
       actionKind: 'read',
       root: 'workspace',
       path: 'src/file.ts',
-      op: 'read',
-    })).toBe('workspace / src/file.ts / read')
+    })).toBe('workspace / src/file.ts')
   })
 
   it('formats read action as workspace root', () => {

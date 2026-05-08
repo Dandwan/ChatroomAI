@@ -5,7 +5,7 @@
 ActiChat (`动话`, formerly `ChatroomAI`) is a hybrid web + Android chat application. The web UI is built with React/Vite, then packaged into Android with Capacitor. The app combines:
 
 - multi-provider LLM chat
-- a tag-based host protocol (`<progress>`, `<final>`, `<read>`, `<run>`, `<edit>`)
+- a tag-based host protocol (`<progress>`, `<final>`, `<read>`, `<run>`, `<edit>`) with env var path resolution (`$skill/<name>`, `$workspace`, `$home`)
 - built-in skill directories and runtime packages
 - conversation persistence, workspace storage, and inline host execution logs
 

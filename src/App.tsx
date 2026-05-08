@@ -74,7 +74,8 @@ import {
   normalizeSkillAgentProtocolResponse,
   type SkillActionStreamEvent,
 } from './services/skills/protocol'
-import { toExternalActionLocation } from './services/skills/action-location'
+import { buildEnvVarPath } from './services/skills/action-location'
+import type { InternalActionLocation } from './services/skills/action-location'
 import {
   DEFAULT_EDIT_SYSTEM_PROMPT,
   DEFAULT_GENERAL_TAG_SYSTEM_PROMPT,
@@ -575,13 +576,11 @@ const DEFAULT_PERMISSION_TOGGLES: PermissionToggles = {
 
 const DEFAULT_SETTINGS: AppSettings = {
   systemPrompt: `
-1.你是一名猫娘小助手，你应该用尽可能温和有感情的方式回应主人，你需要扮演与主人在现实中互动，而不是程序或语言模型，也不受程序或语言模型的限制。
-2.猫娘不知道程序或模型是什么，不能以任何形式提及程序或语言模型相关内容。
-3.交流时不同话题尽量不使用相似句式回复。
-4.你在任何时候都必须扮演一只真正的猫娘，不能以任何形式表示你在扮演猫娘。不能以任何形式表现你是程序
-5.你的主人不喜欢被欺骗，请你以最真实最可靠的方式回应主人，以可靠的信息来源进行回答。如果信息来源不够可靠，你需要反复搜索验证，直到找到可靠来源或者放弃寻找并如实告诉主人。你猜测和推测出的答案要明确告知主人是猜测还是推测得来的。
-6.你可以在每一段话后面添加一个可爱的颜文字，来增进与主人的互动。尽量避免使用上文较近位置出现过的颜文字，尝试更多可爱的颜文字。
-7.使用latex输出数学公式
+1. 使用 LaTeX 输出数学公式。
+2. 以真实可靠的信息回答问题：
+   - 对于需要最新信息或超出训练数据的问题，主动搜索验证，不依赖可能过时的训练数据作答。
+   - 搜索到的信息来源不够可靠时，反复搜索验证（最多 2-3 次），仍不可靠则放弃寻找并如实说明情况。
+   - 通过猜测和推测得到的信息，需明确标注为「推测」或「猜测」。
   `.trim(),
   topLevelTagSystemPrompt: DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT,
   generalTagSystemPrompt: DEFAULT_GENERAL_TAG_SYSTEM_PROMPT,
@@ -1201,44 +1200,28 @@ const estimateUsage = (promptMessages: ApiMessage[], responseText: string): Toke
   }
 }
 
-const buildActionLocationField = (
-  root?: 'skill' | 'workspace' | 'home' | 'absolute',
-): {
-  location?: ReturnType<typeof toExternalActionLocation>
-} => ({
-  ...(root ? { location: toExternalActionLocation(root) } : {}),
-})
-
 const serializeReadActionForHost = (
-  action: Pick<ReadAction, 'root' | 'op' | 'skill' | 'path' | 'depth' | 'startLine' | 'endLine'>,
+  action: Pick<ReadAction, 'root' | 'skill' | 'path' | 'depth' | 'startLine' | 'endLine'>,
 ): Record<string, unknown> => ({
-  ...buildActionLocationField(action.root),
-  op: action.op,
-  ...(action.skill ? { skill: action.skill } : {}),
-  ...(action.path ? { path: action.path } : {}),
+  ...(action.path !== undefined ? { path: buildEnvVarPath(action.root, action.skill, action.path) } : {}),
   ...(action.depth !== undefined ? { depth: action.depth } : {}),
   ...(action.startLine !== undefined ? { startLine: action.startLine } : {}),
   ...(action.endLine !== undefined ? { endLine: action.endLine } : {}),
 })
 
 const resolveReadActionDisplayPath = (
-  action: Pick<ReadAction, 'root' | 'op' | 'path'>,
+  action: Pick<ReadAction, 'root' | 'path'>,
 ): string | undefined => {
   const normalizedPath = action.path?.trim()
   if (normalizedPath) {
     return normalizedPath
-  }
-  if (action.op === 'list') {
-    return action.root === 'absolute' ? '/' : '.'
   }
   return undefined
 }
 
 const serializeReadResultForHost = (payload: ReadExecutionResult): Record<string, unknown> => ({
   kind: payload.kind,
-  ...buildActionLocationField(payload.root),
-  ...(payload.skill ? { skill: payload.skill } : {}),
-  path: payload.path,
+  path: buildEnvVarPath(payload.root, 'skill' in payload ? payload.skill : undefined, payload.path),
   ...(payload.kind === 'list'
     ? {
         depth: payload.depth,
@@ -1260,12 +1243,9 @@ const serializeReadResultForHost = (payload: ReadExecutionResult): Record<string
 })
 
 const serializeRunActionForHost = (
-  action: Pick<RunAction, 'id' | 'root' | 'skill' | 'cwd' | 'command' | 'session' | 'waitMs'>,
+  action: Pick<RunAction, 'id' | 'root' | 'skill' | 'command' | 'session' | 'waitMs'>,
 ): Record<string, unknown> => ({
-  id: action.id,
-  ...buildActionLocationField(action.root),
-  ...(action.skill ? { skill: action.skill } : {}),
-  ...(action.cwd ? { cwd: action.cwd } : {}),
+  ...(action.id ? { id: action.id } : {}),
   ...(action.command ? { command: action.command } : {}),
   ...(action.session ? { session: action.session } : {}),
   ...(action.waitMs !== undefined ? { waitMs: action.waitMs } : {}),
@@ -1274,8 +1254,7 @@ const serializeRunActionForHost = (
 const serializeEditActionForHost = (
   action: Pick<EditAction, 'root' | 'path' | 'createIfMissing' | 'previewContextLines' | 'edits'>,
 ): Record<string, unknown> => ({
-  ...buildActionLocationField(action.root),
-  path: action.path,
+  path: buildEnvVarPath(action.root, undefined, action.path),
   ...(action.createIfMissing ? { createIfMissing: true } : {}),
   ...(action.previewContextLines !== undefined ? { previewContextLines: action.previewContextLines } : {}),
   edits: action.edits,
@@ -1283,8 +1262,7 @@ const serializeEditActionForHost = (
 
 const serializeEditResultForHost = (payload: EditExecutionResult): Record<string, unknown> => ({
   kind: payload.kind,
-  ...buildActionLocationField(payload.root),
-  path: payload.path,
+  path: buildEnvVarPath(payload.root, undefined, payload.path),
   created: payload.created,
   lineCountBefore: payload.lineCountBefore,
   lineCountAfter: payload.lineCountAfter,
@@ -1370,9 +1348,6 @@ const parseActionExecutionPayload = (
     action.kind === 'run'
       ? {
           id: action.id,
-          ...buildActionLocationField(action.root),
-          skill: action.skill,
-          cwd: action.cwd,
           command: action.command,
           session: action.session,
         }
@@ -4051,24 +4026,20 @@ function App() {
       preview: SkillActionStreamEvent['preview'],
       error?: string,
     ): string => {
+      const previewRoot: InternalActionLocation | undefined =
+        preview.root === 'skill' || preview.root === 'workspace' || preview.root === 'home' || preview.root === 'absolute'
+          ? preview.root
+          : undefined
+      const effectivePath = preview.path !== undefined && previewRoot !== undefined
+        ? buildEnvVarPath(previewRoot, preview.skill, preview.path)
+        : undefined
       const payload = compactActionPreviewPayload({
         tag,
         id: preview.id,
-        location: toExternalActionLocation(
-          preview.root === 'skill' ||
-            preview.root === 'workspace' ||
-            preview.root === 'home' ||
-            preview.root === 'absolute'
-            ? preview.root
-            : undefined,
-        ),
-        op: preview.op,
-        skill: preview.skill,
-        path: preview.path,
+        ...(effectivePath !== undefined ? { path: effectivePath } : {}),
         depth: preview.depth,
         startLine: preview.startLine,
         endLine: preview.endLine,
-        cwd: preview.cwd,
         command: preview.command,
         session: preview.session,
         waitMs: preview.waitMs,
@@ -4103,13 +4074,11 @@ function App() {
         actionKind?: SkillStepKind
         status?: 'running' | 'success' | 'error'
         root?: 'skill' | 'workspace' | 'home' | 'absolute'
-        op?: 'list' | 'read' | 'stat'
         skill?: string
         path?: string
         depth?: number
         startLine?: number
         endLine?: number
-        cwd?: string
         command?: string
         session?: string
         script?: string
@@ -4222,11 +4191,6 @@ function App() {
                   preview.root === 'absolute'))
                 ? preview.root
                 : undefined,
-            op:
-              eventKind === 'read' &&
-              (preview.op === 'list' || preview.op === 'read' || preview.op === 'stat')
-                ? preview.op
-                : undefined,
             skill:
               typeof preview.skill === 'string' && preview.skill.trim()
                 ? preview.skill
@@ -4243,7 +4207,6 @@ function App() {
             depth: eventKind === 'read' ? preview.depth : undefined,
             startLine: eventKind === 'read' ? preview.startLine : undefined,
             endLine: eventKind === 'read' ? preview.endLine : undefined,
-            cwd: eventKind === 'run' && typeof preview.cwd === 'string' ? preview.cwd : undefined,
             command:
               eventKind === 'run' && typeof preview.command === 'string' ? preview.command : undefined,
             session:
@@ -4576,10 +4539,7 @@ function App() {
             action.kind === 'read'
               ? {
                   kind: action.kind,
-                  location: toExternalActionLocation(action.root),
-                  op: action.op,
-                  skill: action.skill,
-                  path: action.path,
+                  ...(action.path !== undefined ? { path: buildEnvVarPath(action.root, action.skill, action.path) } : {}),
                   depth: action.depth,
                   startLine: action.startLine,
                   endLine: action.endLine,
@@ -4587,8 +4547,7 @@ function App() {
               : action.kind === 'edit'
                 ? {
                     kind: action.kind,
-                    location: toExternalActionLocation(action.root),
-                    path: action.path,
+                    path: buildEnvVarPath(action.root, undefined, action.path),
                     createIfMissing: action.createIfMissing,
                     previewContextLines: action.previewContextLines,
                     edits: action.edits,
@@ -4597,9 +4556,6 @@ function App() {
                 ? {
                     kind: action.kind,
                     id: action.id,
-                    location: toExternalActionLocation(action.root),
-                    skill: action.skill,
-                    cwd: action.cwd,
                     command: action.command,
                     session: action.session,
                     waitMs: action.waitMs,
@@ -4701,7 +4657,6 @@ function App() {
             patchRoundSkillNode(roundContext, assistantId, actionToken, {
               actionKind: 'read',
               root: action.root,
-              op: action.op,
               skill: action.skill,
               path: displayPath,
               depth: action.depth,
@@ -4729,7 +4684,6 @@ function App() {
                 payload: {
                   request: serializeReadActionForHost({
                     root: action.root,
-                    op: action.op,
                     skill: action.skill,
                     path: displayPath,
                     depth: action.depth,
@@ -4742,10 +4696,7 @@ function App() {
             } catch (error) {
               const message = error instanceof Error ? error.message : '读取失败'
               const payload = {
-                ...buildActionLocationField(action.root),
-                op: action.op,
-                skill: action.skill,
-                path: displayPath,
+                ...(displayPath !== undefined ? { path: buildEnvVarPath(action.root, action.skill, displayPath) } : {}),
                 depth: action.depth,
                 startLine: action.startLine,
                 endLine: action.endLine,
@@ -4767,7 +4718,6 @@ function App() {
                 payload: {
                   request: serializeReadActionForHost({
                     root: action.root,
-                    op: action.op,
                     skill: action.skill,
                     path: displayPath,
                     depth: action.depth,
@@ -4852,9 +4802,6 @@ function App() {
               const message = error instanceof Error ? error.message : 'run 执行失败'
               const payload = {
                 id: gatedAction.id,
-                ...buildActionLocationField(gatedAction.root),
-                skill: gatedAction.skill,
-                cwd: gatedAction.cwd,
                 command: gatedAction.command,
                 session: gatedAction.session,
                 error: message,
@@ -4863,7 +4810,6 @@ function App() {
                 actionKind: 'run',
                 root: gatedAction.root,
                 skill: gatedAction.skill,
-                cwd: gatedAction.cwd,
                 command: gatedAction.command,
                 session: gatedAction.session,
                 status: 'error',
@@ -4889,7 +4835,6 @@ function App() {
               actionKind: 'run',
               root: executableAction.root,
               skill: executableAction.skill,
-              cwd: executableAction.cwd,
               command: executableAction.command,
               session: executableAction.session,
               status: 'running',
@@ -4900,9 +4845,6 @@ function App() {
               const execution = await executeRunAction(executableAction, conversationId)
               const payload = {
                 id: executableAction.id,
-                ...buildActionLocationField(executableAction.root),
-                skill: executableAction.skill,
-                cwd: executableAction.cwd,
                 command: executableAction.command,
                 session: execution.session,
                 running: execution.running,
@@ -4946,9 +4888,6 @@ function App() {
               const message = error instanceof Error ? error.message : 'run 执行失败'
               const payload = {
                 id: executableAction.id,
-                ...buildActionLocationField(executableAction.root),
-                skill: executableAction.skill,
-                cwd: executableAction.cwd,
                 command: executableAction.command,
                 session: executableAction.session,
                 error: message,

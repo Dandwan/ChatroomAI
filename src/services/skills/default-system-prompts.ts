@@ -82,21 +82,22 @@ const PREVIOUS_DEFAULT_RUN_EDIT_SYSTEM_PROMPT_SNAPSHOT = `
 const RUN_PROMPT_BODY = `
 1. <run> 用于运行已有文件或查看同一会话的当前输出。
 2. <run> 常用字段：
-   - location: \`skill\`、\`workspace\`、\`home\` 或 \`root\`
-   - 当 location=\`skill\` 时，必须提供 skill
-   - cwd: 可选，表示命令的工作目录；非 \`root\` location 下使用相对路径
-   - command: 启动命令时必填；查看既有会话时可省略
+   - command: 启动命令时必填；查看既有会话时可省略。路径中使用环境变量（见下方第3条），执行时宿主会自动替换为绝对路径
    - session: 启动命令时可省略；省略时宿主会自动生成一个 session 并在结果里返回。查看既有会话时必须显式提供 session
    - waitMs: 可选，启动后或查看前等待的毫秒数
    - stdin、env: 可选
-3. command 应尽量使用接近 shell 的命令写法，例如：
-   - <run>{"location":"workspace","cwd":".","command":"python main.py","waitMs":3000}</run>
-   - <run>{"location":"workspace","cwd":".","command":"./tool --flag value","session":"build"}</run>
-   - <run>{"location":"workspace","cwd":".","session":"build","waitMs":1000}</run>
-   - <run>{"location":"skill","skill":"union-search","cwd":"scripts","command":"./union_search --query \\"OpenAI agent\\""}</run>
-   - <run>{"location":"skill","skill":"union-search","cwd":"scripts","command":"./visit_url --url \\"https://example.com\\""}</run>
-4. 宿主不会按后缀猜路径。若要执行当前目录文件，请写精确文件名，例如 \`./tool\`，不要假设 \`tool\` 会自动补到 \`tool.py\` 或 \`tool.sh\`。
-5. \`location="root"\` 表示系统绝对路径空间；此时 \`cwd\` 必须是系统绝对路径，不能写相对路径。
+3. 环境变量（用于 command 中的路径）：
+   - \`$skill/<skill名>\`：指定 skill 的根目录（路径第一段为 skill 名称，后续为 skill 内部相对路径）
+   - \`$workspace\`：当前对话 workspace 根目录
+   - \`$home\`：宿主私有 home 目录
+   - 以 / 开头的路径：系统绝对路径空间
+4. command 应尽量使用接近 shell 的命令写法，例如：
+   - <run>{"command":"python $workspace/main.py","waitMs":3000}</run>
+   - <run>{"command":"./$workspace/tool --flag value","session":"build"}</run>
+   - <run>{"session":"build","waitMs":1000}</run>
+   - <run>{"command":"$skill/union-search/scripts/union_search --query \\"OpenAI agent\\""}</run>
+   - <run>{"command":"$skill/union-search/scripts/visit_url --url \\"https://example.com\\""}</run>
+5. 宿主不会按后缀猜路径。若要执行当前目录文件，请写精确文件名，例如 \`./tool\`，不要假设 \`tool\` 会自动补到 \`tool.py\` 或 \`tool.sh\`。
 6. 运行 skill 内部文件前，先使用 <read> 阅读该 skill 的文档或相关脚本。
 7. 如果当前上下文里已经有 read_result、read_error、run_result 或 run_error，就基于这些信息继续决策，避免重复执行。
 8. 调用动作时必须严格遵守标签格式，请求内部不要出现代码块。
@@ -106,20 +107,22 @@ const RUN_PROMPT_BODY = `
 const EDIT_PROMPT_BODY = `
 1. <edit> 用于按行修改文本文件，支持 \`insert\`、\`delete\`、\`replace\`。
 2. <edit> 顶层字段：
-   - location: \`workspace\`、\`home\` 或 \`root\`
-   - path: 目标文件路径
+   - path: 目标文件路径，使用环境变量路径（见下方第3条）
    - createIfMissing: 可选；为 true 时允许新建文件
    - previewContextLines: 可选；控制返回预览的上下文行数
    - edits: 必填；按数组顺序定义本次原子编辑
-3. \`location="root"\` 表示系统绝对路径空间；此时 \`path\` 必须是系统绝对路径。
+3. 环境变量路径（用于 path 字段）：
+   - \`$workspace/...\`：当前对话 workspace
+   - \`$home/...\`：宿主私有 home 目录
+   - 以 / 开头的路径：系统绝对路径空间
 4. 修改前优先先用 <read> 读取目标文件或相关上下文；不清楚内容时不要盲改。
 5. \`insert\` 必须且只能提供 \`beforeLine\` 或 \`afterLine\` 其中一个；\`delete\` / \`replace\` 必须提供 \`startLine\` 和 \`endLine\`。
 6. \`insert\` / \`delete\` / \`replace\` 都可提供 \`expectedText\`；当你担心定位错行时，应主动提供。
 7. 同一个 <edit> 中的所有行号都基于同一个原始文件快照；宿主会原子应用，要么全部成功，要么全部失败。
 8. <edit> 示例：
-   - <edit>{"location":"workspace","path":"notes/todo.md","edits":[{"op":"insert","beforeLine":1,"text":"# TODO\\n"}]}</edit>
-   - <edit>{"location":"home","path":"scripts/demo.py","createIfMissing":true,"edits":[{"op":"replace","startLine":1,"endLine":3,"text":"print('ok')\\n"}]}</edit>
-   - <edit>{"location":"root","path":"/sdcard/Download/demo.txt","edits":[{"op":"delete","startLine":2,"endLine":4,"expectedText":"b\\nc\\nd"}]}</edit>
+   - <edit>{"path":"$workspace/notes/todo.md","edits":[{"op":"insert","beforeLine":1,"text":"# TODO\\n"}]}</edit>
+   - <edit>{"path":"$home/scripts/demo.py","createIfMissing":true,"edits":[{"op":"replace","startLine":1,"endLine":3,"text":"print('ok')\\n"}]}</edit>
+   - <edit>{"path":"/sdcard/Download/demo.txt","edits":[{"op":"delete","startLine":2,"endLine":4,"expectedText":"b\\nc\\nd"}]}</edit>
 9. 如果当前上下文里已经有 read_result、read_error、edit_result 或 edit_error，就基于这些信息继续决策，避免无意义重复。
 10. 调用动作时必须严格遵守标签格式，请求内部不要出现代码块。
 11. 你要主动动手解决问题。需要改文件时，应优先输出最小必要编辑，而不是大段重写无关内容。
@@ -345,21 +348,23 @@ export const DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT = `
 `.trim()
 
 export const DEFAULT_READ_SYSTEM_PROMPT = `
-1. <read> 用于读取文本文件内容，或列举/探测目录结构。
-2. <read> 结构必须显式填写：
-   - location: \`skill\`、\`workspace\`、\`home\` 或 \`root\`
-   - op: \`list\`、\`read\` 或 \`stat\`
-   - 当 location=\`skill\` 时，必须提供 skill
-   - 当 op=\`read\` 或 op=\`stat\` 时，必须提供 path
-   - 当 op=\`list\` 时，path 可省略；省略等价于该 location 的根目录
-   - 当 location=\`root\` 时，path 必须是系统绝对路径；省略时仅允许 \`list\`，等价于 \`/\`
-3. <read> 常见示例：
-   - <read>{"location":"skill","op":"read","skill":"union-search","path":"SKILL.md"}</read>
-   - <read>{"location":"skill","op":"list","skill":"union-search","path":"scripts","depth":2}</read>
-   - <read>{"location":"workspace","op":"list","path":"."}</read>
-   - <read>{"location":"workspace","op":"read","path":"notes/todo.md","startLine":1,"endLine":120}</read>
-   - <read>{"location":"home","op":"stat","path":"scripts/tool.py"}</read>
-   - <read>{"location":"root","op":"read","path":"/sdcard/Download/demo.txt","startLine":1,"endLine":80}</read>
+1. <read> 用于读取文本文件内容或列举目录结构；宿主会根据路径自动判断目标是文件还是目录。
+2. <read> 字段：
+   - path: 目标路径，使用环境变量路径（见下方第3条）
+   - depth: 当目标为目录时，控制递归深度（默认 1，即只列当前目录）
+   - startLine / endLine: 当目标为文本文件时，限制读取行范围
+3. 环境变量路径（用于 path 字段）：
+   - \`$skill/<skill名>/...\`：指定 skill 的目录（第一段为 skill 名称，后续为 skill 内部相对路径）
+   - \`$workspace/...\`：当前对话 workspace
+   - \`$home/...\`：宿主私有 home 目录
+   - 以 / 开头的路径：系统绝对路径空间
+4. <read> 常见示例：
+   - <read>{"path":"$skill/union-search/SKILL.md"}</read>
+   - <read>{"path":"$skill/union-search/scripts","depth":2}</read>
+   - <read>{"path":"$workspace"}</read>
+   - <read>{"path":"$workspace/notes/todo.md","startLine":1,"endLine":120}</read>
+   - <read>{"path":"$home/scripts/tool.py"}</read>
+   - <read>{"path":"/sdcard/Download/demo.txt","startLine":1,"endLine":80}</read>
 `.trim()
 
 export const DEFAULT_RUN_SYSTEM_PROMPT = RUN_PROMPT_BODY

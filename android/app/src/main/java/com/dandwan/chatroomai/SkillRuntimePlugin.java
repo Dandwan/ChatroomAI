@@ -266,6 +266,7 @@ public class SkillRuntimePlugin extends Plugin {
             try {
                 String sessionId = normalizeOptionalText(call.getString("sessionId"));
                 String sessionLabel = normalizeOptionalText(call.getString("session"));
+                String conversationId = normalizeOptionalText(call.getString("conversationId"));
                 String workingDirectoryPath = normalizeOptionalText(call.getString("workingDirectoryPath"));
                 String launchKind = normalizeOptionalText(call.getString("launchKind"));
                 String targetPath = normalizeOptionalText(call.getString("targetPath"));
@@ -281,10 +282,16 @@ public class SkillRuntimePlugin extends Plugin {
                     call.reject("sessionId is required");
                     return;
                 }
+                if (conversationId == null) {
+                    call.reject("conversationId is required");
+                    return;
+                }
+
+                ensureRunSessionsInitialized();
 
                 boolean isLaunchRequest = isRunLaunchRequest(launchKind, targetPath);
                 if (!isLaunchRequest) {
-                    JSObject result = readRunSession(sessionId, effectiveWaitMs);
+                    JSObject result = readRunSession(sessionId, conversationId, effectiveWaitMs);
                     call.resolve(result);
                     return;
                 }
@@ -323,6 +330,7 @@ public class SkillRuntimePlugin extends Plugin {
                 RunSession session = startRunSession(
                     sessionId,
                     sessionLabel,
+                    conversationId,
                     resolution,
                     workingDirectory,
                     envObject,
@@ -941,6 +949,7 @@ public class SkillRuntimePlugin extends Plugin {
     private RunSession startRunSession(
         String sessionId,
         String sessionLabel,
+        String conversationId,
         RunLaunchResolution resolution,
         File workingDirectory,
         JSObject envObject,
@@ -971,13 +980,14 @@ public class SkillRuntimePlugin extends Plugin {
         }
 
         File sessionDirectory = resolveAppRelativePath(
-            "skill-host/state/run-sessions/" + sanitizeSessionId(sessionId)
+            "skill-host/state/run-sessions/" + sanitizePathSegment(conversationId) + "/" + sanitizeSessionId(sessionId)
         );
         if (!sessionDirectory.exists() && !sessionDirectory.mkdirs()) {
             throw new IOException("Failed to create run session directory");
         }
         File stdoutFile = new File(sessionDirectory, "stdout.log").getCanonicalFile();
         File stderrFile = new File(sessionDirectory, "stderr.log").getCanonicalFile();
+        File sessionJsonFile = new File(sessionDirectory, "session.json").getCanonicalFile();
         if (!stdoutFile.createNewFile() && !stdoutFile.isFile()) {
             throw new IOException("Failed to prepare stdout log");
         }
@@ -1000,15 +1010,19 @@ public class SkillRuntimePlugin extends Plugin {
         RunSession session = new RunSession(
             sessionId,
             sessionLabel,
+            conversationId,
             process,
             stdoutFile,
             stderrFile,
+            sessionJsonFile,
             launchCommand,
             workingDirectory.getAbsolutePath(),
             resolution.inferredRuntime,
             startedAt
         );
         runSessions.put(sessionId, session);
+
+        writeSessionJson(session);
 
         session.stdoutPump = ioExecutor.submit(() -> {
             try {
@@ -1042,6 +1056,7 @@ public class SkillRuntimePlugin extends Plugin {
             session.completedAt = System.currentTimeMillis();
             session.updatedAt = session.completedAt;
         }
+        updateSessionJsonCompleted(session);
     }
 
     private void pipeStreamToFile(InputStream stream, File targetFile, RunSession session) throws IOException {
@@ -1079,6 +1094,7 @@ public class SkillRuntimePlugin extends Plugin {
         if (existing.exitCode == null) {
             existing.exitCode = existing.process.exitValue();
         }
+        updateSessionJsonCompleted(existing);
     }
 
     private void waitForRunObservationWindow(RunSession session, long waitMs) throws InterruptedException {
@@ -1088,14 +1104,78 @@ public class SkillRuntimePlugin extends Plugin {
         }
     }
 
-    private JSObject readRunSession(String sessionId, long waitMs) throws Exception {
+    private JSObject readRunSession(String sessionId, String conversationId, long waitMs) throws Exception {
         RunSession session = runSessions.get(sessionId);
-        if (session == null) {
+        if (session != null) {
+            waitForRunObservationWindow(session, waitMs);
+            return buildRunSessionResult(session, waitMs);
+        }
+
+        return recoverRunSessionFromDisk(sessionId, conversationId, waitMs);
+    }
+
+    private JSObject recoverRunSessionFromDisk(String sessionId, String conversationId, long waitMs) throws Exception {
+        File sessionJsonFile = resolveAppRelativePath(
+            "skill-host/state/run-sessions/" + sanitizePathSegment(conversationId) + "/" + sanitizeSessionId(sessionId) + "/session.json"
+        );
+        if (!sessionJsonFile.exists() || !sessionJsonFile.isFile()) {
             throw new IOException("run session not found: " + sessionId);
         }
 
-        waitForRunObservationWindow(session, waitMs);
-        return buildRunSessionResult(session, waitMs);
+        JSONObject sessionJson;
+        try {
+            String raw = new String(java.nio.file.Files.readAllBytes(sessionJsonFile.toPath()), StandardCharsets.UTF_8);
+            sessionJson = new JSONObject(raw);
+        } catch (Exception ex) {
+            throw new IOException("Failed to read session.json for " + sessionId);
+        }
+
+        File sessionDirectory = sessionJsonFile.getParentFile();
+        File stdoutFile = new File(sessionDirectory, "stdout.log");
+        File stderrFile = new File(sessionDirectory, "stderr.log");
+
+        String stdout = stdoutFile.exists() ? readTail(stdoutFile) : "";
+        String stderr = stderrFile.exists() ? readTail(stderrFile) : "";
+        long startedAt = sessionJson.optLong("startedAt", 0L);
+        long updatedAt = sessionJson.optLong("updatedAt", startedAt);
+        long completedAt = sessionJson.optLong("completedAt", 0L);
+        boolean running = sessionJson.optBoolean("running", false);
+        Integer exitCode = sessionJson.isNull("exitCode") ? null : sessionJson.optInt("exitCode", 0);
+        String sessionLabel = sessionJson.optString("sessionLabel", "");
+        String inferredRuntime = sessionJson.optString("inferredRuntime", "unknown");
+        String resolvedWorkingDirectory = sessionJson.optString("resolvedWorkingDirectory", "");
+        JSONArray resolvedCommandJson = sessionJson.optJSONArray("resolvedCommand");
+        List<String> resolvedCommandList = new ArrayList<>();
+        if (resolvedCommandJson != null) {
+            for (int i = 0; i < resolvedCommandJson.length(); i++) {
+                resolvedCommandList.add(resolvedCommandJson.optString(i, ""));
+            }
+        }
+
+        if (running) {
+            updateDiskSessionJsonCompleted(sessionJsonFile, exitCode);
+        }
+
+        JSObject result = new JSObject();
+        result.put("ok", exitCode == null || exitCode == 0);
+        result.put("running", false);
+        result.put("session", sessionLabel);
+        result.put("stdout", stdout);
+        result.put("stderr", stderr);
+        result.put("exitCode", exitCode == null ? JSONObject.NULL : exitCode);
+        result.put("elapsedMs", completedAt > 0 ? completedAt - startedAt : 0L);
+        result.put("waitedMs", waitMs);
+        result.put("resolvedCommand", JSArray.from(resolvedCommandList.toArray(new String[0])));
+        result.put("resolvedCwd", resolvedWorkingDirectory);
+        result.put("inferredRuntime", inferredRuntime);
+        result.put("pid", JSONObject.NULL);
+        result.put("startedAt", startedAt);
+        result.put("updatedAt", updatedAt);
+        result.put(
+            "completedAt",
+            completedAt > 0 ? completedAt : JSONObject.NULL
+        );
+        return result;
     }
 
     private JSObject buildRunSessionResult(RunSession session, long waitMs) throws IOException {
@@ -1121,6 +1201,61 @@ public class SkillRuntimePlugin extends Plugin {
         return result;
     }
 
+    private void writeSessionJson(RunSession session) throws IOException {
+        try {
+            JSONObject json = new JSONObject();
+            json.put("schemaVersion", 1);
+            json.put("sessionId", session.sessionId);
+            json.put("sessionLabel", session.sessionLabel);
+            json.put("conversationId", session.conversationId);
+            json.put("resolvedCommand", new JSONArray(session.resolvedCommand));
+            json.put("resolvedWorkingDirectory", session.resolvedWorkingDirectory);
+            json.put("inferredRuntime", session.inferredRuntime);
+            json.put("startedAt", session.startedAt);
+            json.put("updatedAt", session.updatedAt);
+            json.put("completedAt", JSONObject.NULL);
+            json.put("exitCode", JSONObject.NULL);
+            json.put("running", true);
+
+            try (OutputStreamWriter writer = new OutputStreamWriter(
+                new FileOutputStream(session.sessionJsonFile),
+                StandardCharsets.UTF_8
+            )) {
+                writer.write(json.toString(2));
+            }
+        } catch (Exception ex) {
+            throw new IOException("Failed to write session.json", ex);
+        }
+    }
+
+    private void updateSessionJsonCompleted(RunSession session) {
+        updateDiskSessionJsonCompleted(session.sessionJsonFile, session.exitCode);
+    }
+
+    private void updateDiskSessionJsonCompleted(File sessionJsonFile, Integer exitCode) {
+        try {
+            if (!sessionJsonFile.exists()) {
+                return;
+            }
+            String raw = new String(java.nio.file.Files.readAllBytes(sessionJsonFile.toPath()), StandardCharsets.UTF_8);
+            JSONObject json = new JSONObject(raw);
+            json.put("running", false);
+            json.put("completedAt", System.currentTimeMillis());
+            if (exitCode != null) {
+                json.put("exitCode", exitCode);
+            }
+            json.put("updatedAt", System.currentTimeMillis());
+
+            try (OutputStreamWriter writer = new OutputStreamWriter(
+                new FileOutputStream(sessionJsonFile),
+                StandardCharsets.UTF_8
+            )) {
+                writer.write(json.toString(2));
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
     private String readTail(File file) throws IOException {
         if (file == null || !file.exists()) {
             return "";
@@ -1133,6 +1268,75 @@ public class SkillRuntimePlugin extends Plugin {
 
     private String sanitizeSessionId(String sessionId) {
         return sessionId.replaceAll("[^a-zA-Z0-9._-]", "_");
+    }
+
+    private String sanitizePathSegment(String value) {
+        return value.replaceAll("[^a-zA-Z0-9-_]", "_");
+    }
+
+    private final java.util.concurrent.atomic.AtomicBoolean runSessionsInitialized = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    private void ensureRunSessionsInitialized() {
+        if (!runSessionsInitialized.compareAndSet(false, true)) {
+            return;
+        }
+
+        try {
+            File runSessionsRoot = resolveAppRelativePath("skill-host/state/run-sessions");
+            if (!runSessionsRoot.exists() || !runSessionsRoot.isDirectory()) {
+                return;
+            }
+
+            File[] children = runSessionsRoot.listFiles();
+            if (children == null) {
+                return;
+            }
+
+            for (File child : children) {
+                if (!child.isDirectory()) {
+                    continue;
+                }
+
+                if (child.getName().startsWith("skill_") || child.getName().startsWith("workspace_") ||
+                    child.getName().startsWith("home_") || child.getName().startsWith("absolute_") ||
+                    child.getName().startsWith("verify-")) {
+                    deleteRecursively(child);
+                    continue;
+                }
+
+                File[] sessionDirs = child.listFiles();
+                if (sessionDirs == null) {
+                    continue;
+                }
+                for (File sessionDir : sessionDirs) {
+                    if (!sessionDir.isDirectory()) {
+                        continue;
+                    }
+                    File jsonFile = new File(sessionDir, "session.json");
+                    if (!jsonFile.exists()) {
+                        continue;
+                    }
+                    try {
+                        String raw = new String(java.nio.file.Files.readAllBytes(jsonFile.toPath()), StandardCharsets.UTF_8);
+                        JSONObject json = new JSONObject(raw);
+                        if (json.optBoolean("running", false)) {
+                            json.put("running", false);
+                            long now = System.currentTimeMillis();
+                            json.put("completedAt", now);
+                            json.put("updatedAt", now);
+                            try (OutputStreamWriter writer = new OutputStreamWriter(
+                                new FileOutputStream(jsonFile),
+                                StandardCharsets.UTF_8
+                            )) {
+                                writer.write(json.toString(2));
+                            }
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     private String readShebang(File file) {
@@ -1459,9 +1663,11 @@ public class SkillRuntimePlugin extends Plugin {
     private static class RunSession {
         final String sessionId;
         final String sessionLabel;
+        final String conversationId;
         final Process process;
         final File stdoutFile;
         final File stderrFile;
+        final File sessionJsonFile;
         final List<String> resolvedCommand;
         final String resolvedWorkingDirectory;
         final String inferredRuntime;
@@ -1476,9 +1682,11 @@ public class SkillRuntimePlugin extends Plugin {
         RunSession(
             String sessionId,
             String sessionLabel,
+            String conversationId,
             Process process,
             File stdoutFile,
             File stderrFile,
+            File sessionJsonFile,
             List<String> resolvedCommand,
             String resolvedWorkingDirectory,
             String inferredRuntime,
@@ -1486,9 +1694,11 @@ public class SkillRuntimePlugin extends Plugin {
         ) {
             this.sessionId = sessionId;
             this.sessionLabel = sessionLabel;
+            this.conversationId = conversationId;
             this.process = process;
             this.stdoutFile = stdoutFile;
             this.stderrFile = stderrFile;
+            this.sessionJsonFile = sessionJsonFile;
             this.resolvedCommand = resolvedCommand;
             this.resolvedWorkingDirectory = resolvedWorkingDirectory;
             this.inferredRuntime = inferredRuntime;
