@@ -1,7 +1,9 @@
 import { renderSkillsCatalogYaml } from './frontmatter'
 import {
   parseInternalActionLocation,
-  toExternalActionLocation,
+  resolveEnvVarPath,
+  deriveRootFromPath,
+  buildEnvVarPath,
 } from './action-location'
 import type {
   ExecutableAgentAction,
@@ -9,6 +11,8 @@ import type {
   EditOperation,
   ParsedAgentActions,
   PromptBlock,
+  ReadOp,
+  RunAction,
   RuntimeRecord,
   SkillRecord,
 } from './types'
@@ -60,13 +64,11 @@ export interface SkillActionPreview {
   kind: 'read' | 'run' | 'edit' | 'skill_call'
   id?: string
   root?: string
-  op?: string
   skill?: string
   path?: string
   depth?: number
   startLine?: number
   endLine?: number
-  cwd?: string
   command?: string
   session?: string
   waitMs?: number
@@ -408,14 +410,31 @@ const pickPartialBoolean = (body: string, keys: string[]): boolean | undefined =
   return undefined
 }
 
-const pickPartialActionRoot = (body: string): string | undefined =>
-  parseInternalActionLocation(pickPartialString(body, ['location', 'root']))
+const pickPartialActionRoot = (body: string): string | undefined => {
+  const explicit = parseInternalActionLocation(pickPartialString(body, ['location', 'root']))
+  if (explicit) {
+    return explicit
+  }
+  const path = pickPartialString(body, ['path'])
+  const cwd = pickPartialString(body, ['cwd'])
+  const command = pickPartialString(body, ['command'])
+  const derived = deriveRootFromPath(path ?? cwd ?? command)
+  return derived?.root
+}
 
 const pickActionRoot = (
   payload: Record<string, unknown>,
 ): string | undefined => {
   const location = pickString(payload, ['location', 'root'])
-  return parseInternalActionLocation(location)
+  const explicit = parseInternalActionLocation(location)
+  if (explicit) {
+    return explicit
+  }
+  const path = pickString(payload, ['path'])
+  const cwd = pickString(payload, ['cwd'])
+  const command = pickString(payload, ['command'])
+  const derived = deriveRootFromPath(path ?? cwd ?? command)
+  return derived?.root
 }
 
 const buildSkillActionPreview = (
@@ -426,7 +445,6 @@ const buildSkillActionPreview = (
     return {
       kind: 'read',
       root: pickPartialActionRoot(body),
-      op: pickPartialString(body, ['op']),
       skill: pickPartialString(body, ['skill', 'skillId', 'name']),
       path: pickPartialString(body, ['path']),
       depth: pickPartialNumber(body, ['depth']),
@@ -441,7 +459,6 @@ const buildSkillActionPreview = (
       id: pickPartialString(body, ['id', 'callId']),
       root: pickPartialActionRoot(body),
       skill: pickPartialString(body, ['skill', 'skillId', 'name']),
-      cwd: pickPartialString(body, ['cwd']),
       command: pickPartialString(body, ['command']),
       session: pickPartialString(body, ['session']),
       stdin: pickPartialString(body, ['stdin', 'input']),
@@ -759,25 +776,34 @@ const parseReadAction = (body: string): ExecutableAgentAction | null => {
     }
 
     const root = pickActionRoot(payload)
-    const op = pickString(payload, ['op'])
-    if (
-      (root !== 'skill' && root !== 'workspace' && root !== 'home' && root !== 'absolute') ||
-      (op !== 'list' && op !== 'read' && op !== 'stat')
-    ) {
+    if (root !== 'skill' && root !== 'workspace' && root !== 'home' && root !== 'absolute') {
       return null
     }
 
-    const skill = pickString(payload, ['skill', 'skillId', 'name'])
+    const op = pickString(payload, ['op']) as ReadOp | undefined
+    if (op !== undefined && op !== 'list' && op !== 'read' && op !== 'stat') {
+      return null
+    }
+
+    const explicitSkill = pickString(payload, ['skill', 'skillId', 'name'])
+    const path = pickString(payload, ['path'])
+    const envResolved = resolveEnvVarPath(path)
+    const skill = explicitSkill ?? envResolved?.skill
     if (root === 'skill' && !skill) {
+      return null
+    }
+
+    const effectivePath = envResolved?.relativePath ?? path
+    if (!effectivePath && op !== 'list') {
       return null
     }
 
     return {
       kind: 'read',
       root,
-      op,
+      ...(op !== undefined ? { op } : {}),
       skill,
-      path: pickString(payload, ['path']),
+      path: effectivePath,
       depth:
         typeof payload.depth === 'number' && Number.isFinite(payload.depth)
           ? Math.max(1, Math.round(payload.depth))
@@ -804,11 +830,14 @@ const parseEditAction = (body: string): ExecutableAgentAction | null => {
     }
 
     const root = pickActionRoot(payload)
-    const path = pickString(payload, ['path'])
+    const rawPath = pickString(payload, ['path'])
     const edits = Array.isArray(payload.edits) ? payload.edits : null
-    if ((root !== 'workspace' && root !== 'home' && root !== 'absolute') || !path || !edits || edits.length === 0) {
+    if ((root !== 'workspace' && root !== 'home' && root !== 'absolute') || !rawPath || !edits || edits.length === 0) {
       return null
     }
+
+    const envResolved = resolveEnvVarPath(rawPath)
+    const effectivePath = envResolved?.relativePath ?? rawPath
 
     const normalizedEdits: EditAction['edits'] = []
     for (const rawEdit of edits) {
@@ -881,7 +910,7 @@ const parseEditAction = (body: string): ExecutableAgentAction | null => {
     return {
       kind: 'edit',
       root,
-      path,
+      path: effectivePath,
       createIfMissing: payload.createIfMissing === true,
       previewContextLines:
         typeof payload.previewContextLines === 'number' && Number.isFinite(payload.previewContextLines)
@@ -933,26 +962,40 @@ const parseRunAction = (body: string): ExecutableAgentAction | null => {
     }
 
     const root = pickActionRoot(payload)
-    if (root !== 'skill' && root !== 'workspace' && root !== 'home' && root !== 'absolute') {
-      return null
-    }
-
-    const skill = pickString(payload, ['skill', 'skillId', 'name'])
-    if (root === 'skill' && !skill) {
-      return null
-    }
-
     const command = pickString(payload, ['command'])
     const session = pickString(payload, ['session'])
+
+    if (!root && !command && !session) {
+      return null
+    }
+
+    const effectiveRoot: RunAction['root'] =
+      root === 'skill' || root === 'workspace' || root === 'home' || root === 'absolute'
+        ? root
+        : 'home'
+
+    const explicitSkill = pickString(payload, ['skill', 'skillId', 'name'])
+    const cwd = pickString(payload, ['cwd'])
+    const rawPath = pickString(payload, ['path'])
+    const envResolved = cwd ? resolveEnvVarPath(cwd)
+      : command ? resolveEnvVarPath(command)
+      : rawPath ? resolveEnvVarPath(rawPath)
+      : null
+    const skill = explicitSkill ?? envResolved?.skill
+    if (effectiveRoot === 'skill' && !skill) {
+      return null
+    }
+
+    const effectiveCwd = envResolved?.relativePath ?? cwd
 
     return {
       kind: 'run',
       id:
         pickString(payload, ['id', 'callId']) ??
-        `${root}:${skill ?? ''}:${pickString(payload, ['cwd']) ?? '.'}:${session ?? 'auto'}`,
-      root,
+        `${effectiveRoot}:${skill ?? ''}:${effectiveCwd ?? '.'}:${session ?? 'auto'}`,
+      root: effectiveRoot,
       skill,
-      cwd: pickString(payload, ['cwd']),
+      ...(effectiveCwd !== undefined ? { cwd: effectiveCwd } : {}),
       command,
       stdin: pickString(payload, ['stdin', 'input']),
       env: pickStringRecord(payload, ['env']),
@@ -1150,10 +1193,7 @@ const serializeAction = (action: ExecutableAgentAction): string => {
       '<read>',
       JSON.stringify(
         {
-          location: toExternalActionLocation(action.root),
-          op: action.op,
-          ...(action.skill ? { skill: action.skill } : {}),
-          ...(action.path ? { path: action.path } : {}),
+          ...(action.path !== undefined ? { path: buildEnvVarPath(action.root, action.skill, action.path) } : {}),
           ...(action.depth !== undefined ? { depth: action.depth } : {}),
           ...(action.startLine !== undefined ? { startLine: action.startLine } : {}),
           ...(action.endLine !== undefined ? { endLine: action.endLine } : {}),
@@ -1168,10 +1208,7 @@ const serializeAction = (action: ExecutableAgentAction): string => {
       '<run>',
       JSON.stringify(
         {
-          id: action.id,
-          location: toExternalActionLocation(action.root),
-          ...(action.skill ? { skill: action.skill } : {}),
-          ...(action.cwd ? { cwd: action.cwd } : {}),
+          ...(action.id ? { id: action.id } : {}),
           ...(action.command ? { command: action.command } : {}),
           ...(action.stdin ? { stdin: action.stdin } : {}),
           ...(action.env && Object.keys(action.env).length > 0 ? { env: action.env } : {}),
@@ -1188,8 +1225,7 @@ const serializeAction = (action: ExecutableAgentAction): string => {
       '<edit>',
       JSON.stringify(
         {
-          location: toExternalActionLocation(action.root),
-          path: action.path,
+          path: buildEnvVarPath(action.root, undefined, action.path),
           ...(action.createIfMissing ? { createIfMissing: true } : {}),
           ...(action.previewContextLines !== undefined
             ? { previewContextLines: action.previewContextLines }

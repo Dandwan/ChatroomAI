@@ -18,13 +18,11 @@ export interface AssistantFlowSkillNode {
   actionKind?: AssistantFlowSkillKind
   status: AssistantFlowSkillStatus
   root?: 'skill' | 'workspace' | 'home' | 'absolute'
-  op?: 'list' | 'read' | 'stat'
   skill?: string
   path?: string
   depth?: number
   startLine?: number
   endLine?: number
-  cwd?: string
   command?: string
   session?: string
   script?: string
@@ -59,13 +57,11 @@ interface SkillNodePatch {
   actionKind?: AssistantFlowSkillKind
   status?: AssistantFlowSkillStatus
   root?: 'skill' | 'workspace' | 'home' | 'absolute'
-  op?: 'list' | 'read' | 'stat'
   skill?: string
   path?: string
   depth?: number
   startLine?: number
   endLine?: number
-  cwd?: string
   command?: string
   session?: string
   script?: string
@@ -270,12 +266,10 @@ export const upsertAssistantFlowSkillNodeByToken = (
     actionKind: patch.actionKind,
     skill: patch.skill,
     root: patch.root,
-    op: patch.op,
     path: patch.path,
     depth: patch.depth,
     startLine: patch.startLine,
     endLine: patch.endLine,
-    cwd: patch.cwd,
     command: patch.command,
     session: patch.session,
     script: patch.script,
@@ -354,12 +348,11 @@ const formatReadLocation = ({
 
 export const formatSkillStepTarget = (step: AssistantFlowSkillNode): string => {
   if (step.actionKind === 'read') {
-    const location = formatReadLocation({
+    return formatReadLocation({
       root: step.root,
       skill: step.skill,
       path: step.path,
     })
-    return step.op ? `${location} / ${step.op}` : location
   }
   if (step.actionKind === 'run') {
     const rootLabel =
@@ -379,9 +372,6 @@ export const formatSkillStepTarget = (step: AssistantFlowSkillNode): string => {
     }
     if (step.script) {
       return `${rootLabel} / ${step.script}`
-    }
-    if (step.cwd) {
-      return `${rootLabel} / ${step.cwd}`
     }
     return rootLabel
   }

@@ -474,14 +474,22 @@ const synchronizeBuiltinSkills = async (): Promise<void> => {
   for (const skill of BUILTIN_SKILLS) {
     const root = getBuiltinSkillRoot(skill.id)
     try {
-      if (await builtinSkillIsUpToDate(skill)) {
-        await prepareMaterializedSkillScripts(root)
-        continue
+      if (!(await builtinSkillIsUpToDate(skill))) {
+        if (await pathExists(root)) {
+          await deletePath(root)
+        }
+        await materializeBuiltinSkill(skill)
       }
-      if (await pathExists(root)) {
-        await deletePath(root)
+      await prepareMaterializedSkillScripts(root)
+
+      // 内置 skill 已成功物化到磁盘后，清除持久化的已删除标记。
+      // 这确保了 APK 重装后（即使没有清除 app data），用户删除的内置 skill
+      // 也能恢复——因为重新物化相当于"恢复出厂"了该 skill。
+      const state = await readState()
+      if (state.deletedBuiltinIds.includes(skill.id)) {
+        state.deletedBuiltinIds = state.deletedBuiltinIds.filter((id) => id !== skill.id)
+        await writeState(state)
       }
-      await materializeBuiltinSkill(skill)
     } catch (error) {
       nextBuiltinErrors[skill.id] = error instanceof Error ? error.message : String(error)
       await deletePath(root).catch(() => {

@@ -1,5 +1,47 @@
 # Handoff Log
 
+## 2026-05-06 21:15 +08:00 — Tag Protocol Env Var Path Refactor
+
+### Scope
+
+Removed `location` field from `<read>`/`<run>`/`<edit>` protocol tags. Path resolution now uses environment variable prefixes (`$skill/<name>`, `$workspace`, `$home`, absolute paths). Rewrote all default system prompts to teach the new format.
+
+### Changes
+
+- `src/services/skills/action-location.ts`: added `resolveEnvVarPath()`, `deriveRootFromPath()`, `ResolvedEnvVarPath` — parse env var paths and derive internal root/skill
+- `src/services/skills/protocol.ts`:
+  - `pickActionRoot` / `pickPartialActionRoot`: fall back to env var path derivation when `location`/`root` absent
+  - `parseReadAction` / `parseRunAction`: derive `skill` from `$skill/<name>` in path/cwd
+  - `parseEditAction`: resolve env var path for effective path
+  - `serializeAction`: output `$skill/<name>/...`, `$workspace/...`, `$home/...`, or absolute paths; removed `location` from serialized output
+  - added `buildEnvVarPath()` and `buildEnvVarCwd()` helpers
+- `src/services/skills/default-system-prompts.ts`:
+  - `RUN_PROMPT_BODY`: removed `location`/`skill` fields, added env var path docs, updated all examples
+  - `EDIT_PROMPT_BODY`: removed `location` field, added env var path docs, updated all examples
+  - `DEFAULT_READ_SYSTEM_PROMPT`: removed `location`/`skill` fields, added env var path docs, updated all examples
+  - legacy `PREVIOUS_*_SNAPSHOT` constants preserved for migration detection
+- `docs/development-status/20-run-and-skill-runtime.md`: updated Prompt State section
+- `docs/development-status/30-current-state-and-known-issues.md`: updated Edit / Location Protocol State section
+
+### Backward Compatibility
+
+Parser still accepts legacy `location`/`root`/`skill` fields. Stored prompts matching old snapshots auto-migrate to new defaults. No DB migration needed.
+
+### Validation
+
+- `npx tsc -b` — zero errors
+- `npx vitest run` — 23/23 tests pass
+- `npm run build` — passes
+
+### Proposal Gate
+
+- Completed: presented plan, user confirmed
+
+### Next Steps
+
+- Run a full in-app skill-agent conversation that naturally emits new-format `<read>`, `<run>`, `<edit>` tags
+- Verify on-device (Android phone `c3fec216`)
+
 ## 2026-05-06 18:00 +08:00 — Composer Button Hover Fix
 
 ### Scope

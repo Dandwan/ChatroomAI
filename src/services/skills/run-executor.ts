@@ -10,6 +10,7 @@ import {
   resolveSkillRoot,
 } from './host'
 import { executeDeviceInfoSkillCall } from './device-info'
+import { resolveEnvVarPath } from './action-location'
 import { parseRunSimpleCommand } from './run-parser'
 import { resolveRunLaunch } from './run-resolver'
 import { nativeExecuteRun } from './native-runtime'
@@ -100,29 +101,6 @@ export const materializeRunAction = (action: RunAction): MaterializedRunAction =
     session: createGeneratedSession(),
   }
 }
-
-const normalizeScopedSessionPart = (value: string): string =>
-  value
-    .replace(/\s+/g, ' ')
-    .trim()
-
-const buildScopedSession = ({
-  root,
-  skill,
-  cwdAbsolutePath,
-  session,
-}: {
-  root: RunAction['root']
-  skill?: string
-  cwdAbsolutePath: string
-  session: string
-}): string =>
-  [
-    normalizeScopedSessionPart(root),
-    normalizeScopedSessionPart(skill ?? ''),
-    normalizeScopedSessionPart(cwdAbsolutePath),
-    normalizeScopedSessionPart(session),
-  ].join('::')
 
 const prioritizeRuntimes = (runtimes: RuntimeRecord[]): RuntimeRecord[] =>
   [...runtimes]
@@ -279,13 +257,45 @@ const tryExecuteDeviceInfoRun = async (action: RunAction): Promise<SkillExecutio
   return executeDeviceInfoSkillCall(legacyAction)
 }
 
+const resolveRunCommandEnvVar = (
+  action: RunAction,
+): RunAction => {
+  const command = action.command?.trim()
+  if (!command) return action
+
+  const match = command.match(/^\$(skill|workspace|home)(?:\/|$)/)
+  if (!match) return action
+
+  // Split at the first space to isolate the env-var path from arguments
+  // (URLs, flags, etc.). Script paths never contain spaces.
+  const firstSpace = command.indexOf(' ')
+  const pathOnly = firstSpace === -1 ? command : command.slice(0, firstSpace)
+  const args = firstSpace === -1 ? '' : command.slice(firstSpace)
+
+  const envResolved = resolveEnvVarPath(pathOnly)
+  if (!envResolved || !envResolved.relativePath || envResolved.relativePath === '.') {
+    return action
+  }
+
+  const lastSlash = envResolved.relativePath.lastIndexOf('/')
+  const dir = lastSlash === -1 ? '.' : envResolved.relativePath.slice(0, lastSlash)
+  const executable = lastSlash === -1 ? envResolved.relativePath : envResolved.relativePath.slice(lastSlash + 1)
+
+  return {
+    ...action,
+    cwd: dir || '.',
+    command: `./${executable}${args}`,
+  }
+}
+
 export const executeRunAction = async (
   action: RunAction,
   conversationId: string,
 ): Promise<RunExecutionResult> => {
   await initializeSkillHost()
 
-  const effectiveAction = materializeRunAction(action)
+  const resolvedAction = resolveRunCommandEnvVar(action)
+  const effectiveAction = materializeRunAction(resolvedAction)
   const hasCommand = hasRunCommand(effectiveAction)
   const session = effectiveAction.session
 
@@ -337,13 +347,9 @@ export const executeRunAction = async (
   })
 
   return nativeExecuteRun({
-    sessionId: buildScopedSession({
-      root: effectiveAction.root,
-      skill: effectiveAction.skill,
-      cwdAbsolutePath,
-      session,
-    }),
+    sessionId: session,
     session: hasCommand ? session : undefined,
+    conversationId,
     workingDirectoryPath: cwdAbsolutePath,
     waitMs,
     stdin: effectiveAction.stdin,

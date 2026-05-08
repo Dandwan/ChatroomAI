@@ -66,14 +66,18 @@ The project is in the middle of a large execution-model refactor:
 
 - `src/services/skills/default-system-prompts.ts`
   - `DEFAULT_RUN_SYSTEM_PROMPT` is the active execution prompt
-  - `DEFAULT_EDIT_SYSTEM_PROMPT` now exists as a separate edit-only action prompt
+  - `DEFAULT_EDIT_SYSTEM_PROMPT` exists as a separate edit-only action prompt
   - `DEFAULT_SKILL_CALL_SYSTEM_PROMPT` currently points at the same run prompt for storage/schema compatibility
-  - active default examples in the top-level prompt docs were updated to show `<run>` instead of `<skill_call>`
-  - active action prompts now teach `location` as the canonical field name, with `root` as the canonical external enum value for system absolute paths
-  - run and edit prompt rules are now split again: `skillCallSystemPrompt` is run-only, `editSystemPrompt` is edit-only
-  - parser compatibility still accepts legacy `root` and `absolute` in model output and normalizes them back to the new `location` / `root` protocol
-  - the active run prompt now explicitly tells the model that search only discovers candidate links, and reading webpage content requires a follow-up `visit_url` / `fetch_url` call
-- legacy snapshot strings are still kept for migration matching and old stored prompt detection
+  - active default examples in the top-level prompt docs show `<run>` instead of `<skill_call>`
+  - **action prompts no longer teach `location` field**; path resolution now uses environment variable prefixes (`$skill/<name>`, `$workspace`, `$home`, absolute paths)
+  - run and edit prompt rules are split: `skillCallSystemPrompt` is run-only, `editSystemPrompt` is edit-only
+  - parser still accepts legacy `location` / `root` fields for backward compatibility; serialization always outputs new env var format
+  - the active run prompt tells the model that search only discovers candidate links, and reading webpage content requires a follow-up `visit_url` / `fetch_url` call
+- legacy snapshot strings are kept for migration matching and old stored prompt detection
+- `src/services/skills/action-location.ts`
+  - now exports `resolveEnvVarPath()` to parse `$skill/<name>/...`, `$workspace/...`, `$home/...`, and absolute paths
+  - `deriveRootFromPath()` extracts internal root/skill from env var paths
+  - `parseInternalActionLocation()` and `isInternalActionLocation()` remain for backward compat with legacy `location`/`root` fields
 
 ## Built-In Skills / Entry Points
 

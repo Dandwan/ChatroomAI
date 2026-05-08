@@ -102,7 +102,7 @@ export type EditRoot = Exclude<InternalActionLocation, 'skill'>
 export interface ReadAction {
   kind: 'read'
   root: ReadRoot
-  op: ReadOp
+  op?: ReadOp
   skill?: string
   path?: string
   depth?: number

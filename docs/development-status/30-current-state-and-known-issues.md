@@ -894,18 +894,18 @@ Verification after the fix:
 - Current user-message edit preserves existing image attachments but does not support changing attachments while editing.
 - If the conversation title was not manually renamed, editing the first user turn can change the auto-derived title because title derivation is transcript-based.
 
-## Edit / Location Protocol State
+## Edit / Location Protocol State (2026-05-06: env var path refactor)
 
 - Executable protocol tags now include `read`, `run`, `edit`, and legacy `skill_call`.
-- `location` is the canonical field name for protocol-facing path roots.
-- External protocol values are now:
-  - `skill`
-  - `workspace`
-  - `home`
-  - `root`
-- Internal code still uses legacy `absolute` as the stored run/read/edit location for system-root compatibility, but protocol serialization now maps that back to `location="root"`.
+- **`location` field removed from protocol**; path resolution now uses environment variable prefixes:
+  - `$skill/<name>/...` — skill directory (first segment is skill name)
+  - `$workspace/...` — conversation workspace
+  - `$home/...` — host private home directory
+  - `/...` (absolute path) — system absolute path space
+- Parser accepts legacy `location`/`root`/`skill` fields for backward compatibility; serializer always outputs new env var format.
+- Internal code still uses `InternalActionLocation` (`skill` | `workspace` | `home` | `absolute`) as the stored run/read/edit root; protocol serialization maps back to env var paths.
 - `<edit>` currently supports:
-  - `workspace`, `home`, and system absolute-path access
+  - `$workspace`, `$home`, and system absolute-path access
   - `insert`, `delete`, `replace`
   - `beforeLine` / `afterLine`
   - optional `expectedText`
