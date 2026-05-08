@@ -171,6 +171,7 @@ export interface AppSettings {
   deviceInfoPromptEnabled: boolean
   workspaceInfoPromptEnabled: boolean
   deprecatedTagPrompts: string
+  promptVersions: Record<string, number>
   themeMode: ThemeMode
   defaultResponseMode: ConversationResponseMode
   temperature: number
