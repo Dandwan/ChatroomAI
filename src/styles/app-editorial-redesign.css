@@ -13,24 +13,24 @@
   --chat-page-background:
     radial-gradient(circle at 50% -10%, rgba(144, 119, 92, 0.06), transparent 28%),
     linear-gradient(180deg, #faf7f0, #ece6d8);
-  --chat-header-pill-bg: rgba(255, 252, 246, 0.84);
-  --chat-header-pill-border: rgba(22, 20, 18, 0.12);
-  --chat-header-pill-shadow: 0 12px 28px rgba(22, 20, 18, 0.10);
-  --chat-header-pill-blur: 12px;
+  --chat-glass-bg: rgba(255, 252, 246, 0.36);
+  --chat-glass-blur: 18px;
+  --chat-glass-hover-bg: rgba(238, 230, 218, 0.56);
+  --chat-header-pill-border: rgba(22, 20, 18, 0.10);
+  --chat-header-pill-shadow: 0 12px 28px rgba(22, 20, 18, 0.08);
   --chat-header-pill-content-color: #161412;
   --chat-header-pill-menu-line: #161412;
   --chat-header-pill-menu-line-muted: rgba(22, 20, 18, 0.62);
-  --header-card-bg: var(--chat-header-pill-bg);
+  --header-card-bg: var(--chat-glass-bg);
   --header-card-border: var(--chat-header-pill-border);
   --header-card-shadow: var(--chat-header-pill-shadow);
   --header-card-content-color: var(--chat-header-pill-content-color);
-  --chat-summary-pill-bg: rgba(255, 252, 246, 0.84);
-  --chat-summary-pill-border: rgba(22, 20, 18, 0.12);
+  --chat-summary-pill-border: rgba(22, 20, 18, 0.10);
   --chat-summary-pill-color: rgba(22, 20, 18, 0.66);
   --chat-summary-pill-font-size: 9px;
   --chat-summary-pill-letter-spacing: 0.14em;
   --chat-summary-pill-padding-inline: 7px;
-  --summary-pill-bg: var(--chat-summary-pill-bg);
+  --summary-pill-bg: var(--chat-glass-bg);
   --summary-pill-border: var(--chat-summary-pill-border);
   --summary-pill-color: var(--chat-summary-pill-color);
   --summary-pill-font-size: var(--chat-summary-pill-font-size);
@@ -44,9 +44,7 @@
   --homepage-footer-gap: var(--chat-equal-margin);
   --homepage-header-inline-inset: var(--chat-equal-margin);
   --homepage-field-radius: 4px;
-  --homepage-field-border: rgba(22, 20, 18, 0.12);
-  --homepage-field-bg: rgba(255, 252, 246, 0.88);
-  --homepage-field-hover-bg: rgba(238, 230, 218, 0.94);
+  --homepage-field-border: rgba(22, 20, 18, 0.10);
   --homepage-field-hover-color: #161412;
   --homepage-field-hover-border: rgba(22, 20, 18, 0.22);
   --homepage-footer-safe-bottom: env(safe-area-inset-bottom);
@@ -71,18 +69,16 @@
   --chat-page-background:
     radial-gradient(circle at 50% -10%, rgba(186, 154, 124, 0.05), transparent 28%),
     #090b10;
-  --chat-header-pill-bg: rgba(10, 12, 18, 0.56);
-  --chat-header-pill-border: rgba(244, 247, 251, 0.12);
-  --chat-header-pill-shadow: 0 12px 28px rgba(3, 7, 18, 0.18);
+  --chat-glass-bg: rgba(10, 12, 18, 0.36);
+  --chat-glass-hover-bg: rgba(14, 16, 24, 0.56);
+  --chat-header-pill-border: rgba(244, 247, 251, 0.10);
+  --chat-header-pill-shadow: 0 12px 28px rgba(3, 7, 18, 0.16);
   --chat-header-pill-content-color: var(--settings-text-primary);
   --chat-header-pill-menu-line: rgba(244, 247, 251, 0.86);
   --chat-header-pill-menu-line-muted: rgba(244, 247, 251, 0.62);
-  --chat-summary-pill-bg: rgba(10, 12, 18, 0.56);
-  --chat-summary-pill-border: rgba(244, 247, 251, 0.12);
+  --chat-summary-pill-border: rgba(244, 247, 251, 0.10);
   --chat-summary-pill-color: rgba(244, 247, 251, 0.78);
-  --homepage-field-border: rgba(244, 247, 251, 0.12);
-  --homepage-field-bg: rgba(10, 12, 18, 0.88);
-  --homepage-field-hover-bg: rgba(14, 16, 24, 0.92);
+  --homepage-field-border: rgba(244, 247, 251, 0.10);
   --homepage-field-hover-color: rgba(244, 247, 251, 0.92);
   --homepage-field-hover-border: rgba(244, 247, 251, 0.2);
 }
@@ -168,7 +164,6 @@
 .chat-page-shell .composer.is-editorial-chat-shell .composer-row,
 .chat-page-shell .composer.is-editorial-chat-shell .composer-tools {
   background: transparent;
-  backdrop-filter: none;
 }
 
 .chat-page-shell .message-list {
@@ -198,8 +193,8 @@
   box-shadow: var(--header-card-shadow);
   will-change: transform, backdrop-filter;
   transform: translateZ(0);
-  backdrop-filter: blur(var(--chat-header-pill-blur)) saturate(180%);
-  -webkit-backdrop-filter: blur(var(--chat-header-pill-blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--chat-glass-blur)) saturate(180%);
+  backdrop-filter: blur(var(--chat-glass-blur)) saturate(180%);
 }
 
 .app-shell.chat-page-shell .chat-header-pill .menu-button {
@@ -322,9 +317,9 @@
   padding: 0 var(--chat-summary-pill-padding-inline);
   border-radius: 999px;
   border-color: var(--chat-summary-pill-border);
-  background: var(--chat-summary-pill-bg);
-  backdrop-filter: blur(var(--chat-header-pill-blur));
-  -webkit-backdrop-filter: blur(var(--chat-header-pill-blur));
+  background: var(--chat-glass-bg);
+  -webkit-backdrop-filter: blur(var(--chat-glass-blur)) saturate(1);
+  backdrop-filter: blur(var(--chat-glass-blur));
   color: var(--chat-summary-pill-color);
   font-size: var(--chat-summary-pill-font-size);
   letter-spacing: var(--chat-summary-pill-letter-spacing);
@@ -805,7 +800,7 @@
 .composer-model-trigger.is-editorial-chat-shell {
   padding-inline: 16px;
   border-radius: var(--homepage-field-radius);
-  background: var(--homepage-field-bg);
+  background: var(--chat-glass-bg);
   border-color: var(--homepage-field-border);
   box-shadow: none;
 }
@@ -951,10 +946,14 @@
 .composer.is-editorial-chat-shell .icon-button,
 .composer.is-editorial-chat-shell .composer-model,
 .composer.is-editorial-chat-shell .composer-model-trigger {
-  background: var(--homepage-field-bg);
+  background: var(--chat-glass-bg);
   border-color: var(--homepage-field-border);
   color: var(--text-primary);
   box-shadow: none;
+  will-change: transform, backdrop-filter;
+  transform: translateZ(0);
+  -webkit-backdrop-filter: blur(var(--chat-glass-blur)) saturate(180%);
+  backdrop-filter: blur(var(--chat-glass-blur)) saturate(180%);
 }
 
 .composer.is-editorial-chat-shell textarea.chat-input-box::placeholder {
@@ -1039,8 +1038,8 @@
 .composer.is-editorial-chat-shell .icon-button:hover,
 .composer.is-editorial-chat-shell .composer-send-button:hover,
 .composer.is-editorial-chat-shell .composer-model-trigger:hover {
-  transform: none;
-  background: var(--homepage-field-hover-bg);
+  transform: translateZ(0);
+  background: var(--chat-glass-hover-bg);
   color: var(--homepage-field-hover-color);
   border-color: var(--homepage-field-hover-border);
 }
@@ -1165,14 +1164,21 @@
   border-right: 1px solid var(--border-color);
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
-  background: var(--surface-overlay-strong);
+  background: rgba(250, 247, 240, 0.62);
   box-shadow: none;
-  backdrop-filter: none;
+  backface-visibility: visible;
+  will-change: transform;
+}
+
+/* Ensure blur renders during the opacity-driven open/close animation */
+.drawer-overlay {
+  -webkit-backdrop-filter: blur(var(--chat-glass-blur, 18px)) saturate(180%);
+  backdrop-filter: blur(var(--chat-glass-blur, 18px)) saturate(180%);
 }
 
 :root[data-theme='dark'] .drawer-panel--editorial {
   border-right-color: rgba(244, 247, 251, 0.12);
-  background: #08090d;
+  background: rgba(7, 8, 13, 0.62);
 }
 
 .drawer-header--editorial {

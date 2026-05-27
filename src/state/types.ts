@@ -187,6 +187,7 @@ export interface AppSettings {
   currentModel: string
   deleteConfirmGraceSeconds: number
   conversationGroupGapMinutes: number
+  chatBlurPx: number
   autoCollapseConversations: boolean
   emptyStateStatsMinConversations: number
   maxModelRetryCount: number
@@ -203,6 +204,7 @@ export type NumericSettingKey =
   | 'frequencyPenalty'
   | 'deleteConfirmGraceSeconds'
   | 'conversationGroupGapMinutes'
+  | 'chatBlurPx'
   | 'emptyStateStatsMinConversations'
   | 'maxModelRetryCount'
 
@@ -329,6 +331,7 @@ export const DEFAULT_DELETE_CONFIRM_GRACE_SECONDS = 30
 export const DEFAULT_CONVERSATION_GROUP_GAP_MINUTES = 30
 export const DEFAULT_AUTO_COLLAPSE_CONVERSATIONS = true
 export const DEFAULT_EMPTY_STATE_STATS_MIN_CONVERSATIONS = 3
+export const DEFAULT_CHAT_BLUR_PX = 18
 export const SWIPE_DELETE_TOGGLE_THRESHOLD_PX = 72
 export const SWIPE_DELETE_MAX_OFFSET_PX = 96
 export const LONG_PRESS_DELETE_MODE_MS = 520

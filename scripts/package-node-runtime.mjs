@@ -1,5 +1,5 @@
 import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
-import { createReadStream, createWriteStream } from 'node:fs'
+import { createReadStream } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -10,6 +10,14 @@ const PACKAGE_INDEX_PATH = 'dists/stable/main/binary-aarch64/Packages'
 const DEFAULT_ARCH = 'aarch64'
 const REQUIRED_PACKAGES = ['nodejs', 'libc++', 'openssl', 'c-ares', 'libicu', 'libsqlite', 'zlib', 'ca-certificates']
 const TERMUX_PREFIX = 'data/data/com.termux/files/usr'
+const DEFAULT_CACHE_DIR = '.local/runtime-package-cache/node'
+const AR_ARCHIVE_MAGIC = '!<arch>\n'
+
+const sanitizeCacheFileName = (value) =>
+  value
+    .replace(/\\/g, '/')
+    .replace(/[^a-zA-Z0-9._/-]+/g, '-')
+    .replace(/\//g, '__')
 
 const toArgMap = (argv) => {
   const values = new Map()
@@ -64,6 +72,12 @@ const fetchFile = async (url, destination) => {
   await writeFile(destination, Buffer.from(await response.arrayBuffer()))
 }
 
+const readCachedText = async (path) => (await readFile(path, 'utf8')).replace(/\r\n/g, '\n')
+
+const isArArchiveBuffer = (buffer) =>
+  buffer.length >= AR_ARCHIVE_MAGIC.length &&
+  buffer.subarray(0, AR_ARCHIVE_MAGIC.length).toString('ascii') === AR_ARCHIVE_MAGIC
+
 const parsePackagesIndex = (content) => {
   const packages = new Map()
   for (const block of content.split('\n\n')) {
@@ -80,6 +94,79 @@ const parsePackagesIndex = (content) => {
     }
   }
   return packages
+}
+
+const loadPackageIndex = async ({ indexCacheDir, offline }) => {
+  await mkdir(indexCacheDir, { recursive: true })
+  const cachePath = join(indexCacheDir, sanitizeCacheFileName(PACKAGE_INDEX_PATH))
+
+  let content = ''
+  if (offline) {
+    content = await readCachedText(cachePath)
+    console.log(`Loaded cached package index ${cachePath}`)
+  } else {
+    const url = `${TERMUX_BASE_URL}/${PACKAGE_INDEX_PATH}`
+    console.log(`Fetching package index ${url}...`)
+    try {
+      content = await fetchText(url)
+      await writeFile(cachePath, content)
+    } catch (error) {
+      try {
+        const cached = await readCachedText(cachePath)
+        console.warn(
+          `Warning: failed to fetch live index; using cache ${cachePath}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        )
+        content = cached
+      } catch {
+        throw error
+      }
+    }
+  }
+
+  return parsePackagesIndex(content)
+}
+
+const downloadPackage = async (packageName, entry, downloadsDir, packageCacheDir, offline) => {
+  if (!entry?.Filename) {
+    throw new Error(`Package metadata missing for ${packageName}`)
+  }
+
+  await mkdir(downloadsDir, { recursive: true })
+  await mkdir(packageCacheDir, { recursive: true })
+
+  const debCachePath = join(
+    packageCacheDir,
+    `${sanitizeCacheFileName(packageName)}--${sanitizeCacheFileName(entry.Version ?? 'unknown')}.deb`,
+  )
+
+  let cachedBuffer = null
+  try {
+    cachedBuffer = await readFile(debCachePath)
+    if (!isArArchiveBuffer(cachedBuffer)) {
+      throw new Error(`Cached package is not a valid ar archive: ${debCachePath}`)
+    }
+    console.log(`Using cached package ${packageName}@${entry.Version} from ${debCachePath}`)
+  } catch (error) {
+    if (offline) {
+      throw new Error(
+        `Offline mode is enabled and package cache is unavailable or invalid for ${packageName}@${entry.Version}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      )
+    }
+    console.log(`Downloading ${packageName}@${entry.Version}...`)
+    await fetchFile(`${TERMUX_BASE_URL}/${entry.Filename}`, debCachePath)
+    cachedBuffer = await readFile(debCachePath)
+    if (!isArArchiveBuffer(cachedBuffer)) {
+      throw new Error(`Downloaded package is not a valid ar archive: ${debCachePath}`)
+    }
+  }
+
+  const debPath = join(downloadsDir, `${packageName}.deb`)
+  await writeFile(debPath, cachedBuffer)
+  return debPath
 }
 
 const copyResolvedFile = async (source, destination) => {
@@ -119,6 +206,8 @@ const main = async () => {
 
   const runtimeId = args.get('runtime-id') ?? `nodejs-termux-${arch}`
   const outputDir = resolve(args.get('output-dir') ?? 'dist/runtime-packages')
+  const cacheDir = resolve(args.get('cache-dir') ?? DEFAULT_CACHE_DIR)
+  const offline = args.get('offline') === 'true'
   const workRoot = await mkdtemp(join(tmpdir(), 'chatroom-node-runtime-'))
   const downloadsDir = join(workRoot, 'downloads')
   const unpackDir = join(workRoot, 'unpacked')
@@ -127,10 +216,14 @@ const main = async () => {
   const runtimeLibDir = join(runtimeRoot, 'lib')
   const runtimeEtcDir = join(runtimeRoot, 'etc')
   const runtimeShareDir = join(runtimeRoot, 'share')
+  const indexCacheDir = join(cacheDir, 'indexes')
+  const packageCacheDir = join(cacheDir, 'packages')
 
   try {
-    console.log(`Fetching package index for ${arch}...`)
-    const packagesIndex = parsePackagesIndex(await fetchText(`${TERMUX_BASE_URL}/${PACKAGE_INDEX_PATH}`))
+    const packagesIndex = await loadPackageIndex({ indexCacheDir, offline })
+    if (packagesIndex.size === 0) {
+      throw new Error('No package metadata could be fetched from Termux repository')
+    }
 
     await mkdir(downloadsDir, { recursive: true })
     await mkdir(unpackDir, { recursive: true })
@@ -145,10 +238,8 @@ const main = async () => {
         throw new Error(`Package metadata missing for ${packageName}`)
       }
 
-      const debPath = join(downloadsDir, `${packageName}.deb`)
+      const debPath = await downloadPackage(packageName, entry, downloadsDir, packageCacheDir, offline)
       const packageDir = join(unpackDir, packageName)
-      console.log(`Downloading ${packageName}@${entry.Version}...`)
-      await fetchFile(`${TERMUX_BASE_URL}/${entry.Filename}`, debPath)
       await mkdir(packageDir, { recursive: true })
       await run('ar', ['x', debPath], { cwd: packageDir })
 

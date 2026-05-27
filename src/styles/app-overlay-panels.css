@@ -5,7 +5,6 @@
   z-index: 40;
   opacity: 0;
   transition: opacity 0.24s cubic-bezier(0.22, 1, 0.36, 1);
-  will-change: opacity;
 }
 
 .drawer-overlay.is-open {
@@ -362,6 +361,8 @@
   position: fixed;
   inset: 0;
   background: var(--surface-overlay);
+  backdrop-filter: blur(var(--chat-glass-blur, 18px)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--chat-glass-blur, 18px)) saturate(180%);
   z-index: 45;
   opacity: 0;
   transition: opacity 0.24s ease;

@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 SKIP_RUNTIME_PACKAGE="${SKIP_RUNTIME_PACKAGE:-false}"
+BUILD_OFFLINE="${BUILD_OFFLINE:-false}"
 
 cd "$PROJECT_DIR"
 
@@ -18,15 +19,22 @@ npm run skill:sync:union-search
 if [ "$SKIP_RUNTIME_PACKAGE" = "true" ]; then
   echo "==> [跳过] 跳过运行时打包 (SKIP_RUNTIME_PACKAGE=true)"
 else
+  # Build up common options for runtime packaging scripts.
+  RUNTIME_PACKAGE_OPTS="--output-dir public/runtime-packages"
+  if [ "$BUILD_OFFLINE" = "true" ]; then
+    RUNTIME_PACKAGE_OPTS="$RUNTIME_PACKAGE_OPTS --offline true"
+    echo "==> 离线模式：使用缓存的运行时包 (BUILD_OFFLINE=true)"
+  fi
+
   echo "==> 打包 Node.js 运行时..."
   NODE_OPTIONS="${NODE_OPTIONS:-} --use-system-ca" \
-    npm run runtime:package:node -- --output-dir public/runtime-packages || {
+    npm run runtime:package:node -- $RUNTIME_PACKAGE_OPTS || {
     echo "  ⚠ Node.js 运行时打包失败（使用已有包继续）"
   }
 
   echo "==> 打包 Python 运行时..."
   NODE_OPTIONS="${NODE_OPTIONS:-} --use-system-ca" \
-    npm run runtime:package:python -- --output-dir public/runtime-packages || {
+    npm run runtime:package:python -- $RUNTIME_PACKAGE_OPTS || {
     echo "  ⚠ Python 运行时打包失败（使用已有包继续）"
   }
 
