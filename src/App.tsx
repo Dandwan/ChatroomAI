@@ -224,6 +224,7 @@ import {
   DEFAULT_DELETE_CONFIRM_GRACE_SECONDS,
   DEFAULT_CONVERSATION_GROUP_GAP_MINUTES,
   DEFAULT_AUTO_COLLAPSE_CONVERSATIONS,
+  DEFAULT_CHAT_BLUR_PX,
   DEFAULT_EMPTY_STATE_STATS_MIN_CONVERSATIONS,
   DEFAULT_RESPONSE_MODE,
   EMPTY_HISTORY_STATS,
@@ -606,6 +607,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   currentModel: '',
   deleteConfirmGraceSeconds: DEFAULT_DELETE_CONFIRM_GRACE_SECONDS,
   conversationGroupGapMinutes: DEFAULT_CONVERSATION_GROUP_GAP_MINUTES,
+  chatBlurPx: DEFAULT_CHAT_BLUR_PX,
   autoCollapseConversations: DEFAULT_AUTO_COLLAPSE_CONVERSATIONS,
   emptyStateStatsMinConversations: DEFAULT_EMPTY_STATE_STATS_MIN_CONVERSATIONS,
   maxModelRetryCount: 3,
@@ -673,6 +675,7 @@ const NUMERIC_SETTING_DEFAULTS: Record<NumericSettingKey, number> = {
   frequencyPenalty: DEFAULT_SETTINGS.frequencyPenalty,
   deleteConfirmGraceSeconds: DEFAULT_SETTINGS.deleteConfirmGraceSeconds,
   conversationGroupGapMinutes: DEFAULT_SETTINGS.conversationGroupGapMinutes,
+  chatBlurPx: DEFAULT_SETTINGS.chatBlurPx,
   emptyStateStatsMinConversations: DEFAULT_SETTINGS.emptyStateStatsMinConversations,
   maxModelRetryCount: DEFAULT_SETTINGS.maxModelRetryCount,
 }
@@ -706,6 +709,7 @@ const createNumericSettingDrafts = (settings: AppSettings): NumericSettingDrafts
     'conversationGroupGapMinutes',
     settings.conversationGroupGapMinutes,
   ),
+  chatBlurPx: normalizeNumericSettingDraft('chatBlurPx', settings.chatBlurPx),
   emptyStateStatsMinConversations: normalizeNumericSettingDraft(
     'emptyStateStatsMinConversations',
     settings.emptyStateStatsMinConversations,
@@ -1733,6 +1737,7 @@ const loadSettings = (): AppSettings => {
     const rawFrequencyPenalty = toFiniteNumber(parsed.frequencyPenalty)
     const rawDeleteConfirmGraceSeconds = toFiniteNumber(parsed.deleteConfirmGraceSeconds)
     const rawConversationGroupGapMinutes = toFiniteNumber(parsed.conversationGroupGapMinutes)
+    const rawChatBlurPx = toFiniteNumber(parsed.chatBlurPx)
     const rawEmptyStateStatsMinConversations = toFiniteNumber(parsed.emptyStateStatsMinConversations)
     const rawMaxModelRetryCount = toFiniteNumber(parsed.maxModelRetryCount)
     const defaultResponseMode =
@@ -1838,6 +1843,10 @@ const loadSettings = (): AppSettings => {
         rawConversationGroupGapMinutes !== undefined
           ? Math.round(clamp(rawConversationGroupGapMinutes, 0, 120))
           : DEFAULT_SETTINGS.conversationGroupGapMinutes,
+      chatBlurPx:
+        rawChatBlurPx !== undefined
+          ? Math.round(clamp(rawChatBlurPx, 0, 40))
+          : DEFAULT_SETTINGS.chatBlurPx,
       autoCollapseConversations:
         typeof parsed.autoCollapseConversations === 'boolean'
           ? parsed.autoCollapseConversations
@@ -6445,6 +6454,10 @@ function App() {
   }, [settings.themeMode])
 
   useEffect(() => {
+    document.documentElement.style.setProperty('--chat-glass-blur', `${settings.chatBlurPx}px`)
+  }, [settings.chatBlurPx])
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
         localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings))
@@ -8108,6 +8121,21 @@ function App() {
               options={THEME_MODE_OPTIONS}
               ariaLabel="选择主题模式"
               onChange={(nextValue) => updateSetting('themeMode', nextValue)}
+            />
+          </label>
+
+          <label className="field">
+            <span>模糊度（px）</span>
+            <ChatInputBox
+              className="settings-chat-input settings-chat-input-compact"
+              value={numericSettingDrafts.chatBlurPx}
+              inputMode="numeric"
+              placeholder={String(DEFAULT_SETTINGS.chatBlurPx)}
+              onChange={(event) =>
+                handleNumericSettingChange('chatBlurPx', event.target.value, 0, 40, true)
+              }
+              onBlur={() => finalizeNumericSettingDraft('chatBlurPx')}
+              maxHeight={140}
             />
           </label>
 

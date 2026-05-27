@@ -1,3 +1,44 @@
+## Latest Drawer Blur And Blur Setting State
+
+As of 2026-05-09:
+
+- the history drawer panel (`.drawer-panel--editorial`) now has visible backdrop-filter blur matching the chat chrome blur treatment
+- drawer background changed from fully opaque (light: `rgba(250,247,240,0.96)`, dark: `#08090d`) to semi-transparent (both: 62% opacity) so background content shows through the blur
+- drawer panel now promoted as compositor layer (`will-change: transform, backdrop-filter` + `translateZ(0)`)
+- new global setting `chatBlurPx` (default 18, range 0–40) added to `AppSettings` — controls `--chat-glass-blur` CSS custom property applied to document root
+- blur setting UI control added to settings "显示选项" section
+- the same `--chat-glass-blur` token drives blur radius for: drawer panel, chat header pill, composer controls, and homepage background
+- changes in three files:
+  - `src/state/types.ts` — `chatBlurPx` field + `DEFAULT_CHAT_BLUR_PX` constant
+  - `src/styles/app-editorial-redesign.css` — drawer panel blur, semi-transparent background, layer promotion
+  - `src/App.tsx` — default value, CSS variable sync, settings loader, settings UI
+- validation:
+  - `npx tsc -b` — zero errors
+  - `npm run build` — passes
+  - `npx eslint . --quiet` — zero warnings
+  - Built CSS verified: both standard `backdrop-filter` and `-webkit-backdrop-filter` present for drawer panel with correct semi-transparent backgrounds
+- validation gap:
+  - no fresh device/emulator screenshot pass to visually verify drawer blur on Android WebView
+  - existing Android WebView `backdrop-filter` rendering risk noted in prior handoff entries; same risk applies to drawer
+
+## Latest Chat Chrome Blur State
+
+As of 2026-05-09:
+
+- top controls (header pill, summary bar chips) now use `backdrop-filter: blur(18px) saturate(180%)` with reduced background opacity (0.58 light / 0.48 dark) so the blur is visible against scrolling content
+- bottom controls (composer input, send button, model trigger, icon buttons) now use the same blur + layer promotion (`will-change: transform, backdrop-filter` + `translateZ(0)`)
+- composer shell layers no longer carry `backdrop-filter: none`
+- bottom control hover state preserves compositor layer promotion instead of resetting `transform` to `none`
+- all blur elements carry both standard `backdrop-filter` and `-webkit-backdrop-filter`; property order reversed so Lightning CSS keeps the standard property
+- blur radius: 18px (was 12px) for both top and bottom
+- changes in one file:
+  - `src/styles/app-editorial-redesign.css`
+- validation:
+  - `npm run build` — passes
+  - `npx eslint . --quiet` — zero warnings
+- validation gap:
+  - no fresh device/emulator screenshot pass was run
+
 ## Latest Default Prompt Versioning State
 
 As of 2026-05-08:
