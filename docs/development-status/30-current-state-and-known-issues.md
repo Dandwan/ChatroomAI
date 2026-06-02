@@ -1,6 +1,6 @@
 # Current State And Known Issues
 
-Last updated: 2026-06-02
+Last updated: 2026-06-03
 
 ## Run & Skill Runtime
 
@@ -55,6 +55,31 @@ See `20-run-and-skill-runtime.md` for full architecture.
 6. **`android/gradlew`**: Tracked with CRLF line endings — requires LF wrapper on Linux.
 7. **Duplicate asset merge**: Repeated debug rebuilds after `cap sync` can intermittently hit duplicate asset merge errors under `public/builtin-skills/union-search/`. Workaround: `clean` → `assembleDebug`.
 8. **Emulator system bar**: White status-bar background visible above WebView — not yet matching prototype appearance.
+
+## Cloud Server (`cloud-server/`)
+
+The project now includes a **cloud server** (API proxy gateway) at `cloud-server/`. It acts as a middleware layer between the client app and upstream LLM APIs.
+
+### Architecture
+- **Node.js + TypeScript + Express** backend
+- **SQLite** (sql.js, WASM-based) for data persistence
+- **Admin UI**: Separate Vite + React app, served as static files by Express
+- Modules: `auth/`, `proxy/`, `upstream/`, `admin/`, `db/`, `plugin/`
+
+### Core Capabilities
+- User authentication (username/email + password) with auto-generated API keys (`csk_` prefix)
+- Multi-upstream API proxy with priority-based selection and health-aware failover
+- Fill and round-robin distribution modes per upstream
+- Per-user rate limiting (RPM/TPD)
+- Health checking every 10 minutes with priority-group and individual upstream retry logic
+- Admin dashboard with usage stats, per-hour tokens/requests charts, availability monitoring (1h/3h/24h)
+- Plugin system for extensibility
+- App-side `CloudLoginPage` component for user login
+
+### Build & Run
+- `cd cloud-server && npm run dev` — development server (port 3000)
+- `cd cloud-server/admin-ui && npm run build` — build admin UI
+- Config via environment variables or `cloud-server/config.json`
 
 ## Remaining Follow-Up Items
 
