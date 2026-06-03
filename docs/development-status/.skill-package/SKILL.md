@@ -1,188 +1,248 @@
 ---
 name: development-project-handoff
-description: This skill should be used whenever Claude is asked to "add a feature", "fix a bug", "refactor", "change this code", "modify", "update the project", "implement", "build", "debug", "investigate this issue", "review the codebase", or any other development task on an existing software repository. New features, refactors, reviews, and investigations always require the full workflow. Bug fixes are tiered: only small fixes (single file, obvious root cause, no API/architecture changes, 1-10 lines) may skip; all other bugs go through the full process. Read the project's development status directory first: index, all handoff updates in chronological order, architecture docs, current state — then decide if codebase exploration is needed. Propose a detailed engineering plan (approach, constraints, questions), wait for explicit user confirmation, then implement. Create a numbered handoff update file and a focused git commit after finishing.
+description: 当用户要求"添加功能"、"修 bug"、"重构"、"修改代码"、"更新项目"、"实现"、"构建"、"调试"、"调查问题"、"审查代码库"或对现有代码仓库进行任何其他开发任务时，应使用此技能。新功能、重构、审查和调研必须走完整流程。Bug 修复分两级：仅小修复（单文件、根因明显、无 API/架构变更、1-10 行代码）可跳过；其他所有 bug 必须走完整流程。先读取项目的开发状态目录：索引、按时间顺序的所有交接更新、架构文档、当前状态——然后决定是否需要探索代码库。提出详细的工程方案（方法、约束、疑问），等待用户明确确认，然后实现。完成后创建编号交接更新文件并做一次专注的 git 提交。
 ---
 
-# Development Project Handoff
+# 开发项目交接
 
-## Overview
+## 概述
 
-Use a repo-tracked development status directory as the first read and last write point for every software-project handoff. Keep project-specific state inside the repository so it moves with git instead of living only in chat history or local temp files.
+使用仓库内追踪的开发状态目录作为每次软件项目交接的首读点和末写点。将项目特定状态保留在仓库内，使其随 git 流转，而非仅存在于聊天记录或本地临时文件中。
 
-This skill also enforces a decision gate before implementation: after reading the status docs and enough code to understand the task, present a maintainable, extensible, engineering-quality approach, state relevant constraints, raise genuine questions, and wait for explicit user confirmation before starting the actual development work.
+此技能还强制一个决策关卡：在阅读状态文档和足够理解任务的代码之后，提出一个可维护、可扩展、工程质量的方案，说明相关约束，提出真正的疑问，并在开始实际开发工作之前等待用户明确确认。
 
-## Skill Self-Distribution
+## 技能自分发
 
-This skill ships itself as a distributable package at `docs/development-status/.skill-package/`. When a project includes this package and has the CLAUDE.md snippet installed, any agent encountering the project for the first time will be guided through installation.
+此技能以可分发包的形式发布在 `docs/development-status/.skill-package/`。当项目包含此包且已安装 CLAUDE.md 片段时，任何首次遇到该项目的 agent 将被引导完成安装。
 
-### Package Structure
+### 包结构
 
-The `.skill-package/` directory contains a complete copy of the skill: `SKILL.md`, `references/`, `VERSION`, `INSTALL.md`, and `claude-md-snippet.md`.
+`.skill-package/` 目录包含技能的完整副本：`SKILL.md`、`references/`、`VERSION`、`INSTALL.md` 和 `claude-md-snippet.md`。
 
-### Startup Version Detection
+### 启动版本检测
 
-At the start of every conversation, if the project CLAUDE.md contains the `<!-- HANDOFF-SKILL-START -->` marker block, the agent MUST perform version detection before any development work:
+在每次对话开始时，如果项目 CLAUDE.md 包含 `<!-- HANDOFF-SKILL-START -->` 标记块，agent 必须在任何开发工作之前执行版本检测：
 
-1. Check whether `~/.claude/skills/development-project-handoff/SKILL.md` exists.
-2. If the skill is **not installed**:
-   - Read `~/.claude/.handoff-skill-ignored` (if it exists). This file contains one absolute project path per line.
-   - If the current project's absolute path is in the ignored file → silently skip, do nothing.
-   - If not ignored → prompt the user via AskUserQuestion with three options:
-     - **安装/更新** — copy `docs/development-status/.skill-package/` to `~/.claude/skills/development-project-handoff/`, then replace the `<!-- HANDOFF-SKILL-START -->` … `<!-- HANDOFF-SKILL-END -->` block in the project CLAUDE.md with the contents of `claude-md-snippet.md`.
-     - **忽略（本次）** — do nothing persistent; the prompt will appear again next session.
-     - **永久忽略** — append the current project's absolute path as a new line to `~/.claude/.handoff-skill-ignored`.
-3. If the skill **is installed**, compare versions by reading both VERSION files:
-   - **Project version > local version** → prompt: "项目中的 handoff skill 包版本较新，是否更新本地 skill？" (same three options).
-   - **Local version > project version** → prompt: "本地 handoff skill 版本较新，是否更新项目中的 skill 包？" (same three options).
-   - **Versions match** → no prompt, proceed normally.
+1. 检查 `~/.claude/skills/development-project-handoff/SKILL.md` 是否存在。
+2. 如果技能**未安装**：
+   - 读取 `~/.claude/.handoff-skill-ignored`（如果存在）。此文件每行包含一个项目绝对路径。
+   - 如果当前项目的绝对路径在忽略文件中 → 静默跳过，不执行任何操作。
+   - 如果未被忽略 → 通过 AskUserQuestion 弹窗提示用户，提供三个选项：
+     - **安装/更新** — 复制 `docs/development-status/.skill-package/` 到 `~/.claude/skills/development-project-handoff/`，然后用 `claude-md-snippet.md` 的内容替换项目 CLAUDE.md 中的 `<!-- HANDOFF-SKILL-START -->` … `<!-- HANDOFF-SKILL-END -->` 块。
+     - **忽略（本次）** — 不做持久化操作；下次对话仍会提示。
+     - **永久忽略** — 将当前项目的绝对路径追加写入 `~/.claude/.handoff-skill-ignored`。
+3. 如果技能**已安装**，读取两个 VERSION 文件进行对比：
+   - **项目版本 > 本地版本** → 提示："项目中的 handoff skill 包版本较新，是否更新本地 skill？"（选项同上）。
+   - **本地版本 > 项目版本** → 提示："本地 handoff skill 版本较新，是否更新项目中的 skill 包？"（选项同上）。
+   - **版本一致** → 无需提示，正常进行。
 
-The VERSION file uses a date stamp (e.g. `2026-05-27`). String comparison is sufficient.
+VERSION 文件使用日期戳（例如 `2026-05-27`）。字符串比较即可。
 
-### CLAUDE.md Marker Block
+### CLAUDE.md 标记块
 
-The project CLAUDE.md manages the handoff skill configuration inside a delimited block:
+项目 CLAUDE.md 通过分隔块管理 handoff skill 配置：
 
 ```
 <!-- HANDOFF-SKILL-START -->
 <!-- Version: YYYY-MM-DD -->
 <!-- Source: docs/development-status/.skill-package/ -->
 
-... skill rules and version detection instructions ...
+... 技能规则和版本检测指令 ...
 
 <!-- HANDOFF-SKILL-END -->
 ```
 
-When installing or updating, replace the entire block (start marker through end marker, inclusive). If no block exists yet, append the snippet to the end of the file.
+安装或更新时，替换整个块（开始标记到结束标记，含两端）。如果尚不存在该块，则追加片段到文件末尾。
 
-## Workflow
+## 工作流
 
+1. 确认任务是针对代码库的软件开发工作。
+2. 找到仓库根目录和状态目录。
+3. 在修改代码之前先读取状态目录——从 `00-index.md` 和 `10-project-overview.md` 开始。
+4. **按时间顺序读取所有交接更新文件。** 列出并读取 `docs/development-status/handoff-updates/` 中的每个文件，按编号顺序（001 → 002 → 003 → …）。这些文件包含决策、权衡、延期工作和未解决问题的完整历史——将其视为工程方案的必要上下文。
+5. **在探索代码库之前，先读取项目架构设计文档（`20-*.md`）。** 理解现有架构、组件交互、数据流、API 契约和重要的实现选择。在理解设计架构之前，禁止跳到代码库探索。
+6. 读取当前状态文档（`30-*.md`）以了解已知问题、风险和后续事项。
+7. **只有完成以上步骤后才决定是否需要探索代码库。** 如果状态目录完整且是最新的（通过交接更新的最后修改日期与近期 git 活动判断），可直接从文档形成工程方案并跳到第 9 步。如果文档缺失、不完整或明显过时，则进入第 8 步（检查代码库）。
+8. **按照项目 CLAUDE.md 中定义的摘要优先协议探索代码库。** 与架构文档（`20-*.md`）交叉验证。如果代码与文档不一致，将其视为需要解决的工作。
+9. 在任何实现或文件编辑之前，提出详细的**工程方案**，遵循 [references/pre-development-gate-checklist.md](references/pre-development-gate-checklist.md)，然后等待用户明确确认。
+10. 将修复过时文档作为任务的一部分。
+11. 确认后在执行所请求的开发工作。
+12. **为每个修改过的文件更新代码摘要。** 对于第 11 步中创建、修改、移动或删除的每个文件：(a) 在 `docs/development-status/summaries/` 下创建或更新其对应摘要，遵循 [references/summary-template.md](references/summary-template.md) 中的模板；(b) 如果文件的依赖关系发生变化（新增或删除的导入/引用），更新这些依赖文件的摘要中的 **被依赖** 部分，添加或移除当前文件；(c) 如果文件被删除，移除其摘要并清理相关摘要中的过时引用；(d) 如果文件被重命名或移动，相应地移动其摘要并更新相关摘要中的路径引用。**小修复也不能豁免此步骤。** 即使是一行拼写错误修复，也需要检查并更新对应的摘要。
+13. 完成前更新状态目录——更新过时的架构文档并在 `handoff-updates/` 文件夹中创建新的交接更新文件。
+14. 将状态更新与代码变更放在同一个 git 工作中。
+15. 当 git 可用时，创建一个仅包含你自己更改的 git 提交。
 
+## 定位状态目录
 
-1. Confirm the task is software development on a codebase.
-2. Find the repository root and status directory.
-3. Read the status directory before changing code — start with `00-index.md` and `10-project-overview.md`.
-4. **Read all handoff updates in chronological order.** List and read every file in `docs/development-status/handoff-updates/` by numeric order (001 → 002 → 003 → …). These contain the full history of decisions, tradeoffs, deferred work, and unresolved issues — treat them as required context for the engineering plan.
-5. **Read the project architecture design documents (`20-*.md`) before exploring the codebase.** Understand the existing architecture, component interactions, data flow, API contracts, and important implementation choices. Do NOT skip to codebase exploration without first understanding the designed architecture.
-6. Read current-state documents (`30-*.md`) for known issues, risks, and follow-up items.
-7. **Only then decide on codebase exploration.** If the status directory is complete and up-to-date (judged by the last-modified dates in handoff updates vs. recent git activity), form the engineering plan directly from the docs and proceed to step 9. If docs are missing, incomplete, or clearly stale, fall through to step 8 (inspect the codebase).
-8. Inspect the codebase enough to form a defensible engineering plan — but always cross-reference findings with the architecture docs. If code diverges from docs, treat the mismatch as work to resolve.
-9. Before any implementation or file edits, present a **detailed engineering plan** following [references/pre-development-gate-checklist.md](references/pre-development-gate-checklist.md), then wait for explicit user confirmation.
-10. Reconcile stale docs as part of the task.
-11. Do the requested development work after confirmation.
-12. Update the status directory before finishing — update stale architecture docs and create a new handoff update file in the `handoff-updates/` folder.
-13. Keep the status updates in the same git work as the code changes.
-14. Create a git commit containing only your own changes when git is available.
+- 如果项目已有状态目录，优先使用现有的仓库追踪目录。
+- 否则创建 `docs/development-status/`。
+- 将项目状态保留在仓库内。不要将其移到 `~/.claude/skills`、临时文件夹或仅限聊天的笔记中。
+- 如果仓库已按惯例使用其他追踪交接目录，请尊重该惯例，不要创建重复目录。
+- 创建新状态目录时，同时通过从 `~/.claude/skills/development-project-handoff/` 复制（SKILL.md、references/、VERSION、INSTALL.md、claude-md-snippet.md）来创建 `.skill-package/` 子目录。这确保项目携带自己的可分发副本。
 
-## Locate The Status Directory
+创建或修复目录结构时使用 [references/status-directory-layout.md](references/status-directory-layout.md)。
 
-- Prefer an existing repo-tracked status directory if the project already has one.
-- Otherwise create `docs/development-status/`.
-- Keep project status inside the repo. Do not move it into `~/.claude/skills`, temp folders, or chat-only notes.
-- If the repo already uses a different tracked handoff directory by convention, honor that instead of creating a duplicate.
-- When creating a new status directory, also create the `.skill-package/` subdirectory by copying the skill from `~/.claude/skills/development-project-handoff/` (SKILL.md, references/, VERSION, INSTALL.md, claude-md-snippet.md). This ensures the project carries its own distributable copy.
+## 编码前必读
 
-Use [references/status-directory-layout.md](references/status-directory-layout.md) when creating or repairing the directory structure.
+在修改代码之前，**按以下特定顺序**读取状态文件：
 
-## Read Before Coding
+1. `00-index.md` — 理解目录结构和约定。
+2. `10-project-overview.md` — 理解产品、技术栈和项目不变量。
+3. **`handoff-updates/` 文件夹** — 按编号顺序读取所有文件（001 → 002 → 003 → …）。这是强制性的。这些文件包含已完成的工作、做出的决策、接受的权衡、被推迟的事项以及仍存在的风险的完整历史。跳过此步骤意味着在黑暗中设计。
+4. **`20-*.md`（架构文档）** — 在探索代码库之前先读这些。理解设计架构、组件交互、数据流和 API 契约。当文档存在时，不要从代码逆向推演架构。
+5. `30-*.md` — 当前状态、已知问题、风险、后续事项。
+6. **`summaries/` 目录** — 代码库探索遵循项目 CLAUDE.md 中的摘要优先协议。
 
-Read the status files **in this specific order** before making code changes:
+只有完成以上所有步骤后，才决定是否需要探索代码库（根据工作流第 7 步）。
 
-1. `00-index.md` — understand the directory structure and conventions.
-2. `10-project-overview.md` — understand the product, stack, and invariants.
-3. **`handoff-updates/` folder** — read ALL files in numeric order (001 → 002 → 003 → …). This is mandatory. These files contain the full history of what was done, what decisions were made, what tradeoffs were accepted, what was deferred, and what risks remain open. Skipping this step means designing in the dark.
-4. **`20-*.md` (architecture docs)** — read these BEFORE exploring the codebase. Understand the designed architecture, component interactions, data flow, and API contracts. Do not reverse-engineer architecture from code when docs exist.
-5. `30-*.md` — current state, known issues, risks, follow-up items.
+如果布局与此约定不同，读取状态目录中的所有 Markdown 文件，从文件名和标题推断顺序。
 
-Only after reading all of the above, decide whether codebase exploration is needed (per the Workflow step 7).
+从状态文档和代码库共同构建工程方案。如果两者不一致，将其视为需要解决的工作——不要静默地信任其中一方。
 
-If the layout differs from this convention, read all Markdown files in the status directory and infer the order from filenames and headings.
+## 方案与确认关卡
 
-Build your engineering plan from the status docs AND the codebase. If they disagree, treat the mismatch as work to resolve — do not silently trust one over the other.
+- 在实际开发开始之前，阅读状态文档、所有交接更新、架构文档和足够的代码，以产出一份**详细的、经过充分论证的工程方案**。
+- 方案必须足够详细，以便另一位工程师无需猜测即可实现。必须包含以下所有部分：
+  - **方案设计** — 要更改的文件、组件交互、API/数据契约变更、错误处理策略、测试方法，以及与至少一个替代方案的对比及理由。
+  - **约束与权衡** — 将会和不会修改的确切范围（防止范围蔓延）、向后兼容性、已知限制、性能影响和依赖变更。
+  - **疑问** — 请求中每个不清晰的方面，并说明其影响。如果确实没有问题，写"没有疑问"并简要解释原因。
+- 如果对需求、行为、兼容性、数据契约、所有权、上线方式或架构方向存在不确定性，请提问而非猜测。
+- 没有疑问时不要编造，但要明确声明"没有疑问"。
+- 即使没有问题，也**必须停下来等待用户明确确认**后再开始实现。
 
-## Proposal And Confirmation Gate
+使用 [references/pre-development-gate-checklist.md](references/pre-development-gate-checklist.md) 获取完整的必要内容和模板。
 
-- Before actual development begins, read the status docs, all handoff updates, architecture docs, and enough code to produce a **detailed, thoroughly-reasoned engineering plan**.
-- The plan must be detailed enough that another engineer could implement it without guessing. Present all of the following sections:
-  - **Proposed Approach (方案设计)** — files to change, component interactions, API/data contract changes, error handling strategy, testing approach, and a comparison against at least one alternative with reasoning.
-  - **Constraints & Tradeoffs (约束与权衡)** — exact scope of what WILL and will NOT be modified (to prevent scope creep), backward compatibility, known limitations, performance implications, and dependency changes.
-  - **Questions (疑问)** — every unclear aspect of the request, with implications stated. If genuinely no questions exist, write "没有疑问" and briefly explain why.
-- If there is uncertainty about requirements, behavior, compatibility, data contracts, ownership, rollout, or architectural direction, ask instead of guessing.
-- Do not invent questions when none exist, but do state "没有疑问" explicitly.
-- Even when there are no questions, **stop and wait for explicit user confirmation** before starting implementation.
+## Bug 修复标准
 
-Use [references/pre-development-gate-checklist.md](references/pre-development-gate-checklist.md) for the full required content and template.
+- 当根因仍然存在时，不要默认为补丁式、变通式或最小 diff 式的 bug 修复。
+- 识别根因并设计修复方案，使其可维护、可扩展且符合工程质量。
+- 倾向于一致的修复，而非堆砌条件判断、绕过逻辑或狭隘的特殊情况处理。
+- 当 bug 是结构性的，且结构性修复是最干净、最持久的解决方案时，允许并鼓励大规模或破坏性修复。
+- 如果 bug 需要大规模或破坏性修复，在修改代码之前通过方案与确认关卡提出该方案。
 
-## Bug-Fix Standard
+## 小修复豁免
 
-- Do not default to patch-style, workaround-style, or minimum-diff bug fixes when the root cause remains in place.
-- Identify the root cause and design the repair so it is maintainable, extensible, and engineering-sound.
-- Favor coherent fixes over piling on conditionals, bypasses, or narrow special cases.
-- Structural, large-scope, or breaking fixes are allowed and encouraged when the bug is structural and those fixes are the cleanest durable solution.
-- If the bug requires a large-scope or breaking fix, present that plan in the proposal-and-confirmation gate before changing code.
+仅当**所有**以下条件同时满足时，bug 修复可以跳过完整的交接工作流：
 
-## Small Fix Exemption
+- 修复限于单个文件。
+- 根因立即可见（拼写错误、变量名错误、缺少 null/undefined 守卫、琐碎的逻辑错误）。
+- 无 API 契约、数据模式或接口变更。
+- 无架构或结构性变更。
+- 修复范围小（通常 1-10 行代码）。
 
-A bug fix may skip the full handoff workflow only when **all** of the following criteria are met:
+如果任一条件不满足，该修复**不是**小修复，必须走完整的交接工作流。
 
-- The fix is contained in a single file.
-- The root cause is immediately obvious (typo, wrong variable name, missing null/undefined guard, trivial logic error).
-- No API contract, data schema, or interface changes.
-- No architectural or structural changes.
-- The fix is small in scope (typically 1–10 lines).
+跳过工作流时：仍需创建合适的提交；如果修复触及了已记录的区域，仍需在交接日志中做简要记录。
 
-If any criterion is not met, the fix is **not** a small fix and must go through the full handoff workflow.
+## 代码摘要
 
-When skipping the workflow: still create a proper commit; still update the handoff log with a brief note if the fix touches a documented area.
+此技能维护一个**代码摘要目录**——项目源码树的镜像，每个源文件、配置文件和构建文件都有一个简洁的 `<文件名>.md` 摘要。摘要作为代码库的轻量级地图：让 agent 了解每个文件做什么、文件之间如何关联、以及有哪些关键符号（类、函数）——而无需读取完整源码。
 
-## Treat Status Files As Tracked Engineering Context
+### 为什么需要摘要
 
-- Check whether the project is under git.
-- Keep status-file edits in the same branch / commit / PR as the related code changes whenever git is present.
-- Do not leave the status directory stale while shipping code changes.
-- If the repo is not under git, still maintain the directory and explicitly note that git tracking was unavailable.
+- **节省上下文。** 摘要远比源代码短。通过摘要探索代码库消耗的上下文窗口远小于原始源码，为其他项目上下文留出更多空间。
+- **关系可见。** `### 调用 / 引用` 和 `### 被依赖` 部分形成代码库中可导航的依赖图。
+- **符号索引。** `## 关键词` 部分提供文件中每个类和函数的快速查找——足以让 agent 判断文件是否相关，而无需打开它。
 
-## Commit Discipline For Multi-Agent Work
+### 目录与命名
 
-- After finishing the work, create a git commit automatically when git is available.
-- The commit must contain only the changes made by the current agent for the current task.
-- Inspect the worktree before committing. Do not sweep unrelated or other-agent changes into your commit.
-- If needed, use selective staging or partial staging to isolate your own edits.
-- Do not revert other agents' work just to make commit boundaries easier.
-- If safe isolation is not possible, stop and ask the user instead of making a mixed commit.
+- **根目录**：`docs/development-status/summaries/`
+- **结构**：完全镜像项目目录树。如果项目有 `src/utils/helper.py`，摘要则为 `docs/development-status/summaries/src/utils/helper.py.md`。
+- **命名**：`<原文件名>.md` — 在完整源文件名后追加 `.md`。
 
-Use [references/self-only-commit-checklist.md](references/self-only-commit-checklist.md) for the minimum commit-isolation workflow.
+### 排除规则
 
-## Update Before Handoff
+**不要**为以下内容创建摘要：
 
-- Update architecture (`20-*.md`) or current-state (`30-*.md`) files if the work changed them.
-- **Create a new handoff update file** in `docs/development-status/handoff-updates/` after substantial work:
-  - Name it `NNN-<short-slug>.md` where NNN is the next sequential number (zero-padded: 001, 002, …).
-  - Follow the template in [references/handoff-update-checklist.md](references/handoff-update-checklist.md).
-  - Record:
-    - the task you handled
-    - the code areas changed
-    - validations you ran
-    - whether the proposal-and-confirmation gate was completed
-    - the commit created, or why a commit could not be created
-    - unresolved risks or open questions
-    - the next recommended step
-- Do NOT append to a single monolithic handoff log file. Always create a new numbered file in the `handoff-updates/` folder.
+| 类别 | 模式 |
+|------|------|
+| VCS | `.git/` |
+| 依赖 | `node_modules/`、`venv/`、`.venv/`、`vendor/`、`__pycache__/` |
+| 构建产物 | `dist/`、`build/`、`.next/`、`.nuxt/`、`target/`、`out/` |
+| 锁文件 | `*.lock`、`package-lock.json`、`yarn.lock` |
+| 二进制文件 | 图片、字体、编译后的二进制文件（`.exe`、`.dll`、`.so`、`.o`、`.class`、`.pyc`、`.wasm`） |
+| 自身 | `summaries/` 本身、`.skill-package/` |
 
-## Guardrails
+项目特定的覆盖规则可在 `00-index.md` 中记录。
 
-- Do not create duplicate status directories in the same repo.
-- Do not use this workflow for non-development tasks.
-- Do not replace specific project notes with vague summaries.
-- Do not create only a handoff update if deeper project-state files (`20-*.md`, `30-*.md`) also changed.
-- Do not use a single monolithic handoff log file — always create individual numbered files in the `handoff-updates/` folder.
-- Do not design an engineering plan before reading all previous handoff updates in chronological order.
-- Do not explore the codebase before reading the architecture docs (`20-*.md`).
-- Do not present a shallow or high-level-only plan — the proposal must be detailed enough for another engineer to implement without guessing.
-- Do not start implementation before the explicit user confirmation required by this skill (except for qualifying small fixes per the Small Fix Exemption).
-- The workflow may only be skipped for bug fixes that meet every criterion in the Small Fix Exemption section. All feature work, refactors, reviews, and investigations require the full workflow regardless of apparent simplicity.
-- Do not guess through meaningful ambiguity.
-- Do not leave a known root cause in place when claiming to have fixed a bug.
-- Do not include other agents' changes in your commit.
-- Do not skip the startup version detection step when the project CLAUDE.md contains the `<!-- HANDOFF-SKILL-START -->` marker.
-- Do not modify the `<!-- HANDOFF-SKILL-START -->` … `<!-- HANDOFF-SKILL-END -->` block content directly — always use the full snippet from `claude-md-snippet.md` for consistency.
-- Do not commit `~/.claude/.handoff-skill-ignored` to the repository — it is a per-user local file.
+### 摘要格式
+
+使用 [references/summary-template.md](references/summary-template.md) 获取完整的模板规范和编写指南。简要说明：
+
+- **代码文件**包含 `## 功能`、`## 关系`（含 `### 调用 / 引用`、`### 提供`、`### 被依赖`）和 `## 关键词`（含 `### 类`、`### 函数` 等）。
+- **非代码文件**（配置、Dockerfile、Makefile 等）使用简化格式：`## 功能` 和 `## 关系`（含 `### 引用`、`### 被依赖`）。没有 `## 关键词`。
+- **`## 关系` 下的每个子部分都是可选的。** 省略不适用的部分——不要写"无"或"暂无"。
+- **文件路径不使用 `./` 前缀。** 写 `src/utils/helper.py`，而非 `./src/utils/helper.py`。
+
+### 更新契约
+
+- **每次代码变更后**（即使是小修复），更新或创建每个被修改文件的摘要。
+- **创建新文件时**：立即创建摘要。根据需要创建 `summaries/` 下的中间目录。
+- **删除文件时**：移除对应的摘要文件。清理相关摘要中的过时引用。
+- **重命名/移动文件时**：将摘要移动到匹配的新路径。更新相关摘要中的路径引用。
+- **关系维护**：当文件的依赖发生变化（新增或删除导入/引用）时，同样更新受影响依赖文件的 `### 被依赖` 部分。
+
+### 关系追踪
+
+摘要中的关系是**双向的**。当文件 A 依赖于文件 B 时：
+- `A.md` 在 `### 调用 / 引用` 下记录 B
+- `B.md` 在 `### 被依赖` 下记录 A
+
+双向一致性以**增量方式**维护，而非原子方式。当文件 A 被修改时，agent 更新 `A.md` 以及 A 直接依赖的文件的摘要。依赖 A 的文件（下游消费者）的摘要在这些文件自身下次被修改时才会更新。这是一个有意为之的权衡：对于被频繁使用的文件，`### 被依赖` 部分可能不完整，但随着开发的继续，它会自我修正。
+
+## 将状态文件视为受追踪的工程上下文
+
+- 检查项目是否在 git 管理下。
+- 当 git 可用时，将状态文件的编辑与相关代码变更放在同一个分支/提交/PR 中。
+- 不要在发布代码变更时让状态目录保持过时。
+- 如果仓库不在 git 管理下，仍然维护该目录并明确注明 git 追踪不可用。
+
+## 多 Agent 协作的提交规范
+
+- 完成工作后，当 git 可用时自动创建 git 提交。
+- 提交必须仅包含当前 agent 为当前任务所做的更改。
+- 提交前检查工作树。不要将无关或其他 agent 的变更卷入你的提交。
+- 如有需要，使用选择性暂存或部分暂存来隔离你自己的编辑。
+- 不要为了让提交边界更清晰而回退其他 agent 的工作。
+- 如果安全隔离不可行，停止并询问用户，而非进行混合提交。
+
+使用 [references/self-only-commit-checklist.md](references/self-only-commit-checklist.md) 获取最低限度的提交隔离工作流。
+
+## 交接前更新
+
+- 如果工作改变了架构或当前状态，更新架构文档（`20-*.md`）或当前状态文档（`30-*.md`）。
+- **在大量工作完成后，在 `docs/development-status/handoff-updates/` 中创建新的交接更新文件**：
+  - 命名为 `NNN-<简短描述>.md`，其中 NNN 是下一个顺序编号（补零：001、002、…）。
+  - 遵循 [references/handoff-update-checklist.md](references/handoff-update-checklist.md) 中的模板。
+  - 记录：
+    - 你处理的任务
+    - 变更的代码区域
+    - 你运行的验证
+    - 方案与确认关卡是否完成
+    - 创建的提交，或无法创建提交的原因
+    - 未解决的风险或待解决问题
+    - 建议的下一步
+- 不要追加到单个整体的交接日志文件。始终在 `handoff-updates/` 文件夹中创建新的编号文件。
+
+## 护栏规则
+
+- 不要跳过确保项目 CLAUDE.md 包含摘要优先探索规则。通过片段块安装或更新 handoff skill 时，验证 `摘要优先探索` 规则存在于最终的项目 CLAUDE.md 中。这是该规则的唯一权威来源——SKILL.md 有意不重复它。
+- 不要在同一仓库中创建重复的状态目录。
+- 不要对非开发任务使用此工作流。
+- 不要用模糊的摘要替代具体的项目笔记。
+- 如果更深层的项目状态文件（`20-*.md`、`30-*.md`）也发生了变化，不要只创建交接更新。
+- 不要使用单个整体的交接日志文件——始终在 `handoff-updates/` 文件夹中创建单独的编号文件。
+- 不要在阅读所有历史交接更新之前设计工程方案。
+- 不要在阅读架构文档（`20-*.md`）之前探索代码库。
+- 不要提出浅显或仅高层次方案——方案必须足够详细，以便另一位工程师无需猜测即可实现。
+- 在获得此技能要求的用户明确确认之前，不要开始实现（符合小修复豁免条件的除外）。
+- 此工作流仅对满足小修复豁免部分所有条件的 bug 修复可跳过。所有功能工作、重构、审查和调研无论看起来多简单，都必须走完整工作流。
+- 不要在有意义的模糊性上猜测。
+- 不要在声称修复了 bug 时仍让已知根因存在。
+- 不要将其他 agent 的变更包含在你的提交中。
+- 当项目 CLAUDE.md 包含 `<!-- HANDOFF-SKILL-START -->` 标记时，不要跳过启动版本检测步骤。
+- 不要直接修改 `<!-- HANDOFF-SKILL-START -->` … `<!-- HANDOFF-SKILL-END -->` 块的内容——始终使用 `claude-md-snippet.md` 中的完整片段以确保一致性。
+- 不要跳过代码变更后的摘要更新——即使对于小修复也是如此。每个被修改的文件都必须更新或创建其摘要。
+- 不要让摘要在其对应源文件在同一会话中被修改后保持过时。
+- 不要为排除路径创建摘要（依赖、构建产物、VCS 目录、二进制文件、锁文件）。
+- 不要将 `~/.claude/.handoff-skill-ignored` 提交到仓库——它是每个用户本地的文件。

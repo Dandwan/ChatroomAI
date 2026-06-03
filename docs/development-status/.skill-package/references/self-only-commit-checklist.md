@@ -1,17 +1,17 @@
-# Self-Only Commit Checklist
+# 仅己提交清单
 
-Use this workflow when working in a shared repository with possible multi-agent overlap:
+在可能存在多 agent 重叠的共享仓库中工作时使用此工作流：
 
-1. Inspect the worktree before committing.
-2. Identify which files and hunks belong to the current task and current agent.
-3. Stage only those files or hunks.
-4. If the same file contains unrelated edits, use partial staging to isolate your own changes.
-5. If safe isolation is not possible, stop and ask the user instead of creating a mixed commit.
-6. Create the commit automatically when git is available.
-7. Record the commit identifier or the reason commit creation was unavailable in the handoff log.
+1. 提交前检查工作树。
+2. 确定哪些文件和变更块属于当前任务和当前 agent。
+3. 仅暂存这些文件或变更块。
+4. 如果同一文件包含无关编辑，使用部分暂存来隔离你自己的更改。
+5. 如果安全隔离不可行，停止并询问用户，而非创建混合提交。
+6. 当 git 可用时自动创建提交。
+7. 在交接日志中记录提交标识符或提交创建不可用的原因。
 
-## Guardrails
+## 护栏规则
 
-- Do not include unrelated work in the commit.
-- Do not revert another agent's edits just to make the commit cleaner.
-- Do not skip the commit when git is available.
+- 不要将无关工作包含在提交中。
+- 不要为了让提交更干净而回退其他 agent 的编辑。
+- 当 git 可用时不要跳过提交。

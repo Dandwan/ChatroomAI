@@ -1,70 +1,70 @@
-# Handoff Update Checklist
+# 交接更新清单
 
-## Folder-Based Updates
+## 基于文件夹的更新
 
-Handoff updates are stored as **individual files** in `docs/development-status/handoff-updates/`, NOT in a single monolithic log file.
+交接更新在 `docs/development-status/handoff-updates/` 中以**独立文件**形式存储，而非放在单个整体日志文件中。
 
-### File Naming
+### 文件命名
 
-- Format: `NNN-<short-slug>.md` (e.g. `001-add-user-auth.md`, `002-fix-login-race.md`)
-- `NNN` is a zero-padded sequential number (001, 002, 003, ...)
-- `<short-slug>` is a hyphenated summary of the task (keep it under 40 chars)
-- Files are ordered chronologically by their numeric prefix
+- 格式：`NNN-<简短描述>.md`（例如 `001-add-user-auth.md`、`002-fix-login-race.md`）
+- `NNN` 是补零的顺序编号（001、002、003、…）
+- `<简短描述>` 是任务的连字符分隔摘要（控制在 40 个字符以内）
+- 文件按编号前缀的时间顺序排列
 
-### Creating a New Update
+### 创建新更新
 
-After substantial development work, create a new file in the `handoff-updates/` folder with the next available number. The file must cover:
+在大量开发工作完成后，在 `handoff-updates/` 文件夹中使用下一个可用编号创建新文件。文件必须涵盖：
 
-- scope of the work
-- high-signal code areas changed
-- validations actually run
-- whether the pre-development proposal and user confirmation were completed
-- the commit created for this agent's work, or why commit creation was unavailable
-- known failures, skipped checks, or unverified paths
-- open questions or risks
-- next recommended step for the next agent
+- 工作范围
+- 变更的高信号代码区域
+- 实际运行的验证
+- 是否完成了开发前的方案提案和用户确认
+- 为此 agent 工作创建的提交，或提交创建不可用的原因
+- 已知的失败、跳过的检查或未验证的路径
+- 待解决的问题或风险
+- 给下一个 agent 的建议下一步
 
-### Reading Previous Updates (Mandatory)
+### 读取历史更新（强制性）
 
-**Before designing an engineering plan**, the agent MUST:
+**在设计工程方案之前**，agent 必须：
 
-1. List all files in `docs/development-status/handoff-updates/`
-2. Read every file in numeric order (001 → 002 → 003 → ...)
-3. Use the accumulated history to inform the plan — past decisions, unresolved issues, deferred work, and known risks all feed into the current proposal
+1. 列出 `docs/development-status/handoff-updates/` 中的所有文件
+2. 按编号顺序读取每个文件（001 → 002 → 003 → …）
+3. 利用积累的历史信息来制定方案——过去的决策、未解决的问题、被推迟的工作和已知风险都纳入当前提案
 
-This ensures the agent understands the full context of what has been done, what was decided, and what remains open.
+这确保 agent 理解已完成的工作、已做出的决策以及仍待解决的问题的完整上下文。
 
-## File Template
+## 文件模板
 
-Each handoff update file should follow this structure:
+每个交接更新文件应遵循以下结构：
 
 ```md
-# [NNN] — [Short Task Title]
+# [NNN] — [简短任务标题]
 
-**Date**: YYYY-MM-DD HH:MM +/-TZ
+**日期**：YYYY-MM-DD HH:MM +/-TZ
 
-## Scope
-- ...
+## 范围
+- …
 
-## Code Areas Changed
-- ...
+## 变更的代码区域
+- …
 
-## Validation
-- ...
+## 验证
+- …
 
-## Decision Gate
-- Proposal presented: yes / no (small fix exemption)
-- User confirmation received: yes / no / N/A
+## 决策关卡
+- 方案已提出：是 / 否（小修复豁免）
+- 用户确认已收到：是 / 否 / 不适用
 
-## Commit
-- ...
+## 提交
+- …
 
-## Known Failures / Skipped Checks
-- ...
+## 已知失败 / 跳过的检查
+- …
 
-## Open Questions / Risks
-- ...
+## 待解决问题 / 风险
+- …
 
-## Next Step
-- ...
+## 下一步
+- …
 ```

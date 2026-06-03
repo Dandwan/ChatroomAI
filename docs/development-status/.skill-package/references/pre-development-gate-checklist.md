@@ -1,88 +1,88 @@
-# Pre-Development Gate Checklist
+# 开发前关卡清单
 
-Before implementation starts, present a **thorough, well-reasoned engineering plan** that covers all of the following sections. The plan must be detailed enough that another engineer could implement it without guessing.
+在实现开始之前，呈现一份**透彻、经过充分论证的工程方案**，涵盖以下所有部分。方案必须足够详细，以便另一位工程师无需猜测即可实现。
 
-## Required Sections
+## 必要部分
 
-### 1. Proposed Approach (方案设计)
+### 1. 方案设计
 
-Must be detailed and concrete:
+必须详细且具体：
 
-- **Overview**: High-level summary of the approach (2-3 sentences).
-- **Files to create / modify / delete**: List every file with its role in the change. For each file, describe what changes and why.
-- **Component / module interaction**: How the changed pieces communicate — call graphs, data flow, event flow. Use text diagrams if helpful.
-- **API / data contract changes**: Any new or modified interfaces, function signatures, types, schemas, or serialization formats. Include before/after signatures for breaking changes.
-- **Error handling strategy**: How errors and edge cases are handled at each layer. What fails loudly vs. silently.
-- **Testing approach**: What tests will be added or updated. Which edge cases are covered.
-- **Why this approach**: Explicitly compare against at least one alternative and explain why this approach is better (maintainability, simplicity, performance, consistency with existing patterns).
+- **概述**：方案的高层次总结（2-3 句话）。
+- **要创建/修改/删除的文件**：列出每个文件及其在变更中的角色。对每个文件，描述变更内容和原因。
+- **组件/模块交互**：变更的部分如何通信——调用图、数据流、事件流。如有帮助可使用文本图表。
+- **API/数据契约变更**：任何新增或修改的接口、函数签名、类型、模式或序列化格式。对于破坏性变更，包含前后签名对比。
+- **错误处理策略**：各层如何处理错误和边界情况。哪些大声失败，哪些静默处理。
+- **测试方案**：将添加或更新哪些测试。覆盖哪些边界情况。
+- **为什么选择此方案**：明确与至少一个替代方案对比，解释为什么此方案更好（可维护性、简洁性、性能、与现有模式的一致性）。
 
-### 2. Constraints & Tradeoffs (约束与权衡)
+### 2. 约束与权衡
 
-Must be exhaustive and explicit:
+必须详尽且明确：
 
-- **What WILL be modified**: Specific files, functions, modules, configs, or data. Be as precise as possible.
-- **What will NOT be touched**: Explicitly list areas that are adjacent or related but out of scope. This prevents scope creep and accidental breakage.
-- **Backward compatibility**: Whether existing callers, consumers, or persisted data are affected. If yes, how compatibility is preserved or migrated.
-- **Known limitations**: What the approach deliberately does NOT handle. Scenarios it won't cover. Future work it defers.
-- **Performance implications**: Any runtime, memory, or I/O cost changes. If negligible, say so explicitly.
-- **Dependency changes**: New packages, version bumps, or removed dependencies.
+- **将会修改的内容**：具体的文件、函数、模块、配置或数据。尽可能精确。
+- **不会触及的内容**：明确列出相邻或相关但不在范围内的区域。这可以防止范围蔓延和意外破坏。
+- **向后兼容性**：现有调用者、消费者或持久化数据是否受影响。如果受影响，如何保持兼容性或进行迁移。
+- **已知限制**：方案有意不处理的内容。它不会覆盖的场景。推迟到未来的工作。
+- **性能影响**：任何运行时、内存或 I/O 成本变化。如果可忽略，明确说明。
+- **依赖变更**：新增的包、版本升级或移除的依赖。
 
-### 3. Questions (疑问)
+### 3. 疑问
 
-- List every unclear or ambiguous aspect of the request. Be specific — reference the exact part of the request that is unclear.
-- For each question, state the implication: "If A, then approach X; if B, then approach Y."
-- If there are genuinely no questions, write: **"没有疑问"** — and briefly explain why the request is fully unambiguous (e.g. "需求明确，所有边界条件已在需求中覆盖").
+- 列出请求中每个不清晰或模糊的方面。要具体——引用请求中不清晰的确切部分。
+- 对每个问题，说明其影响："如果是 A，则方案 X；如果是 B，则方案 Y。"
+- 如果确实没有问题，写：**"没有疑问"**——并简要说明为什么请求完全明确（例如"需求明确，所有边界条件已在需求中覆盖"）。
 
-## Minimal Template
+## 最小模板
 
 ```md
-## 1. Proposed Approach (方案设计)
+## 1. 方案设计
 
-### Overview
-...
+### 概述
+…
 
-### Files Changed
-| File | Action | Description |
-|------|--------|-------------|
-| `path/to/file.ts` | Modify | ... |
-| `path/to/new.ts` | Create | ... |
+### 文件变更
+| 文件 | 操作 | 描述 |
+|------|------|------|
+| `path/to/file.ts` | 修改 | … |
+| `path/to/new.ts` | 创建 | … |
 
-### Component Interaction
-...
+### 组件交互
+…
 
-### API / Data Contract Changes
-...
+### API/数据契约变更
+…
 
-### Error Handling
-...
+### 错误处理
+…
 
-### Testing Approach
-...
+### 测试方案
+…
 
-### Why This Approach
-...
+### 为什么选择此方案
+…
 
-## 2. Constraints & Tradeoffs (约束与权衡)
+## 2. 约束与权衡
 
-### Modified Scope
-- Will modify: ...
-- Will NOT touch: ...
+### 修改范围
+- 将修改：…
+- 不会触及：…
 
-### Backward Compatibility
-...
+### 向后兼容性
+…
 
-### Known Limitations
-...
+### 已知限制
+…
 
-### Performance
-...
+### 性能
+…
 
-### Dependencies
-...
+### 依赖
+…
 
-## 3. Questions (疑问)
-- ...
-<!-- OR: 没有疑问 — <brief reason> -->
+## 3. 疑问
+- …
+<!-- 或：没有疑问 — <简要原因> -->
 ```
 
-After presenting the plan, **wait for explicit user confirmation** before starting implementation. Do not proceed without it.
+提出方案后，**等待用户明确确认**再开始实现。没有确认不得继续。
