@@ -5,6 +5,8 @@ interface ProvidersSettingsProps {
   onAddProvider: () => void
   onEditProvider: (id: string) => void
   onDeleteProvider: (id: string) => void
+  isCloudLoggedIn: boolean
+  onCloudLogin: () => void
 }
 
 export default function ProvidersSettings({
@@ -12,6 +14,8 @@ export default function ProvidersSettings({
   onAddProvider,
   onEditProvider,
   onDeleteProvider,
+  isCloudLoggedIn,
+  onCloudLogin,
 }: ProvidersSettingsProps) {
   return (
     <>
@@ -26,6 +30,14 @@ export default function ProvidersSettings({
             添加服务商
           </button>
         </div>
+
+        {!isCloudLoggedIn && settings.providers.length > 0 ? (
+          <div className="model-tools" style={{ marginTop: 10 }}>
+            <button type="button" className="cloud-provider-login-btn" onClick={onCloudLogin}>
+              ActiNet 登录
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <section className="settings-section">

@@ -2635,3 +2635,128 @@
     transition-duration: 120ms;
   }
 }
+
+/* ── Cloud Auth Form (homepage embedded login/register) ── */
+
+.cover-auth-form {
+  margin-top: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-family: var(--editorial-ui-font);
+}
+
+.cover-auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cover-auth-label {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(244, 247, 251, 0.52);
+}
+
+.cover-auth-input {
+  padding: 10px 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(244, 247, 251, 0.18);
+  font-family: var(--editorial-ui-font);
+  font-size: 15px;
+  line-height: 1.5;
+  color: rgba(244, 247, 251, 0.92);
+  caret-color: rgba(244, 247, 251, 0.72);
+  outline: none;
+  transition: border-color 200ms ease;
+}
+
+.cover-auth-input::placeholder {
+  color: rgba(244, 247, 251, 0.28);
+}
+
+.cover-auth-input:focus {
+  border-bottom-color: rgba(244, 247, 251, 0.48);
+}
+
+.cover-auth-error {
+  padding: 10px 14px;
+  border-radius: 6px;
+  background: rgba(220, 80, 70, 0.16);
+  border: 1px solid rgba(220, 80, 70, 0.28);
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(255, 160, 150, 0.92);
+}
+
+.cover-auth-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 10px;
+}
+
+.cover-auth-btn {
+  flex: 1;
+  padding: 11px 18px;
+  border: 1px solid rgba(244, 247, 251, 0.2);
+  border-radius: 6px;
+  background: transparent;
+  font-family: var(--editorial-ui-font);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: rgba(244, 247, 251, 0.78);
+  cursor: pointer;
+  transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
+}
+
+.cover-auth-btn:hover {
+  border-color: rgba(244, 247, 251, 0.36);
+  color: rgba(244, 247, 251, 0.94);
+}
+
+.cover-auth-btn:active {
+  background: rgba(244, 247, 251, 0.06);
+}
+
+.cover-auth-btn-primary {
+  background: rgba(244, 247, 251, 0.12);
+  border-color: rgba(244, 247, 251, 0.28);
+  color: #f6f2ec;
+}
+
+.cover-auth-btn-primary:hover {
+  background: rgba(244, 247, 251, 0.2);
+  border-color: rgba(244, 247, 251, 0.42);
+}
+
+.cover-auth-btn-primary:active {
+  background: rgba(244, 247, 251, 0.14);
+}
+
+.cover-auth-btn:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+/* ── Cloud provider login button in settings ── */
+
+.cloud-provider-login-btn {
+  padding: 8px 16px;
+  border: 1px solid rgba(244, 247, 251, 0.2);
+  border-radius: 6px;
+  background: rgba(244, 247, 251, 0.08);
+  font-family: var(--editorial-ui-font);
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(244, 247, 251, 0.82);
+  cursor: pointer;
+  transition: background 180ms ease, border-color 180ms ease;
+}
+
+.cloud-provider-login-btn:hover {
+  background: rgba(244, 247, 251, 0.16);
+  border-color: rgba(244, 247, 251, 0.34);
+}

@@ -124,6 +124,8 @@ import ChatSummaryBar from './components/ChatSummaryBar'
 import ChatHeader from './components/ChatHeader'
 import ImageViewer, { type ImageViewerItem } from './components/ImageViewer'
 import NewConversationShowcase from './components/NewConversationShowcase'
+import CloudAuthForm from './components/CloudAuthForm'
+import { isCloudLoggedIn } from './services/cloud-auth'
 import SettingsSectionHeading from './components/SettingsSectionHeading'
 import SettingsInfoPromptToggleCard from './components/SettingsInfoPromptToggleCard'
 import PermissionsSettings from './components/settings/PermissionsSettings'
@@ -2175,6 +2177,7 @@ function App() {
     resolveBundledDailyCover(getLocalDateKey()),
   )
   const [abortController, setAbortController] = useState<AbortController | null>(null)
+  const [cloudAuthMode, setCloudAuthMode] = useState<'none' | 'login' | 'register'>('none')
 
   // Delete dialog helpers (unified store interface)
   const openDeleteDialog = useCallback((dialog: DeleteDialogState): void => {
@@ -2407,6 +2410,12 @@ function App() {
   const isHomepageEmptyState =
     activeConversation?.storageLoadState === 'hydrated' &&
     activeMessages.length === 0
+  const cloudLoggedIn = isCloudLoggedIn()
+  const hasProviders = settings.providers.length > 0
+  const showCloudAuthOnHomepage =
+    isHomepageEmptyState &&
+    ((!cloudLoggedIn && !hasProviders) || cloudAuthMode !== 'none')
+  const isCloudAuthRegisterMode = cloudAuthMode === 'register'
   const displayConversationTitle = activeConversation?.title ?? '新对话'
   const shouldShowTitleRenameButton = activeConversation !== null && !isHomepageEmptyState
   const shouldShowHomepageBackground = isHomepageEmptyState && resolvedDailyCover !== null
@@ -8487,6 +8496,11 @@ function App() {
       onAddProvider={addProvider}
       onEditProvider={openProviderDetail}
       onDeleteProvider={requestDeleteProvider}
+      isCloudLoggedIn={cloudLoggedIn}
+      onCloudLogin={() => {
+        closeSettingsPanel()
+        setCloudAuthMode('login')
+      }}
     />
   )
 
@@ -9078,12 +9092,19 @@ function App() {
                     <p className="empty-state-line">正在载入这段历史对话…</p>
                   </section>
                 ) : activeMessages.length === 0 ? (
-                  <NewConversationShowcase
-                    rootRef={homepageShowcaseRef}
-                    cover={resolvedDailyCover}
-                    highlightStats={homepageHighlightStats}
-                    responseModeLabel={getResponseModeLabel(activeConversationResponseMode)}
-                  />
+                  showCloudAuthOnHomepage ? (
+                    <CloudAuthForm
+                      initialMode={isCloudAuthRegisterMode ? 'register' : 'login'}
+                      onAuthSuccess={() => setCloudAuthMode('none')}
+                    />
+                  ) : (
+                    <NewConversationShowcase
+                      rootRef={homepageShowcaseRef}
+                      cover={resolvedDailyCover}
+                      highlightStats={homepageHighlightStats}
+                      responseModeLabel={getResponseModeLabel(activeConversationResponseMode)}
+                    />
+                  )
                 ) : null}
 
                 {!isActiveConversationLoadError && !isActiveConversationLoading ? activeMessages.map((message) => {

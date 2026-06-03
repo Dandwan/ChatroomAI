@@ -51,6 +51,40 @@ export function isCloudLoggedIn(): boolean {
   return !!auth && !!auth.apiKey
 }
 
+export async function cloudRegister(
+  serverUrl: string,
+  username: string,
+  email: string,
+  password: string,
+): Promise<CloudAuthResult> {
+  const normalizedUrl = serverUrl.replace(/\/+$/, '')
+  const response = await fetch(`${normalizedUrl}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, email, password }),
+  })
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: { message: '请求失败' } }))
+    throw new Error(err.error?.message ?? `HTTP ${response.status}`)
+  }
+
+  const result = (await response.json()) as CloudAuthResult
+
+  // Persist to local storage (same as login)
+  setCloudServerUrl(normalizedUrl)
+  saveCloudAuth({
+    serverUrl: normalizedUrl,
+    token: result.token,
+    apiKey: result.api_key,
+    username: result.user.username,
+    email: result.user.email,
+    savedAt: Date.now(),
+  })
+
+  return result
+}
+
 export async function cloudLogin(
   serverUrl: string,
   username: string,
