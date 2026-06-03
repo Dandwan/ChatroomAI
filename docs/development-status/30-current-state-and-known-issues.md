@@ -68,6 +68,9 @@ The project now includes a **cloud server** (API proxy gateway) at `cloud-server
 
 ### Core Capabilities
 - User authentication (username/email + password) with auto-generated API keys (`csk_` prefix)
+- **User registration** (`POST /api/auth/register`) with auto-login, username/email dedup
+- **IP-based brute-force protection** on login (5 req/min) and registration (3 req/hour) endpoints
+- **JWT Secret production guard** — warns at startup if secret is randomly generated
 - Multi-upstream API proxy with priority-based selection and health-aware failover
 - Fill and round-robin distribution modes per upstream
 - Per-user rate limiting (RPM/TPD)
