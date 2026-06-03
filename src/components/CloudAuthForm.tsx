@@ -9,25 +9,17 @@ interface CloudAuthFormProps {
 }
 
 export default function CloudAuthForm({ initialMode = 'login', onAuthSuccess }: CloudAuthFormProps) {
-  const savedServerUrl = getCloudServerUrl()
   const [mode, setMode] = useState<AuthMode>(initialMode)
-  const [serverUrl, setServerUrlLocal] = useState(savedServerUrl)
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const needsServerUrl = !savedServerUrl
-
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError('')
 
-    if (!serverUrl.trim()) {
-      setError('请输入服务器地址')
-      return
-    }
     if (!username.trim()) {
       setError(mode === 'login' ? '请输入用户名或邮箱' : '请输入用户名')
       return
@@ -45,9 +37,9 @@ export default function CloudAuthForm({ initialMode = 'login', onAuthSuccess }: 
     try {
       let result: CloudAuthResult
       if (mode === 'login') {
-        result = await cloudLogin(serverUrl, username, password)
+        result = await cloudLogin(getCloudServerUrl(), username, password)
       } else {
-        result = await cloudRegister(serverUrl, username, email, password)
+        result = await cloudRegister(getCloudServerUrl(), username, email, password)
       }
       onAuthSuccess(result)
     } catch (err) {
@@ -84,20 +76,6 @@ export default function CloudAuthForm({ initialMode = 'login', onAuthSuccess }: 
         <form className="cover-auth-form" onSubmit={handleSubmit}>
           {error ? <div className="cover-auth-error">{error}</div> : null}
 
-          {needsServerUrl ? (
-            <div className="cover-auth-field">
-              <label className="cover-auth-label">服务器地址</label>
-              <input
-                type="text"
-                className="cover-auth-input"
-                value={serverUrl}
-                onChange={(e) => setServerUrlLocal(e.target.value)}
-                placeholder="https://your-server.com"
-                autoFocus
-              />
-            </div>
-          ) : null}
-
           {mode === 'register' ? (
             <>
               <div className="cover-auth-field">
@@ -108,7 +86,7 @@ export default function CloudAuthForm({ initialMode = 'login', onAuthSuccess }: 
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="选择用户名"
-                  autoFocus={!needsServerUrl}
+                  autoFocus
                 />
               </div>
               <div className="cover-auth-field">
@@ -131,7 +109,7 @@ export default function CloudAuthForm({ initialMode = 'login', onAuthSuccess }: 
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="username 或 email@example.com"
-                autoFocus={!needsServerUrl}
+                autoFocus
               />
             </div>
           )}

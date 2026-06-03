@@ -11,6 +11,9 @@ export interface CloudAuthResult {
 const STORAGE_KEY = 'actichat_cloud_auth'
 const SERVER_URL_KEY = 'actichat_cloud_server_url'
 
+/** 默认云服务器地址 — 上线时修改此处 */
+const DEFAULT_CLOUD_SERVER_URL = 'https://47.108.210.249:2179/'
+
 export interface StoredCloudAuth {
   serverUrl: string
   token: string
@@ -31,7 +34,7 @@ export function getStoredCloudAuth(): StoredCloudAuth | null {
 }
 
 export function getCloudServerUrl(): string {
-  return localStorage.getItem(SERVER_URL_KEY) ?? ''
+  return localStorage.getItem(SERVER_URL_KEY) ?? DEFAULT_CLOUD_SERVER_URL
 }
 
 export function setCloudServerUrl(url: string): void {
