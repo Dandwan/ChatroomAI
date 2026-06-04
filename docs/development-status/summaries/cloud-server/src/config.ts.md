@@ -1,7 +1,7 @@
 # `cloud-server/src/config.ts`
 
 ## 功能
-加载和合并 cloud-server 运行时配置。优先级：环境变量 > `config.json` > 硬编码默认值。启动时检测 JWT Secret 是否为随机生成并警告。**v5: 新增 `defaultFaultTolerance` 全局配置项（环境变量 `CLOUD_SERVER_DEFAULT_FAULT_TOLERANCE` 或 `config.json`，默认 0），作为所有 Key 的全局默认容错值。**
+加载和合并 cloud-server 运行时配置。优先级：环境变量 > `config.json` > 硬编码默认值。启动时检测 JWT Secret 是否为随机生成并警告。**v5: 新增 `defaultFaultTolerance` 全局配置项（环境变量 `CLOUD_SERVER_DEFAULT_FAULT_TOLERANCE` 或 `config.json`，默认 0），作为所有 Key 的全局默认容错值。** **v6: 新增 `actiNetModelMapping: Record<string, string>` 配置项（环境变量 `CLOUD_SERVER_ACTINET_MODEL_MAPPING` (JSON) 或 `config.json`，默认 `{}`），用于将 ActiNet 友好模型名映射到实际上游模型名。**
 
 ## 关系
 ### 提供

@@ -1,7 +1,7 @@
 # `cloud-server/admin-ui/src/api.ts`
 
 ## 功能
-Admin UI API 客户端层。封装后端 `/api/admin/*` 端点的 HTTP 请求，自动 JWT token 注入和 401 重定向。定义前端类型和 CRUD 函数。**v5: 新增 `ServerSettings` 接口、`fetchSettings()`、`updateSettings()`；`UpstreamData` 使用 `key_fault_tolerance`；`api_keys` 数组项和 `UpstreamKeyData` 不再包含 `fault_tolerance` 字段；新增 `UpstreamKeyData` 接口和 `updateUpstreamKey()`（不接受 `fault_tolerance`）；`createUpstream`、`addUpstreamKey` 参数也不再接受 `fault_tolerance`。**
+Admin UI API 客户端层。封装后端 `/api/admin/*` 端点的 HTTP 请求，自动 JWT token 注入和 401 重定向。定义前端类型和 CRUD 函数。**v6: `ServerSettings` 新增 `actiNetModelMapping: Record<string, string>`；`updateSettings()` 参数新增 `actiNetModelMapping?`。** **v5: 新增 `ServerSettings` 接口、`fetchSettings()`、`updateSettings()`；`UpstreamData` 使用 `key_fault_tolerance`；`api_keys` 数组项和 `UpstreamKeyData` 不再包含 `fault_tolerance` 字段；新增 `UpstreamKeyData` 接口和 `updateUpstreamKey()`（不接受 `fault_tolerance`）；`createUpstream`、`addUpstreamKey` 参数也不再接受 `fault_tolerance`。**
 
 ## 关系
 ### 提供
