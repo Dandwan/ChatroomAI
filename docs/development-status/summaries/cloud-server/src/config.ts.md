@@ -1,27 +1,14 @@
 # `cloud-server/src/config.ts`
 
 ## 功能
-加载和合并 cloud-server 的运行时配置。优先级：环境变量 > `config.json` > 硬编码默认值。在启动时检测 JWT Secret 是否为随机生成并在生产环境中发出警告。
+加载和合并 cloud-server 运行时配置。优先级：环境变量 > `config.json` > 硬编码默认值。启动时检测 JWT Secret 是否为随机生成并警告。**v5: 新增 `defaultFaultTolerance` 全局配置项（环境变量 `CLOUD_SERVER_DEFAULT_FAULT_TOLERANCE` 或 `config.json`，默认 0），作为所有 Key 的全局默认容错值。**
 
 ## 关系
-### 调用 / 引用
-- `cloud-server/src/logger.ts` — `createLogger`
-- `node:crypto` — `randomBytes`
-- `node:fs` — `readFileSync`, `existsSync`, `mkdirSync`
-- `node:path` — `dirname`, `resolve`
-- `node:url` — `fileURLToPath`
-
 ### 提供
-- `loadConfig()` — 加载并返回 `ServerConfig` 对象
-- `ServerConfig` — 服务配置的 TypeScript 接口
+- `loadConfig()` — 加载合并后的配置
+- `ServerConfig` 接口
 
 ### 被依赖
-- `cloud-server/src/index.ts`
-
-## 关键词
-### 函数
-- `loadConfig`
-- `loadJsonConfig`
-
-### 接口
-- `ServerConfig`
+- `cloud-server/src/app.ts`
+- `cloud-server/src/app-context.ts`
+- `cloud-server/src/admin/admin-routes.ts`

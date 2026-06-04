@@ -1,19 +1,18 @@
 # `cloud-server/admin-ui/src/api.ts`
 
 ## 功能
-Admin UI 的 API 客户端层。封装所有后端 `/api/admin/*` 端点的 HTTP 请求，含自动 JWT token 注入和 401 重定向。定义 `UpstreamData`（含 `api_type`、`ModelEntryData[]`）、`ModelPriorityData`、`UserData` 等前端类型及对应的 CRUD 函数。新增 `fetchUpstreamModels()` 函数用于从上游拉取模型列表。
+Admin UI API 客户端层。封装后端 `/api/admin/*` 端点的 HTTP 请求，自动 JWT token 注入和 401 重定向。定义前端类型和 CRUD 函数。**v5: `UpstreamData` 使用 `key_fault_tolerance`；`api_keys` 数组项新增 `fault_tolerance: number`；新增 `UpstreamKeyData` 接口；`createUpstream` 参数改为 `key_fault_tolerance`；新增 `updateUpstreamKey()` 函数。**
 
 ## 关系
-### 调用 / 引用
-- (无内部依赖，仅使用 `fetch`)
-
 ### 提供
-- `UpstreamData`、`ModelEntryData` — 上游数据接口
-- `fetchUpstreams()`、`createUpstream()`、`updateUpstream()`、`deleteUpstream()` — 上游 CRUD
-- `fetchUpstreamModels()` — 从上游获取模型列表
-- `fetchModelPriorities()`、`createModelPriority()` 等 — 模型优先级 CRUD
-- `fetchUsers()`、`updateUser()`、`deleteUser()` — 用户管理
-- `fetchUsage()`、`fetchAvailability()` — 统计数据
+- `UpstreamData`、`UpstreamKeyData`、`ModelEntryData`、`ModelPriorityData`、`UserData` 等类型
+- `fetchUpstreams`、`createUpstream`、`updateUpstream`、`deleteUpstream`
+- `addUpstreamKey`、`updateUpstreamKey`、`deleteUpstreamKey`
+- `fetchUpstreamModels`、`fetchModelPriorities`、`fetchUsage`、`fetchAvailability`
+- Auth 和用户管理 API 函数
 
 ### 被依赖
-- `cloud-server/admin-ui/src/pages/*` — 各页面调用 API 函数
+- `cloud-server/admin-ui/src/pages/UpstreamsPage.tsx`
+- `cloud-server/admin-ui/src/pages/ModelPrioritiesPage.tsx`
+- `cloud-server/admin-ui/src/pages/UsersPage.tsx`
+- `cloud-server/admin-ui/src/pages/DashboardPage.tsx`
