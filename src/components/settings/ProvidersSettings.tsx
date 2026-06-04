@@ -21,7 +21,7 @@ export default function ProvidersSettings({
     <>
       <section className="settings-section">
         <div className="conversation-group-divider settings-section-divider">
-          <span className="conversation-group-label">服务商管理</span>
+          <span className="conversation-group-label">其它服务商</span>
           <span className="conversation-group-dash" aria-hidden="true" />
         </div>
 

@@ -3,6 +3,8 @@
 ## 功能
 管理后台 HTTP 路由。管理员登录（IP 速率限制）、使用统计查询、可用性统计、上游 CRUD、API Key CRUD、模型优先级管理、用户管理和**全局设置**。除登录外均受 JWT 管理员认证保护。
 
+**v5 Key 容错继承链：** Key 创建端点（POST `/api/admin/upstreams`、POST `/api/admin/upstreams/:id/keys`、PUT `/api/admin/upstreams/:id/keys/:keyId`）不再接受 `fault_tolerance` 参数。Key 的容错值从上游 `key_fault_tolerance` 继承，若为 null 则回退到全局 `defaultFaultTolerance`。
+
 **v5 全局设置端点：**
 - `GET /api/admin/settings` — 返回 `defaultFaultTolerance`、`healthCheckIntervalMs`、`port`、`logLevel`
 - `PUT /api/admin/settings` — 更新 `defaultFaultTolerance`（即时生效 + 持久化到 `config.json`）

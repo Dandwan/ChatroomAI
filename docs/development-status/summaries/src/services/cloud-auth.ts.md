@@ -17,8 +17,10 @@
 - `getCloudServerUrl()` — 获取服务器地址（已保存值 → 默认值回退）
 - `setCloudServerUrl(url)` — 持久化服务器地址
 - `saveCloudAuth(auth)` — 持久化认证信息
-- `clearCloudAuth()` — 清除认证信息
+- `clearCloudAuth()` — 硬退出：完全清除认证信息
+- `deactivateCloudAuth()` — 软退出：保留 username/email/serverUrl，仅清除 token/apiKey
 - `isCloudLoggedIn()` — 判断是否已登录（有 apiKey）
+- `verifyCloudAuth()` — 验证 token 有效性（GET /api/auth/me），用于启动时连通性检测
 - `cloudLogin(serverUrl, username, password)` — POST /api/auth/login，成功后自动持久化
 - `cloudRegister(serverUrl, username, email, password)` — POST /api/auth/register，成功后自动持久化
 
@@ -32,7 +34,9 @@
 - `setCloudServerUrl`
 - `saveCloudAuth`
 - `clearCloudAuth`
+- `deactivateCloudAuth`
 - `isCloudLoggedIn`
+- `verifyCloudAuth`
 - `cloudLogin`
 - `cloudRegister`
 

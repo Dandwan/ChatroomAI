@@ -193,6 +193,7 @@ export interface AppSettings {
   maxModelRetryCount: number
   permissionToggles: PermissionToggles
   dailyCover: DailyCoverSettings
+  actiNetModels: ProviderModel[]
 }
 
 // ── Numeric settings ──
@@ -307,6 +308,8 @@ export interface EnabledModelOption {
 export type SettingsView =
   | 'main'
   | 'tag-prompts'
+  | 'accounts'
+  | 'actinet'
   | 'providers'
   | 'provider-detail'
   | 'provider-tag-prompts'

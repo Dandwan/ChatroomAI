@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "skill:sync:union-search": "node scripts/sync-union-search-skill.mjs",
+    "skill:sync:builtin": "node scripts/sync-builtin-skills.mjs",
+    "skill:sync": "npm run skill:sync:union-search && npm run skill:sync:builtin",
     "dev": "npm run skill:sync:union-search && vite",
-    "build": "npm run skill:sync:union-search && tsc -b && vite build --configLoader native",
+    "build": "npm run skill:sync && tsc -b && vite build --configLoader native",
     "lint": "eslint .",
     "preview": "vite preview",
     "test:api": "node scripts/api-smoke-test.mjs",

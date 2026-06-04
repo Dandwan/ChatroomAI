@@ -1,7 +1,7 @@
 # `cloud-server/src/types.ts`
 
 ## 功能
-Cloud server 共享类型定义。包含 `User`、`Upstream`、`ModelEntry`、`UpstreamApiKey`、`ModelPriority`、`UsageLog`、`HealthCheck` 等所有核心数据接口，以及 API 响应类型和插件系统接口。**v5: 健康机制从 per-upstream 改为 per-key。**`Upstream` 移除 `fault_tolerance`，新增 `key_fault_tolerance: number | null`（该上游下 Key 的默认容错值，为 null 时使用全局默认）。`UpstreamApiKey` 新增 `fault_tolerance: number`（每个 Key 独立的容错阈值，覆盖上游默认和全局默认）。
+Cloud server 共享类型定义。包含 `User`、`Upstream`、`ModelEntry`、`UpstreamApiKey`、`ModelPriority`、`UsageLog`、`HealthCheck` 等所有核心数据接口，以及 API 响应类型和插件系统接口。**v5: 健康机制从 per-upstream 改为 per-key。**`Upstream` 移除 `fault_tolerance`，新增 `key_fault_tolerance: number | null`（该上游下 Key 的默认容错值，为 null 时使用全局默认）。`UpstreamApiKey` 不再包含 `fault_tolerance` 字段，每个 Key 的容错值由其所属 upstream 的 `key_fault_tolerance` 决定，若为 null 则回退到全局 `defaultFaultTolerance`。
 
 ## 关系
 ### 提供

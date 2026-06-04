@@ -125,11 +125,14 @@ import ChatHeader from './components/ChatHeader'
 import ImageViewer, { type ImageViewerItem } from './components/ImageViewer'
 import NewConversationShowcase from './components/NewConversationShowcase'
 import CloudAuthForm from './components/CloudAuthForm'
-import { isCloudLoggedIn } from './services/cloud-auth'
+import { isCloudLoggedIn, getStoredCloudAuth, clearCloudAuth, deactivateCloudAuth, verifyCloudAuth, getCloudServerUrl } from './services/cloud-auth'
+import { getEffectiveActiNetModels } from './services/actinet-models'
 import SettingsSectionHeading from './components/SettingsSectionHeading'
 import SettingsInfoPromptToggleCard from './components/SettingsInfoPromptToggleCard'
 import PermissionsSettings from './components/settings/PermissionsSettings'
 import ProvidersSettings from './components/settings/ProvidersSettings'
+import AccountsSettings from './components/settings/AccountsSettings'
+import ActiNetSettings from './components/settings/ActiNetSettings'
 import RuntimeSettings from './components/settings/RuntimeSettings'
 import SkillsSettings from './components/settings/SkillsSettings'
 import SkillConfigSettings from './components/settings/SkillConfigSettings'
@@ -363,6 +366,8 @@ const applyAssignedImageStorageKeys = (
 type SettingsView =
   | 'main'
   | 'tag-prompts'
+  | 'accounts'
+  | 'actinet'
   | 'providers'
   | 'provider-detail'
   | 'provider-tag-prompts'
@@ -615,6 +620,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   maxModelRetryCount: 3,
   permissionToggles: DEFAULT_PERMISSION_TOGGLES,
   dailyCover: DEFAULT_DAILY_COVER_SETTINGS,
+  actiNetModels: [],
 }
 
 const PROMPT_DEFAULTS: Record<GlobalPromptSettingKey, string> = {
@@ -1035,8 +1041,14 @@ const normalizeProviderConfig = (
   }
 }
 
-const getEnabledModelOptions = (providers: ProviderConfig[]): EnabledModelOption[] =>
-  providers.flatMap((provider) =>
+const ACTINET_PROVIDER_ID = '__actinet__'
+const ACTINET_PROVIDER_NAME = 'ActiNet'
+
+const getEnabledModelOptions = (
+  providers: ProviderConfig[],
+  actiNetModels?: ProviderModel[],
+): EnabledModelOption[] => {
+  const providerOptions = providers.flatMap((provider) =>
     provider.models
       .filter((model) => model.enabled)
       .map((model) => ({
@@ -1046,17 +1058,39 @@ const getEnabledModelOptions = (providers: ProviderConfig[]): EnabledModelOption
       })),
   )
 
-const ensureValidCurrentModelSelection = (settings: AppSettings): AppSettings => {
-  const hasCurrentSelection = settings.providers.some(
-    (provider) =>
-      provider.id === settings.currentProviderId &&
-      provider.models.some((model) => model.id === settings.currentModel && model.enabled),
-  )
-  if (hasCurrentSelection) {
-    return settings
+  if (actiNetModels && actiNetModels.length > 0) {
+    const activeModels = getEffectiveActiNetModels()
+    const actiNetOptions = activeModels
+      .filter((model) => model.enabled)
+      .map((model) => ({
+        providerId: ACTINET_PROVIDER_ID,
+        providerName: ACTINET_PROVIDER_NAME,
+        modelId: model.id,
+      }))
+    return [...providerOptions, ...actiNetOptions]
   }
 
-  const fallback = getEnabledModelOptions(settings.providers)[0]
+  return providerOptions
+}
+
+const ensureValidCurrentModelSelection = (settings: AppSettings): AppSettings => {
+  // Check ActiNet selection first
+  if (settings.currentProviderId === ACTINET_PROVIDER_ID) {
+    const effective = getEffectiveActiNetModels()
+    const hasActiNetSelection = effective.some(
+      (model) => model.id === settings.currentModel && model.enabled,
+    )
+    if (hasActiNetSelection) return settings
+  } else {
+    const hasCurrentSelection = settings.providers.some(
+      (provider) =>
+        provider.id === settings.currentProviderId &&
+        provider.models.some((model) => model.id === settings.currentModel && model.enabled),
+    )
+    if (hasCurrentSelection) return settings
+  }
+
+  const fallback = getEnabledModelOptions(settings.providers, settings.actiNetModels)[0]
   return {
     ...settings,
     currentProviderId: fallback?.providerId ?? '',
@@ -1065,6 +1099,38 @@ const ensureValidCurrentModelSelection = (settings: AppSettings): AppSettings =>
 }
 
 const resolveProviderRequestSettings = (settings: AppSettings): ActiveProviderRequestSettings | null => {
+  // Handle ActiNet virtual provider
+  if (settings.currentProviderId === ACTINET_PROVIDER_ID) {
+    const cloudAuth = getStoredCloudAuth()
+    if (!cloudAuth || !cloudAuth.apiKey) return null
+
+    const effective = getEffectiveActiNetModels()
+    const model = effective.find((m) => m.id === settings.currentModel && m.enabled)
+    if (!model) return null
+
+    return {
+      providerId: ACTINET_PROVIDER_ID,
+      providerName: ACTINET_PROVIDER_NAME,
+      apiBaseUrl: getCloudServerUrl(),
+      apiKey: cloudAuth.apiKey,
+      currentModel: model.id,
+      systemPrompt: settings.systemPrompt,
+      topLevelTagSystemPrompt: settings.topLevelTagSystemPrompt,
+      generalTagSystemPrompt: settings.generalTagSystemPrompt,
+      readSystemPrompt: settings.readSystemPrompt,
+      skillCallSystemPrompt: settings.skillCallSystemPrompt,
+      editSystemPrompt: settings.editSystemPrompt,
+      deviceInfoPromptEnabled: settings.deviceInfoPromptEnabled,
+      workspaceInfoPromptEnabled: settings.workspaceInfoPromptEnabled,
+      temperature: settings.temperature,
+      topP: settings.topP,
+      maxTokens: settings.maxTokens,
+      presencePenalty: settings.presencePenalty,
+      frequencyPenalty: settings.frequencyPenalty,
+      maxModelRetryCount: settings.maxModelRetryCount,
+    }
+  }
+
   const provider = settings.providers.find((item) => item.id === settings.currentProviderId)
   if (!provider) {
     return null
@@ -1865,6 +1931,7 @@ const loadSettings = (): AppSettings => {
           : DEFAULT_SETTINGS.maxModelRetryCount,
       permissionToggles: normalizePermissionToggles(parsed.permissionToggles),
       dailyCover: normalizeDailyCoverSettings(parsed.dailyCover),
+      actiNetModels: Array.isArray(parsed.actiNetModels) ? parsed.actiNetModels as ProviderModel[] : DEFAULT_SETTINGS.actiNetModels,
     })
     const migrated = migratePromptVersions(
       assembled as unknown as Record<string, unknown>,
@@ -2179,6 +2246,22 @@ function App() {
   const [abortController, setAbortController] = useState<AbortController | null>(null)
   const [cloudAuthMode, setCloudAuthMode] = useState<'none' | 'login' | 'register'>('none')
 
+  // ── Startup: verify ActiNet connectivity ──
+  useEffect(() => {
+    if (!isCloudLoggedIn()) return
+
+    let cancelled = false
+    verifyCloudAuth().then((valid) => {
+      if (cancelled) return
+      if (!valid) {
+        console.warn('[actinet] Startup connectivity check failed — deactivating auth (credentials preserved)')
+        deactivateCloudAuth()
+      }
+    })
+
+    return () => { cancelled = true }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Delete dialog helpers (unified store interface)
   const openDeleteDialog = useCallback((dialog: DeleteDialogState): void => {
     useUIStore.getState().openDeleteDialog(dialog)
@@ -2211,6 +2294,8 @@ function App() {
   const settingsScrollByViewRef = useRef<Record<SettingsView, number>>({
     main: 0,
     'tag-prompts': 0,
+    accounts: 0,
+    actinet: 0,
     providers: 0,
     'provider-detail': 0,
     'provider-tag-prompts': 0,
@@ -2497,19 +2582,35 @@ function App() {
   )
 
   const enabledModelOptions = useMemo(
-    () => getEnabledModelOptions(settings.providers),
-    [settings.providers],
+    () => getEnabledModelOptions(settings.providers, settings.actiNetModels),
+    [settings.providers, settings.actiNetModels],
   )
   const enabledModelsByProvider = useMemo(
-    () =>
-      settings.providers
+    () => {
+      const groups = settings.providers
         .map((provider) => ({
           providerId: provider.id,
           providerName: provider.name,
           models: provider.models.filter((model) => model.enabled),
         }))
-        .filter((provider) => provider.models.length > 0),
-    [settings.providers],
+        .filter((provider) => provider.models.length > 0)
+
+      // Add ActiNet group if logged in
+      if (isCloudLoggedIn()) {
+        const effective = getEffectiveActiNetModels()
+        const enabled = effective.filter((m) => m.enabled)
+        if (enabled.length > 0) {
+          groups.push({
+            providerId: ACTINET_PROVIDER_ID,
+            providerName: ACTINET_PROVIDER_NAME,
+            models: enabled,
+          })
+        }
+      }
+
+      return groups
+    },
+    [settings.providers, settings.actiNetModels],
   )
   const activeProviderRequestSettings = useMemo(
     () => resolveProviderRequestSettings(settings),
@@ -2674,6 +2775,16 @@ function App() {
     setNotice({ text, type })
   }, [])
 
+  // ── Relay ActiNetSettings custom events as pushNotice ──
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { type: 'success' | 'error' | 'info'; text: string } | undefined
+      if (detail) pushNotice(detail.text, detail.type)
+    }
+    window.addEventListener('actinet-notice', handler)
+    return () => window.removeEventListener('actinet-notice', handler)
+  }, [pushNotice])
+
   const copyTextToClipboard = useCallback(async (text: string): Promise<boolean> => {
     try {
       await navigator.clipboard.writeText(text)
@@ -2832,6 +2943,11 @@ function App() {
     if (settingsView === 'provider-tag-prompts') {
       rememberSettingsScrollPosition()
       navigateSettingsView('provider-detail')
+      return
+    }
+    if (settingsView === 'providers' || settingsView === 'actinet') {
+      rememberSettingsScrollPosition()
+      navigateSettingsView('accounts')
       return
     }
     if (settingsView !== 'main') {
@@ -7735,7 +7851,6 @@ function App() {
   const renderMainSettings = () => {
     const currentProvider =
       settings.providers.find((provider) => provider.id === settings.currentProviderId) ?? null
-    const fallbackProvider = currentProvider ?? settings.providers[0] ?? null
     const enabledSkillCount = skillRecords.filter((skill) => skill.enabled).length
     const enabledRuntimeCount = runtimeRecords.filter((runtime) => runtime.enabled).length
     const defaultRuntime =
@@ -7765,21 +7880,21 @@ function App() {
 
         <section className="settings-section">
           {renderSettingsSectionHeading({
-            label: 'Provider',
-            title: '服务商配置',
+            label: 'Account',
+            title: '账号管理',
           })}
 
           <div className="settings-entry-list settings-entry-list-tight">
             <button
               type="button"
               className="settings-entry-button settings-summary-button"
-              onClick={() => navigateSettingsView('providers')}
+              onClick={() => navigateSettingsView('accounts')}
             >
               <div className="settings-summary-list">
                 <div className="settings-summary-row">
-                  <span className="settings-summary-row-label">API Base URL</span>
+                  <span className="settings-summary-row-label">ActiNet</span>
                   <span className="settings-summary-row-value">
-                    {fallbackProvider?.apiBaseUrl.trim() || '尚未填写'}
+                    {cloudLoggedIn ? '已连接' : '未登录'}
                   </span>
                 </div>
                 <div className="settings-summary-row">
@@ -8504,6 +8619,34 @@ function App() {
     />
   )
 
+  const renderAccountsSettings = () => (
+    <AccountsSettings
+      settings={settings}
+      isCloudLoggedIn={cloudLoggedIn}
+      cloudAuth={getStoredCloudAuth()}
+      onNavigateActiNet={() => navigateSettingsView('actinet')}
+      onNavigateProviders={() => navigateSettingsView('providers')}
+    />
+  )
+
+  const renderActiNetSettings = () => (
+    <ActiNetSettings
+      isCloudLoggedIn={cloudLoggedIn}
+      cloudAuth={getStoredCloudAuth()}
+      onCloudLogin={() => {
+        closeSettingsPanel()
+        setCloudAuthMode('login')
+      }}
+      onCloudLogout={() => {
+        clearCloudAuth()
+        updateSetting('actiNetModels', [])
+        navigateSettingsView('accounts')
+      }}
+      actiNetModels={settings.actiNetModels}
+      onUpdateActiNetModels={(models) => updateSetting('actiNetModels', models)}
+    />
+  )
+
   const renderProviderDetailSettings = () => (
     <>
       <section className="settings-section">
@@ -8914,10 +9057,26 @@ function App() {
         }
         settingsContent = renderTagPromptSettings()
         break
+      case 'accounts':
+        pageChrome = {
+          eyebrow: 'Accounts',
+          title: '账号管理',
+          copy: '管理 ActiNet 云账户与其他服务商。',
+        }
+        settingsContent = renderAccountsSettings()
+        break
+      case 'actinet':
+        pageChrome = {
+          eyebrow: 'ActiNet',
+          title: 'ActiNet 账户',
+          copy: '管理你的 ActiNet 云服务账户。',
+        }
+        settingsContent = renderActiNetSettings()
+        break
       case 'providers':
         pageChrome = {
           eyebrow: 'Providers',
-          title: '服务商管理',
+          title: '其它服务商',
           copy: '服务商、模型和默认选择仍然全部保留；这页的目标是让配置关系更清楚，而不是减少能力。',
         }
         settingsContent = renderProvidersSettings()

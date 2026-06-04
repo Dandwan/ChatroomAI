@@ -45,13 +45,52 @@ export function saveCloudAuth(auth: StoredCloudAuth): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(auth))
 }
 
+/** 硬退出：完全清除所有凭据（用户手动退出） */
 export function clearCloudAuth(): void {
   localStorage.removeItem(STORAGE_KEY)
+}
+
+/** 软退出：保留 username/email/serverUrl，仅清除 token/apiKey（启动检测失败时调用） */
+export function deactivateCloudAuth(): void {
+  const auth = getStoredCloudAuth()
+  if (!auth) return
+  saveCloudAuth({
+    ...auth,
+    token: '',
+    apiKey: '',
+    savedAt: Date.now(),
+  })
 }
 
 export function isCloudLoggedIn(): boolean {
   const auth = getStoredCloudAuth()
   return !!auth && !!auth.apiKey
+}
+
+/**
+ * 验证当前 ActiNet 登录状态是否有效。
+ * 调用 GET /api/auth/me 检测 token 是否过期或服务器是否可达。
+ * 返回 true 表示有效，false 表示需要软退出。
+ */
+export async function verifyCloudAuth(): Promise<boolean> {
+  const auth = getStoredCloudAuth()
+  if (!auth || !auth.token) return false
+
+  try {
+    const normalizedUrl = auth.serverUrl.replace(/\/+$/, '')
+    const response = await fetch(`${normalizedUrl}/api/auth/me`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${auth.token}`,
+        'Content-Type': 'application/json',
+      },
+      signal: AbortSignal.timeout(10_000),
+    })
+    return response.ok
+  } catch {
+    // 网络错误、超时、DNS 失败等 — 视为无法连接
+    return false
+  }
 }
 
 export async function cloudRegister(
