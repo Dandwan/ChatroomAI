@@ -5,7 +5,7 @@ OpenAI ↔ Anthropic API 格式转换模块。提供请求体转换（OpenAI →
 
 ## 关系
 ### 调用 / 引用
-- （无内部依赖，纯函数模块）
+- `cloud-server/src/logger.ts` — `createLogger`
 
 ### 提供
 - `openaiToAnthropicRequest()` — 将 OpenAI 格式的请求体转换为 Anthropic Messages API 格式

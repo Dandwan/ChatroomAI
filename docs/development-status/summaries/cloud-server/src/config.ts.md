@@ -4,6 +4,13 @@
 加载和合并 cloud-server 的运行时配置。优先级：环境变量 > `config.json` > 硬编码默认值。在启动时检测 JWT Secret 是否为随机生成并在生产环境中发出警告。
 
 ## 关系
+### 调用 / 引用
+- `cloud-server/src/logger.ts` — `createLogger`
+- `node:crypto` — `randomBytes`
+- `node:fs` — `readFileSync`, `existsSync`, `mkdirSync`
+- `node:path` — `dirname`, `resolve`
+- `node:url` — `fileURLToPath`
+
 ### 提供
 - `loadConfig()` — 加载并返回 `ServerConfig` 对象
 - `ServerConfig` — 服务配置的 TypeScript 接口

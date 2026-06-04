@@ -7,6 +7,7 @@
 ### 调用 / 引用
 - `cloud-server/src/types.ts` — `UpstreamWithKeys`、`ModelEntry`、`ModelPriority`
 - `cloud-server/src/proxy/distribution.ts` — `selectKey`
+- `cloud-server/src/logger.ts` — `createLogger`
 
 ### 提供
 - `selectUpstreamForModel()` — 按模型选择上游+Key+API类型

@@ -8,6 +8,7 @@
 - `cloud-server/src/types.ts` — `UpstreamWithKeys`、`ModelPriority`
 - `cloud-server/src/proxy/model-strategy.ts` — 核心选择逻辑和健康状态管理
 - `cloud-server/src/proxy/distribution.ts` — `selectKey`
+- `cloud-server/src/logger.ts` — `createLogger`
 
 ### 提供
 - `selectUpstream()` — 选择最佳上游+Key+API类型

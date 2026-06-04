@@ -8,6 +8,7 @@
 - `cloud-server/src/auth/auth-service.ts` — `loginUser`, `createUser`, `generateJwtToken`
 - `cloud-server/src/auth/middleware.ts` — `createApiKeyAuth`
 - `cloud-server/src/auth/ip-rate-limiter.ts` — `createLoginRateLimiter`, `createRegisterRateLimiter`
+- `cloud-server/src/logger.ts` — `createLogger`
 - `express` — `Router`
 
 ### 提供

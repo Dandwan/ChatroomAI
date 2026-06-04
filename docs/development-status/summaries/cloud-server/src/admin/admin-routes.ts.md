@@ -8,6 +8,7 @@
 - `cloud-server/src/auth/middleware.ts` — `createAdminAuth`
 - `cloud-server/src/auth/auth-service.ts` — `verifyPassword`, `generateJwtToken`
 - `cloud-server/src/auth/ip-rate-limiter.ts` — `createLoginRateLimiter`
+- `cloud-server/src/logger.ts` — `createLogger`
 - `uuid` — `v4`
 
 ### 提供

@@ -6,6 +6,7 @@
 ## 关系
 ### 调用 / 引用
 - `cloud-server/src/auth/auth-service.ts` — `verifyJwtToken`
+- `cloud-server/src/logger.ts` — `createLogger`, `redactValue`
 - `express` — `Request`, `Response`, `NextFunction`
 
 ### 提供

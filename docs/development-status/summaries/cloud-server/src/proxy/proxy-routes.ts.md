@@ -11,6 +11,7 @@
 - `cloud-server/src/proxy/format-converter.ts` — 格式转换函数
 - `cloud-server/src/auth/middleware.ts` — `createApiKeyAuth`
 - `cloud-server/src/proxy/rate-limiter.ts` — `createRateLimiter`
+- `cloud-server/src/logger.ts` — `createLogger`
 
 ### 提供
 - `createProxyRoutes()` — 创建代理路由的 Express Router
