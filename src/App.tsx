@@ -1046,7 +1046,7 @@ const ACTINET_PROVIDER_NAME = 'ActiNet'
 
 const getEnabledModelOptions = (
   providers: ProviderConfig[],
-  actiNetModels?: ProviderModel[],
+  isActiNetLoggedIn: boolean,
 ): EnabledModelOption[] => {
   const providerOptions = providers.flatMap((provider) =>
     provider.models
@@ -1058,7 +1058,7 @@ const getEnabledModelOptions = (
       })),
   )
 
-  if (actiNetModels && actiNetModels.length > 0) {
+  if (isActiNetLoggedIn) {
     const activeModels = getEffectiveActiNetModels()
     const actiNetOptions = activeModels
       .filter((model) => model.enabled)
@@ -1090,7 +1090,7 @@ const ensureValidCurrentModelSelection = (settings: AppSettings): AppSettings =>
     if (hasCurrentSelection) return settings
   }
 
-  const fallback = getEnabledModelOptions(settings.providers, settings.actiNetModels)[0]
+  const fallback = getEnabledModelOptions(settings.providers, isCloudLoggedIn())[0]
   return {
     ...settings,
     currentProviderId: fallback?.providerId ?? '',
@@ -2582,8 +2582,8 @@ function App() {
   )
 
   const enabledModelOptions = useMemo(
-    () => getEnabledModelOptions(settings.providers, settings.actiNetModels),
-    [settings.providers, settings.actiNetModels],
+    () => getEnabledModelOptions(settings.providers, cloudLoggedIn),
+    [settings.providers, cloudLoggedIn],
   )
   const enabledModelsByProvider = useMemo(
     () => {
@@ -2610,7 +2610,7 @@ function App() {
 
       return groups
     },
-    [settings.providers, settings.actiNetModels],
+    [settings.providers, settings.actiNetModels, cloudLoggedIn],
   )
   const activeProviderRequestSettings = useMemo(
     () => resolveProviderRequestSettings(settings),
