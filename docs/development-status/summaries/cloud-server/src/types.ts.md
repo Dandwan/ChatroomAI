@@ -1,13 +1,12 @@
 # `cloud-server/src/types.ts`
 
 ## 功能
-Cloud server 共享类型定义。包含 `User`、`Upstream`、`ModelEntry`、`UpstreamApiKey`、`ModelPriority`、`UsageLog`、`HealthCheck` 等所有核心数据接口，以及 API 响应类型和插件系统接口。**v5: 健康机制从 per-upstream 改为 per-key。**`Upstream` 移除 `fault_tolerance`，新增 `key_fault_tolerance: number | null`（该上游下 Key 的默认容错值，为 null 时使用全局默认）。`UpstreamApiKey` 不再包含 `fault_tolerance` 字段，每个 Key 的容错值由其所属 upstream 的 `key_fault_tolerance` 决定，若为 null 则回退到全局 `defaultFaultTolerance`。
+Cloud server 共享类型定义。包含 `User`、`Upstream`、`ModelEntry`、`UpstreamApiKey`、`ModelPriority`、`UsageLog`、`HealthCheck` 等所有核心数据接口，以及 API 响应类型和插件系统接口。**v5: 健康机制从 per-upstream 改为 per-key。v7: 新增 `ApiType = 'openai' | 'anthropic' | 'gemini'` 联合类型，`Upstream.api_type` 和 `ModelEntry.api_type` 使用 `ApiType`。**
 
 ## 关系
 ### 提供
-- `Upstream`
-- `UpstreamApiKey`
-- `UpstreamWithKeys`
+- `ApiType` — 上游 API 类型联合
+- `Upstream`、`UpstreamApiKey`、`UpstreamWithKeys`
 - `ModelEntry`、`ModelPriority`
 - `User`、`AdminUser`、`UsageLog`、`HealthCheck`
 - API 响应类型和插件接口
@@ -16,5 +15,6 @@ Cloud server 共享类型定义。包含 `User`、`Upstream`、`ModelEntry`、`U
 - `cloud-server/src/db/repositories/upstream-repo.ts`
 - `cloud-server/src/proxy/model-strategy.ts`
 - `cloud-server/src/proxy/upstream-selector.ts`
+- `cloud-server/src/proxy/proxy-routes.ts`
 - `cloud-server/src/admin/admin-routes.ts`
 - `cloud-server/admin-ui/src/api.ts`

@@ -1,6 +1,6 @@
 # Current State And Known Issues
 
-Last updated: 2026-06-03
+Last updated: 2026-06-05
 
 ## Run & Skill Runtime
 
@@ -64,23 +64,22 @@ The project now includes a **cloud server** (API proxy gateway) at `cloud-server
 - **Node.js + TypeScript + Express** backend
 - **SQLite** (sql.js, WASM-based) for data persistence
 - **Admin UI**: Separate Vite + React app, served as static files by Express
-- Modules: `auth/`, `proxy/`, `upstream/`, `admin/`, `db/`, `plugin/`
+- Modules: `auth/`, `proxy/`, `upstream/`, `admin/`, `db/`, `plugin/`, `watcher/`, `ws/`
 
 ### Core Capabilities
 - User authentication (username/email + password) with auto-generated API keys (`csk_` prefix)
-- **User registration** (`POST /api/auth/register`) with auto-login, username/email dedup
-- **IP-based brute-force protection** on login (5 req/min) and registration (3 req/hour) endpoints
-- **JWT Secret production guard** — warns at startup if secret is randomly generated
-- **Per-key health mechanism**: Each API key tracks its own health independently. Failure tracking, fault tolerance, and health checking all operate at key granularity. An upstream is available as long as it has at least one healthy key.
-- **Three-tier fault tolerance**: Key `fault_tolerance` > Upstream `key_fault_tolerance` > Global `defaultFaultTolerance`. Default 0 (first failure marks key unhealthy).
-- **Retry loop**: Tries different keys within the same upstream first (in priority order), then moves to the next upstream. Key is marked unhealthy when consecutive failures exceed its fault tolerance.
-- **Immediate health check**: When a key is marked unhealthy, an async health check is triggered immediately (debounced per key), with a 10-minute periodic check as fallback.
-- Admin dashboard with usage stats, per-hour tokens/requests charts, availability monitoring (1h/3h/24h)
+- User registration with auto-login, username/email dedup, IP brute-force protection
+- **Multi-API-type proxy**: OpenAI, Anthropic, **Gemini** — transparent format conversion (request/response/SSE stream)
+- **TLS/HTTPS**: Built-in HTTPS support with configurable cert/key (opt-in)
+- **Proxy forwarding**: HTTP/HTTPS/SOCKS5 upstream proxy with per-upstream override
+- **Config hot-reload**: `fs.watch`-based watcher for `config.json` changes (no-restart config update)
+- **WebSocket**: `/v1/ws` endpoint with optional API Key authentication
+- **Per-key health**: Independent key health tracking, fault tolerance, retry with same-upstream key rotation
+- **Admin dashboard**: Usage stats, hourly charts, availability monitoring, **real-time SSE log stream**, **key health overview**, server metrics
 - Plugin system for extensibility
-- App-side `CloudLoginPage` component for user login
 
 ### Build & Run
-- `cd cloud-server && npm run dev` — development server (port 3000)
+- `cd cloud-server && npm run dev` — development server
 - `cd cloud-server/admin-ui && npm run build` — build admin UI
 - Config via environment variables or `cloud-server/config.json`
 

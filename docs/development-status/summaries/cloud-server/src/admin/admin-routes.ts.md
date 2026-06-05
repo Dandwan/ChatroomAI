@@ -1,15 +1,16 @@
 # `cloud-server/src/admin/admin-routes.ts`
 
 ## 功能
-管理后台 HTTP 路由。管理员登录（IP 速率限制）、使用统计查询、可用性统计、上游 CRUD、API Key CRUD、模型优先级管理、用户管理和**全局设置**。除登录外均受 JWT 管理员认证保护。
+管理后台 HTTP 路由。管理员登录（IP 速率限制）、使用统计查询、可用性统计、上游 CRUD、API Key CRUD、模型优先级管理、用户管理和全局设置。除登录外均受 JWT 管理员认证保护。
 
-**v5 Key 容错继承链：** Key 创建端点不再接受 `fault_tolerance` 参数。Key 的容错值从上游 `key_fault_tolerance` 继承，若为 null 则回退到全局 `defaultFaultTolerance`。
+**v7 新增端点：**
+- `GET /api/admin/logs` — 分页日志查询（支持状态/用户/上游/时间筛选）
+- `GET /api/admin/logs/stream` — SSE 实时日志流（2s 间隔推送）
+- `GET /api/admin/stats/usage/detail` — 按 user/model/upstream 分组统计
+- `GET /api/admin/stats/server` — 服务器指标（运行时间、内存、WS 连接、请求数）
+- `GET /api/admin/health/keys` — 所有 Key 健康状态
 
-**v5 全局设置端点：**
-- `GET /api/admin/settings` — 返回 `defaultFaultTolerance`、`healthCheckIntervalMs`、`port`、`logLevel`
-- `PUT /api/admin/settings` — 更新 `defaultFaultTolerance`（即时生效 + 持久化到 `config.json`）
-
-**v6 全局设置更新：** GET/PUT `/api/admin/settings` 新增 `actiNetModelMapping` 字段（`Record<string, string>`），支持 null 清空映射、值类型校验，持久化到 `config.json`。
+**v7 全局设置更新：** GET/PUT `/api/admin/settings` 新增 `proxyUrl`、`wsAuth`、`tlsEnable`/`tlsCert`/`tlsKey` 字段。
 
 ## 关系
 ### 调用 / 引用
