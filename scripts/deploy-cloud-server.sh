@@ -70,6 +70,7 @@ RSYNC_EXCLUDES=(
   --exclude='admin-ui/dist'
   --exclude='admin-ui/node_modules'
   --exclude='admin-ui/tsconfig.tsbuildinfo'
+  --exclude='config.json'
 )
 
 if $DRY_RUN; then
