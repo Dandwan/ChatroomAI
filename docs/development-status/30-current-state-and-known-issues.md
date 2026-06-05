@@ -70,11 +70,12 @@ The project now includes a **cloud server** (API proxy gateway) at `cloud-server
 
 ### Core Capabilities
 - User authentication (username/email + password) with auto-generated API keys (`csk_` prefix)
-- User registration with **email verification** (verification token + SMTP email, 24h expiry), username/email dedup, IP brute-force protection
+- User registration with **email verification** (6-digit numeric verification code via email, 24h expiry, in-app code entry), username/email dedup, IP brute-force protection
 - **Password reset**: 6-digit numeric token via email (1h expiry), IP rate-limited, client-side forgot/reset views
 - **Email change**: password-confirmed email change with verification token to new address
 - **SMTP configuration** via Admin UI or environment variables (optional — disabled = debug mode)
 - **Test email**: Admin UI button to verify SMTP config, with send history tracking (in-memory, last 20)
+- **Email cooldown**: Same-email send cooldown (default 120s), configurable via Admin UI (0 = off). In-memory tracking, test emails bypassed.
 - **Independent email module** (`email/`) — reusable by auth, admin, and future plugins
 - **Multi-API-type proxy**: OpenAI, Anthropic, Gemini — transparent format conversion (request/response/SSE stream)
 - **Native API endpoints**: 

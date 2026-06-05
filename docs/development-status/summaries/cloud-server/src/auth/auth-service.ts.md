@@ -1,7 +1,7 @@
 # `cloud-server/src/auth/auth-service.ts`
 
 ## 功能
-提供认证核心逻辑。包括用户登录（用户名/邮箱 + bcrypt 密码验证，返回 JWT + API Key）、用户注册（用户名/邮箱去重、密码哈希、API Key 生成、邮箱验证 token 生成）、JWT 签发与验证、管理员种子用户创建。**v10: 新增邮箱验证支持 — `createUser()` 不再自动登录，`loginUser()` 检查验证状态，新增 `verifyEmail()` 和 `resendVerificationEmail()`。v11: 密码重置 + 邮箱更换 — 新增 `requestPasswordReset()`（生成 6 位数字 token，发送密码重置邮件）、`resetPassword()`（验证 token + 哈希新密码 + 更新）、`requestEmailChange()`（验证密码 + 存储 pending_email + 发送邮箱更换验证码）、`confirmEmailChange()`（验证 token + 将 pending_email 写入 email）。邮件发送改用 `../email/email-service.js` 的 `sendEmail()`。**
+提供认证核心逻辑。包括用户登录（用户名/邮箱 + bcrypt 密码验证，返回 JWT + API Key）、用户注册（用户名/邮箱去重、密码哈希、API Key 生成、6 位数字邮箱验证码生成）、JWT 签发与验证、管理员种子用户创建。**v10: 新增邮箱验证支持 — `createUser()` 不再自动登录，`loginUser()` 检查验证状态，新增 `verifyEmail()` 和 `resendVerificationEmail()`。v11: 密码重置 + 邮箱更换 — 新增 `requestPasswordReset()`（生成 6 位数字 token，发送密码重置邮件）、`resetPassword()`（验证 token + 哈希新密码 + 更新）、`requestEmailChange()`（验证密码 + 存储 pending_email + 发送邮箱更换验证码）、`confirmEmailChange()`（验证 token + 将 pending_email 写入 email）。邮件发送改用 `../email/email-service.js` 的 `sendEmail()`。v12: 邮箱验证改为 6 位数字验证码输入模式（不再使用验证链接），提取共享 `generateNumericToken()` 函数统一生成数字 token。v13: 集成邮箱冷却机制 — `createUser()` 返回 `cooldownRemaining`，`requestEmailChange()` 返回 `'cooldown'`，`resendVerificationEmail()` 和 `requestPasswordReset()` 记录冷却日志但不暴露给调用方（安全模糊响应）。**
 
 ## 关系
 ### 调用 / 引用
@@ -40,7 +40,7 @@
 - `createUser`
 - `generateApiKey`
 - `generateJwtToken`
-- `generateResetToken`
+- `generateNumericToken`
 - `hashPassword`
 - `loginUser`
 - `requestEmailChange`

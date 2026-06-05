@@ -10,7 +10,7 @@
 - `GET /api/admin/stats/server` — 服务器指标（运行时间、内存、WS 连接、请求数）
 - `GET /api/admin/health/keys` — 所有 Key 健康状态
 
-**v7 全局设置更新：** GET/PUT `/api/admin/settings` 新增 `proxyUrl`、`wsAuth`、`tlsEnable`/`tlsCert`/`tlsKey` 字段。
+**v7 全局设置更新：** GET/PUT `/api/admin/settings` 新增 `proxyUrl`、`wsAuth`、`tlsEnable`/`tlsCert`/`tlsKey` 字段。**v13: 新增 `emailCooldownSeconds` 字段（非负整数，默认 120），支持 GET/PUT 和 config.json 持久化。**
 
 **v11 邮件端点：**
 - `POST /api/admin/email/test` — 发送测试邮件验证 SMTP 配置（`sendTestEmail`）
