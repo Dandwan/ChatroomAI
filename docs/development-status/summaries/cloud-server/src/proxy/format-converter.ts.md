@@ -1,7 +1,7 @@
 # `cloud-server/src/proxy/format-converter.ts`
 
 ## 功能
-OpenAI ↔ Anthropic API 格式转换模块。提供请求体转换（双向）、非流式响应转换（双向）和 SSE 流式事件转换（双向）。**v8: 新增反向转换器 `anthropicToOpenaiRequest()`、`openaiToAnthropicResponse()`、`createOpenaiToAnthropicStreamTransformer()`，支持原生 Anthropic Messages API 端点。** Openai→Anthropic 响应转换支持推理模型的 `reasoning_content` → `thinking` block 映射（非流式+流式）。
+OpenAI ↔ Anthropic API 格式转换模块。提供请求体转换（双向）、非流式响应转换（双向）和 SSE 流式事件转换（双向）。**v8: 新增反向转换器 `anthropicToOpenaiRequest()`、`openaiToAnthropicResponse()`、`createOpenaiToAnthropicStreamTransformer()`，支持原生 Anthropic Messages API 端点。** OpenAI→Anthropic 响应转换支持推理模型的 `reasoning_content` → `thinking` block 映射（非流式+流式）。**v9: `anthropicToOpenaiRequest()` 新增 tools 定义转发和 tool_use/tool_result 会话历史转换；`openaiToAnthropicResponse()` 新增 tool_calls → tool_use 块转换；`createOpenaiToAnthropicStreamTransformer()` 新增流式 tool_calls → tool_use SSE 事件转换。**
 
 ## 关系
 ### 调用 / 引用
