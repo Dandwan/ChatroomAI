@@ -1,13 +1,15 @@
 # `src/services/cloud-auth.ts`
 
 ## 功能
-提供 ActiChat 云服务（ActiNet）前端的认证服务层。包含用户登录、注册、本地认证状态持久化、会话管理等功能。所有认证令牌和用户信息持久化到 `localStorage`。内置默认服务器地址 `DEFAULT_CLOUD_SERVER_URL`，`getCloudServerUrl()` 在没有已保存地址时自动回退到默认值。
+提供 ActiChat 云服务（ActiNet）前端的认证服务层。包含用户登录、注册、本地认证状态持久化、凭据管理、自动登录等功能。所有认证令牌和用户信息持久化到 `localStorage`。内置默认服务器地址 `DEFAULT_CLOUD_SERVER_URL`，`getCloudServerUrl()` 在没有已保存地址时自动回退到默认值。
+
+密码使用 Base64 编码混淆后存储在独立的 `actichat_cloud_credentials` key 中，与 auth token 分离。启动时若 token 无效但有已存凭据，可自动尝试登录。
 
 ## 关系
 ### 调用 / 引用
 - `src/components/CloudAuthForm.tsx` — 使用 `cloudLogin`、`cloudRegister`、`getCloudServerUrl`
 - `src/components/CloudLoginPage.tsx` — 使用 `cloudLogin`
-- `src/App.tsx` — 使用 `isCloudLoggedIn` 判断登录状态
+- `src/App.tsx` — 使用 `isCloudLoggedIn` 判断登录状态，`tryAutoLogin`/`hasStoredCredentials` 实现启动自动登录
 
 ### 提供
 - `DEFAULT_CLOUD_SERVER_URL` — 默认云服务器地址常量（开发时修改）
@@ -17,12 +19,14 @@
 - `getCloudServerUrl()` — 获取服务器地址（已保存值 → 默认值回退）
 - `setCloudServerUrl(url)` — 持久化服务器地址
 - `saveCloudAuth(auth)` — 持久化认证信息
-- `clearCloudAuth()` — 硬退出：完全清除认证信息
-- `deactivateCloudAuth()` — 软退出：保留 username/email/serverUrl，仅清除 token/apiKey
+- `clearCloudAuth()` — 硬退出：完全清除认证信息和凭据
+- `deactivateCloudAuth()` — 软退出：保留 username/email/serverUrl 和凭据，仅清除 token/apiKey
 - `isCloudLoggedIn()` — 判断是否已登录（有 apiKey）
 - `verifyCloudAuth()` — 验证 token 有效性（GET /api/auth/me），用于启动时连通性检测
-- `cloudLogin(serverUrl, username, password)` — POST /api/auth/login，成功后自动持久化
-- `cloudRegister(serverUrl, username, email, password)` — POST /api/auth/register，成功后自动持久化
+- `hasStoredCredentials()` — 判断是否有可用于自动登录的凭据
+- `tryAutoLogin()` — 用已存凭据尝试登录，成功返回 true，失败静默返回 false
+- `cloudLogin(serverUrl, username, password)` — POST /api/auth/login，成功后自动持久化 auth 和凭据
+- `cloudRegister(serverUrl, username, email, password)` — POST /api/auth/register，成功后自动持久化 auth 和凭据
 
 ## 关键词
 ### 常量
@@ -37,6 +41,8 @@
 - `deactivateCloudAuth`
 - `isCloudLoggedIn`
 - `verifyCloudAuth`
+- `hasStoredCredentials`
+- `tryAutoLogin`
 - `cloudLogin`
 - `cloudRegister`
 

@@ -10,6 +10,7 @@ export interface CloudAuthResult {
 
 const STORAGE_KEY = 'actichat_cloud_auth'
 const SERVER_URL_KEY = 'actichat_cloud_server_url'
+const CREDENTIALS_KEY = 'actichat_cloud_credentials'
 
 /** 默认云服务器地址 — 上线时修改此处 */
 const DEFAULT_CLOUD_SERVER_URL = 'https://47.108.210.249:2179/'
@@ -21,6 +22,30 @@ export interface StoredCloudAuth {
   username: string
   email: string
   savedAt: number
+}
+
+interface StoredCloudCredentials {
+  serverUrl: string
+  username: string
+  email: string
+  /** Base64 编码后的密码（混淆，非加密） */
+  password: string
+}
+
+const encodePassword = (password: string): string => {
+  try {
+    return btoa(password)
+  } catch {
+    return password
+  }
+}
+
+const decodePassword = (encoded: string): string => {
+  try {
+    return atob(encoded)
+  } catch {
+    return encoded
+  }
 }
 
 export function getStoredCloudAuth(): StoredCloudAuth | null {
@@ -41,6 +66,56 @@ export function setCloudServerUrl(url: string): void {
   localStorage.setItem(SERVER_URL_KEY, url)
 }
 
+// ── 凭据存储（用于自动登录）──
+
+function saveCloudCredentials(serverUrl: string, username: string, email: string, password: string): void {
+  const creds: StoredCloudCredentials = {
+    serverUrl,
+    username,
+    email,
+    password: encodePassword(password),
+  }
+  localStorage.setItem(CREDENTIALS_KEY, JSON.stringify(creds))
+}
+
+function getStoredCloudCredentials(): StoredCloudCredentials | null {
+  try {
+    const raw = localStorage.getItem(CREDENTIALS_KEY)
+    if (!raw) return null
+    return JSON.parse(raw) as StoredCloudCredentials
+  } catch {
+    return null
+  }
+}
+
+function clearCloudCredentials(): void {
+  localStorage.removeItem(CREDENTIALS_KEY)
+}
+
+/** 判断是否存储了可用于自动登录的凭据（用户名 + 密码 + 服务器地址） */
+export function hasStoredCredentials(): boolean {
+  const creds = getStoredCloudCredentials()
+  return !!(creds && creds.username && creds.password && creds.serverUrl)
+}
+
+/**
+ * 使用已存储的凭据尝试自动登录。
+ * 成功返回 true，失败静默返回 false（不抛异常，不弹通知）。
+ */
+export async function tryAutoLogin(): Promise<boolean> {
+  const creds = getStoredCloudCredentials()
+  if (!creds || !creds.username || !creds.password || !creds.serverUrl) {
+    return false
+  }
+
+  try {
+    await cloudLogin(creds.serverUrl, creds.username, decodePassword(creds.password))
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function saveCloudAuth(auth: StoredCloudAuth): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(auth))
 }
@@ -48,6 +123,7 @@ export function saveCloudAuth(auth: StoredCloudAuth): void {
 /** 硬退出：完全清除所有凭据（用户手动退出） */
 export function clearCloudAuth(): void {
   localStorage.removeItem(STORAGE_KEY)
+  clearCloudCredentials()
 }
 
 /** 软退出：保留 username/email/serverUrl，仅清除 token/apiKey（启动检测失败时调用） */
@@ -123,6 +199,7 @@ export async function cloudRegister(
     email: result.user.email,
     savedAt: Date.now(),
   })
+  saveCloudCredentials(normalizedUrl, result.user.username, result.user.email, password)
 
   return result
 }
@@ -156,6 +233,7 @@ export async function cloudLogin(
     email: result.user.email,
     savedAt: Date.now(),
   })
+  saveCloudCredentials(normalizedUrl, result.user.username, result.user.email, password)
 
   return result
 }

@@ -125,7 +125,7 @@ import ChatHeader from './components/ChatHeader'
 import ImageViewer, { type ImageViewerItem } from './components/ImageViewer'
 import NewConversationShowcase from './components/NewConversationShowcase'
 import CloudAuthForm from './components/CloudAuthForm'
-import { isCloudLoggedIn, getStoredCloudAuth, clearCloudAuth, deactivateCloudAuth, verifyCloudAuth, getCloudServerUrl } from './services/cloud-auth'
+import { isCloudLoggedIn, getStoredCloudAuth, clearCloudAuth, deactivateCloudAuth, verifyCloudAuth, getCloudServerUrl, tryAutoLogin, hasStoredCredentials } from './services/cloud-auth'
 import { getEffectiveActiNetModels } from './services/actinet-models'
 import SettingsSectionHeading from './components/SettingsSectionHeading'
 import SettingsInfoPromptToggleCard from './components/SettingsInfoPromptToggleCard'
@@ -1739,40 +1739,6 @@ const applyPermissionGatesToRun = (
   }
 }
 
-const buildLegacyProvider = (parsed: Record<string, unknown>): ProviderConfig | undefined => {
-  const legacyModels = Array.isArray(parsed.models)
-    ? parsed.models
-        .filter((item): item is string => typeof item === 'string')
-        .map((item) => item.trim())
-        .filter(Boolean)
-    : []
-  const legacyCurrentModel =
-    typeof parsed.currentModel === 'string' ? parsed.currentModel.trim() : ''
-  const mergedModels = new Set(legacyModels)
-  if (legacyCurrentModel) {
-    mergedModels.add(legacyCurrentModel)
-  }
-
-  if (
-    typeof parsed.apiBaseUrl !== 'string' &&
-    typeof parsed.apiKey !== 'string' &&
-    mergedModels.size === 0
-  ) {
-    return undefined
-  }
-
-  return {
-    id: createId(),
-    name: '默认服务商',
-    apiBaseUrl: typeof parsed.apiBaseUrl === 'string' ? parsed.apiBaseUrl : '',
-    apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : '',
-    models: Array.from(mergedModels).map((modelId) => ({
-      id: modelId,
-      enabled: modelId === legacyCurrentModel,
-    })),
-  }
-}
-
 const loadSettings = (): AppSettings => {
   try {
     if (typeof localStorage === 'undefined') {
@@ -1795,8 +1761,7 @@ const loadSettings = (): AppSettings => {
           .map((item) => normalizeProviderConfig(item, shouldMigrateLegacyTagPrompts))
           .filter((item): item is ProviderConfig => Boolean(item))
       : []
-    const legacyProvider = parsedProviders.length === 0 ? buildLegacyProvider(parsed) : undefined
-    const providers = legacyProvider ? [legacyProvider] : parsedProviders
+    const providers = parsedProviders
 
     const rawTemperature = toFiniteNumber(parsed.temperature)
     const rawTopP = toFiniteNumber(parsed.topP)
@@ -1818,7 +1783,7 @@ const loadSettings = (): AppSettings => {
     const currentProviderId =
       typeof parsed.currentProviderId === 'string' && parsed.currentProviderId.trim()
         ? parsed.currentProviderId
-        : legacyProvider?.id ?? DEFAULT_SETTINGS.currentProviderId
+        : DEFAULT_SETTINGS.currentProviderId
     const currentModel =
       typeof parsed.currentModel === 'string' && parsed.currentModel.trim()
         ? parsed.currentModel
@@ -2246,18 +2211,31 @@ function App() {
   const [abortController, setAbortController] = useState<AbortController | null>(null)
   const [cloudAuthMode, setCloudAuthMode] = useState<'none' | 'login' | 'register'>('none')
 
-  // ── Startup: verify ActiNet connectivity ──
+  // ── Startup: verify ActiNet connectivity or auto-login ──
   useEffect(() => {
-    if (!isCloudLoggedIn()) return
-
     let cancelled = false
-    verifyCloudAuth().then((valid) => {
-      if (cancelled) return
-      if (!valid) {
-        console.warn('[actinet] Startup connectivity check failed — deactivating auth (credentials preserved)')
-        deactivateCloudAuth()
-      }
-    })
+
+    if (isCloudLoggedIn()) {
+      // 已有 token — 验证连通性
+      verifyCloudAuth().then((valid) => {
+        if (cancelled) return
+        if (!valid) {
+          console.warn('[actinet] Startup connectivity check failed — deactivating auth (credentials preserved)')
+          deactivateCloudAuth()
+        }
+      })
+    } else if (hasStoredCredentials()) {
+      // 无 token 但有凭据 — 尝试自动登录
+      tryAutoLogin().then((success) => {
+        if (cancelled) return
+        if (success) {
+          console.log('[actinet] Auto-login succeeded')
+          // 强制刷新状态以触发 UI 更新
+          setCloudAuthMode('none')
+        }
+        // 失败时静默 — 主页自然显示 CloudAuthForm
+      })
+    }
 
     return () => { cancelled = true }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -3354,6 +3332,18 @@ function App() {
   const selectCurrentModel = useCallback(
     (providerId: string, modelId: string): void => {
       applySettingsUpdate((previous) => {
+        // ActiNet 虚拟服务商 — 不在 providers 数组中，需单独处理
+        if (providerId === ACTINET_PROVIDER_ID) {
+          const effective = getEffectiveActiNetModels()
+          const model = effective.find((m) => m.id === modelId && m.enabled)
+          if (!model) return previous
+          return {
+            ...previous,
+            currentProviderId: providerId,
+            currentModel: modelId,
+          }
+        }
+
         const provider = previous.providers.find((item) => item.id === providerId)
         if (!provider || !provider.models.some((model) => model.id === modelId && model.enabled)) {
           return previous
