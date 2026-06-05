@@ -1,7 +1,7 @@
 # `cloud-server/src/admin/admin-routes.ts`
 
 ## 功能
-管理后台 HTTP 路由。管理员登录（IP 速率限制）、使用统计查询、可用性统计、上游 CRUD、API Key CRUD、模型优先级管理、用户管理和全局设置。除登录外均受 JWT 管理员认证保护。
+管理后台 HTTP 路由。管理员登录（IP 速率限制）、使用统计查询、可用性统计、上游 CRUD、API Key CRUD、模型优先级管理、用户管理和全局设置。除登录外均受 JWT 管理员认证保护。全局设置持久化到 `data/config.json`（Docker volume）。
 
 **v7 新增端点：**
 - `GET /api/admin/logs` — 分页日志查询（支持状态/用户/上游/时间筛选）
