@@ -181,7 +181,7 @@ export const requestStreamCompletion = async (
     method: 'POST',
     headers: authHeaders(settings.apiKey),
     body: JSON.stringify(buildCompletionPayload(settings, messages, true, true)),
-    signal,
+    signal: AbortSignal.any([signal, AbortSignal.timeout(120_000)]),
   })
 
   if (!response.ok) {
@@ -300,7 +300,7 @@ export const requestNonStreamCompletion = async (
     method: 'POST',
     headers: authHeaders(settings.apiKey),
     body: JSON.stringify(buildCompletionPayload(settings, messages, false, false)),
-    signal,
+    signal: AbortSignal.any([signal, AbortSignal.timeout(120_000)]),
   })
 
   if (!response.ok) {
