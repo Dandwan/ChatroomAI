@@ -1,6 +1,6 @@
 # Current State And Known Issues
 
-Last updated: 2026-06-05
+Last updated: 2026-06-06
 
 ## Run & Skill Runtime
 
@@ -87,6 +87,8 @@ The project now includes a **cloud server** (API proxy gateway) at `cloud-server
 - **WebSocket**: `/v1/ws` endpoint with optional API Key authentication
 - **Per-key health**: Independent key health tracking, fault tolerance, retry with same-upstream key rotation
 - **Admin dashboard**: Usage stats, hourly charts, availability monitoring, **real-time SSE log stream**, **key health overview**, server metrics
+- **Admin API Keys**: Standalone `api_keys` table (v8 migration), `ask_` prefix keys created via Admin UI, not bound to user accounts
+- **Admin UI API Keys page**: Create/list/edit/delete API keys with one-click copy
 - Plugin system for extensibility
 
 ### Build & Run

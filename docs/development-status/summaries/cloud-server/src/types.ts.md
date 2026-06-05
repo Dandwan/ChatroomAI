@@ -1,13 +1,14 @@
 # `cloud-server/src/types.ts`
 
 ## 功能
-Cloud server 共享类型定义。包含 `User`、`Upstream`、`ModelEntry`、`UpstreamApiKey`、`ModelPriority`、`UsageLog`、`HealthCheck` 等所有核心数据接口，以及 API 响应类型和插件系统接口。**v5: 健康机制从 per-upstream 改为 per-key。v7: 新增 `ApiType = 'openai' | 'anthropic' | 'gemini'` 联合类型，`Upstream.api_type` 和 `ModelEntry.api_type` 使用 `ApiType`。v10: `User` 接口新增 `password_reset_token`、`password_reset_token_expires_at`、`pending_email` 可空字符串字段，支持密码重置和邮箱更换功能。**
+Cloud server 共享类型定义。包含 `User`、`Upstream`、`ModelEntry`、`UpstreamApiKey`、`ModelPriority`、`UsageLog`、`HealthCheck` 等所有核心数据接口，以及 API 响应类型和插件系统接口。**v5: 健康机制从 per-upstream 改为 per-key。v7: 新增 `ApiType = 'openai' | 'anthropic' | 'gemini'` 联合类型，`Upstream.api_type` 和 `ModelEntry.api_type` 使用 `ApiType`。v10: `User` 接口新增 `password_reset_token`、`password_reset_token_expires_at`、`pending_email` 可空字符串字段，支持密码重置和邮箱更换功能。v12: 新增 `AdminApiKey` 接口。**
 
 ## 关系
 ### 提供
 - `ApiType` — 上游 API 类型联合
 - `Upstream`、`UpstreamApiKey`、`UpstreamWithKeys`
 - `ModelEntry`、`ModelPriority`
+- `AdminApiKey` — 含 `id`/`name`/`api_key`/`enabled`/`created_by`/`last_used_at`/`created_at`/`updated_at`
 - `User` — 含 `email_verified`、`email_verify_token`、`email_verify_token_expires_at`、`password_reset_token`、`password_reset_token_expires_at`、`pending_email`
 - `AdminUser`、`UsageLog`、`HealthCheck`
 - API 响应类型和插件接口
@@ -18,4 +19,5 @@ Cloud server 共享类型定义。包含 `User`、`Upstream`、`ModelEntry`、`U
 - `cloud-server/src/proxy/upstream-selector.ts`
 - `cloud-server/src/proxy/proxy-routes.ts`
 - `cloud-server/src/admin/admin-routes.ts`
+- `cloud-server/src/db/repositories/api-key-repo.ts`
 - `cloud-server/admin-ui/src/api.ts`

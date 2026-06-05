@@ -16,6 +16,12 @@
 - `POST /api/admin/email/test` — 发送测试邮件验证 SMTP 配置（`sendTestEmail`）
 - `GET /api/admin/email/status` — SMTP 状态（已配置、主机、发件人、最近 20 条发送记录）
 
+**v12 API Key 端点：**
+- `GET /api/admin/api-keys` — 列出所有管理员创建的 API 密钥
+- `POST /api/admin/api-keys` — 创建新 API 密钥（`{ name, api_key }`）
+- `PUT /api/admin/api-keys/:id` — 更新名称/启用状态
+- `DELETE /api/admin/api-keys/:id` — 删除密钥
+
 ## 关系
 ### 调用 / 引用
 - `cloud-server/src/app-context.ts`
