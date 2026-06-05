@@ -194,6 +194,7 @@ export interface AppSettings {
   permissionToggles: PermissionToggles
   dailyCover: DailyCoverSettings
   actiNetModels: ProviderModel[]
+  otherProvidersEnabled: boolean
 }
 
 // ── Numeric settings ──

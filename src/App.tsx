@@ -621,6 +621,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   permissionToggles: DEFAULT_PERMISSION_TOGGLES,
   dailyCover: DEFAULT_DAILY_COVER_SETTINGS,
   actiNetModels: [],
+  otherProvidersEnabled: false,
 }
 
 const PROMPT_DEFAULTS: Record<GlobalPromptSettingKey, string> = {
@@ -1047,16 +1048,19 @@ const ACTINET_PROVIDER_NAME = 'ActiNet'
 const getEnabledModelOptions = (
   providers: ProviderConfig[],
   isActiNetLoggedIn: boolean,
+  otherProvidersEnabled: boolean,
 ): EnabledModelOption[] => {
-  const providerOptions = providers.flatMap((provider) =>
-    provider.models
-      .filter((model) => model.enabled)
-      .map((model) => ({
-        providerId: provider.id,
-        providerName: provider.name,
-        modelId: model.id,
-      })),
-  )
+  const providerOptions = otherProvidersEnabled
+    ? providers.flatMap((provider) =>
+        provider.models
+          .filter((model) => model.enabled)
+          .map((model) => ({
+            providerId: provider.id,
+            providerName: provider.name,
+            modelId: model.id,
+          })),
+      )
+    : []
 
   if (isActiNetLoggedIn) {
     const activeModels = getEffectiveActiNetModels()
@@ -1081,7 +1085,7 @@ const ensureValidCurrentModelSelection = (settings: AppSettings): AppSettings =>
       (model) => model.id === settings.currentModel && model.enabled,
     )
     if (hasActiNetSelection) return settings
-  } else {
+  } else if (settings.otherProvidersEnabled) {
     const hasCurrentSelection = settings.providers.some(
       (provider) =>
         provider.id === settings.currentProviderId &&
@@ -1090,7 +1094,7 @@ const ensureValidCurrentModelSelection = (settings: AppSettings): AppSettings =>
     if (hasCurrentSelection) return settings
   }
 
-  const fallback = getEnabledModelOptions(settings.providers, isCloudLoggedIn())[0]
+  const fallback = getEnabledModelOptions(settings.providers, isCloudLoggedIn(), settings.otherProvidersEnabled)[0]
   return {
     ...settings,
     currentProviderId: fallback?.providerId ?? '',
@@ -1897,6 +1901,10 @@ const loadSettings = (): AppSettings => {
       permissionToggles: normalizePermissionToggles(parsed.permissionToggles),
       dailyCover: normalizeDailyCoverSettings(parsed.dailyCover),
       actiNetModels: Array.isArray(parsed.actiNetModels) ? parsed.actiNetModels as ProviderModel[] : DEFAULT_SETTINGS.actiNetModels,
+      otherProvidersEnabled:
+        typeof parsed.otherProvidersEnabled === 'boolean'
+          ? parsed.otherProvidersEnabled
+          : false,
     })
     const migrated = migratePromptVersions(
       assembled as unknown as Record<string, unknown>,
@@ -2560,18 +2568,20 @@ function App() {
   )
 
   const enabledModelOptions = useMemo(
-    () => getEnabledModelOptions(settings.providers, cloudLoggedIn),
-    [settings.providers, cloudLoggedIn],
+    () => getEnabledModelOptions(settings.providers, cloudLoggedIn, settings.otherProvidersEnabled),
+    [settings.providers, cloudLoggedIn, settings.otherProvidersEnabled],
   )
   const enabledModelsByProvider = useMemo(
     () => {
-      const groups = settings.providers
-        .map((provider) => ({
-          providerId: provider.id,
-          providerName: provider.name,
-          models: provider.models.filter((model) => model.enabled),
-        }))
-        .filter((provider) => provider.models.length > 0)
+      const groups = settings.otherProvidersEnabled
+        ? settings.providers
+            .map((provider) => ({
+              providerId: provider.id,
+              providerName: provider.name,
+              models: provider.models.filter((model) => model.enabled),
+            }))
+            .filter((provider) => provider.models.length > 0)
+        : []
 
       // Add ActiNet group if logged in
       if (isCloudLoggedIn()) {
@@ -2588,7 +2598,7 @@ function App() {
 
       return groups
     },
-    [settings.providers, settings.actiNetModels, cloudLoggedIn],
+    [settings.providers, settings.actiNetModels, settings.otherProvidersEnabled, cloudLoggedIn],
   )
   const activeProviderRequestSettings = useMemo(
     () => resolveProviderRequestSettings(settings),
@@ -7897,9 +7907,13 @@ function App() {
                 </div>
               </div>
               <span className="settings-entry-meta">
-                {settings.providers.length === 0
-                  ? '暂无服务商，请先添加。'
-                  : `已配置 ${settings.providers.length} 个服务商，已启用 ${enabledModelOptions.length} 个模型。`}
+                {settings.otherProvidersEnabled
+                  ? settings.providers.length === 0
+                    ? '暂无服务商，请先添加。'
+                    : `已配置 ${settings.providers.length} 个服务商，已启用 ${enabledModelOptions.length} 个模型。`
+                  : cloudLoggedIn
+                    ? 'ActiNet 已连接'
+                    : '管理 ActiNet 云服务与其它服务商'}
               </span>
             </button>
           </div>
@@ -8616,6 +8630,8 @@ function App() {
       cloudAuth={getStoredCloudAuth()}
       onNavigateActiNet={() => navigateSettingsView('actinet')}
       onNavigateProviders={() => navigateSettingsView('providers')}
+      otherProvidersEnabled={settings.otherProvidersEnabled}
+      onToggleOtherProviders={(enabled) => updateSetting('otherProvidersEnabled', enabled)}
     />
   )
 

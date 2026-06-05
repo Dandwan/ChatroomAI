@@ -5,7 +5,7 @@ ActiChat 应用的共享类型定义中心。包含 `AppSettings`、`ProviderCon
 
 ## 关系
 ### 提供
-- `AppSettings` — 应用设置类型（含新增 `actiNetModels: ProviderModel[]`）
+- `AppSettings` — 应用设置类型（含新增 `actiNetModels: ProviderModel[]`、`otherProvidersEnabled: boolean`）
 - `ProviderModel` — 模型配置（id + enabled）
 - `ProviderConfig` — 供应商配置（含模型列表）
 - `EnabledModelOption` — 聊天模型选择器选项

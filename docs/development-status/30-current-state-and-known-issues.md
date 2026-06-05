@@ -21,6 +21,7 @@ See `20-run-and-skill-runtime.md` for full architecture.
 - `-webkit-backdrop-filter` + standard `backdrop-filter` both emitted (reverse order: webkit first so Lightning CSS keeps standard).
 - Homepage sends use a CSS-animated overlay transition (920ms, `animationend` lifecycle).
 - Active chat overlays (header, summary bar, composer) are truly fixed; message list has invisible inset padding for scroll range.
+- `otherProvidersEnabled` setting (default `false`) controls visibility of non-ActiNet providers in account management and chat model selector.
 
 ## Storage & Startup
 
@@ -69,7 +70,12 @@ The project now includes a **cloud server** (API proxy gateway) at `cloud-server
 ### Core Capabilities
 - User authentication (username/email + password) with auto-generated API keys (`csk_` prefix)
 - User registration with auto-login, username/email dedup, IP brute-force protection
-- **Multi-API-type proxy**: OpenAI, Anthropic, **Gemini** — transparent format conversion (request/response/SSE stream)
+- **Multi-API-type proxy**: OpenAI, Anthropic, Gemini — transparent format conversion (request/response/SSE stream)
+- **Native API endpoints**: 
+  - `POST /v1/chat/completions` — OpenAI Chat Completions API
+  - `POST /v1/messages` — Anthropic Messages API
+  - `POST /v1beta/models/:model/generateContent` + `:streamGenerateContent` — Gemini API (both `alt=sse` and `streamGenerateContent` streaming modes)
+- **Multi-format model list**: `GET /v1/models` (OpenAI/Anthropic), `GET /v1beta/models` (Gemini)
 - **TLS/HTTPS**: Built-in HTTPS support with configurable cert/key (opt-in)
 - **Proxy forwarding**: HTTP/HTTPS/SOCKS5 upstream proxy with per-upstream override
 - **Config hot-reload**: `fs.watch`-based watcher for `config.json` changes (no-restart config update)
