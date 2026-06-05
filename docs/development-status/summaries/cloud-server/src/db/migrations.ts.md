@@ -1,7 +1,7 @@
 # `cloud-server/src/db/migrations.ts`
 
 ## 功能
-数据库模式迁移模块。基于 schema_version 表实现版本化迁移，按版本号递增应用 SQL DDL 语句。当前包含 5 个迁移版本：v1 核心表，v2 upstreams 重构 + model_priorities，v3 api_type 列，v4 fault_tolerance 列，**v5 upstream_api_keys.fault_tolerance + upstreams.key_fault_tolerance 列（per-key 健康机制）**。
+数据库模式迁移模块。基于 schema_version 表实现版本化迁移，按版本号递增应用 SQL DDL 语句。当前包含 7 个迁移版本：v1 核心表，v2 upstreams 重构 + model_priorities，v3 api_type 列，v4 fault_tolerance 列，v5 upstream_api_keys.fault_tolerance + upstreams.key_fault_tolerance 列（per-key 健康机制），v6 邮箱验证（email_verified、email_verify_token、email_verify_token_expires_at），**v7 密码重置 + 待定邮箱（password_reset_token、password_reset_token_expires_at、pending_email 列）**。
 
 ## 关系
 ### 调用 / 引用

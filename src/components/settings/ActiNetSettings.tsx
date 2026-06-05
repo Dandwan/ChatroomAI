@@ -1,6 +1,13 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import type { StoredCloudAuth } from '../../services/cloud-auth'
 import type { ProviderModel } from '../../state/types'
+import {
+  fetchCloudUserInfo,
+  changeCloudEmail,
+  confirmCloudEmailChange,
+  saveCloudAuth,
+  type CloudUserInfo,
+} from '../../services/cloud-auth'
 import {
   getEffectiveActiNetModels,
   saveActiNetModelPreferences,
@@ -31,6 +38,25 @@ export default function ActiNetSettings({
   const [modelSearch, setModelSearch] = useState('')
   const [manualModelDraft, setManualModelDraft] = useState('')
 
+  // ── Email status & change ──
+  const [userInfo, setUserInfo] = useState<CloudUserInfo | null>(null)
+  const [emailChangeOpen, setEmailChangeOpen] = useState(false)
+  const [emailChangeStep, setEmailChangeStep] = useState<'input' | 'token'>('input')
+  const [newEmail, setNewEmail] = useState('')
+  const [emailChangePassword, setEmailChangePassword] = useState('')
+  const [emailChangeToken, setEmailChangeToken] = useState('')
+  const [emailChangeLoading, setEmailChangeLoading] = useState(false)
+  const [emailChangeError, setEmailChangeError] = useState('')
+  const [emailChangeMessage, setEmailChangeMessage] = useState('')
+
+  useEffect(() => {
+    if (isCloudLoggedIn && cloudAuth) {
+      fetchCloudUserInfo().then((info) => {
+        if (info) setUserInfo(info)
+      })
+    }
+  }, [isCloudLoggedIn, cloudAuth])
+
   const effectiveModels = getEffectiveActiNetModels()
 
   const handleCopyApiKey = async () => {
@@ -54,7 +80,6 @@ export default function ActiNetSettings({
       saveActiNetModelPreferences(merged)
     } catch (err) {
       const message = err instanceof Error ? err.message : '请求失败'
-      // Error is surfaced by parent via pushNotice
       window.dispatchEvent(new CustomEvent('actinet-notice', { detail: { type: 'error', text: `模型列表获取失败：${message}` } }))
     } finally {
       setIsFetchingModels(false)
@@ -86,6 +111,76 @@ export default function ActiNetSettings({
     ? effectiveModels.filter((m) => m.id.toLowerCase().includes(modelSearch.toLowerCase()))
     : effectiveModels
 
+  // ── Email change handlers ──
+
+  async function handleRequestEmailChange() {
+    if (!newEmail.trim() || !emailChangePassword) {
+      setEmailChangeError('请输入新邮箱和密码')
+      return
+    }
+    if (!newEmail.includes('@')) {
+      setEmailChangeError('请输入有效的邮箱地址')
+      return
+    }
+    if (!cloudAuth?.apiKey) return
+
+    setEmailChangeLoading(true)
+    setEmailChangeError('')
+    setEmailChangeMessage('')
+    try {
+      const result = await changeCloudEmail(cloudAuth.serverUrl, cloudAuth.apiKey, newEmail.trim(), emailChangePassword)
+      setEmailChangeMessage(result.message)
+      setEmailChangeStep('token')
+    } catch (err) {
+      setEmailChangeError(err instanceof Error ? err.message : '请求失败')
+    } finally {
+      setEmailChangeLoading(false)
+    }
+  }
+
+  async function handleConfirmEmailChange() {
+    if (!emailChangeToken.trim()) {
+      setEmailChangeError('请输入验证码')
+      return
+    }
+
+    setEmailChangeLoading(true)
+    setEmailChangeError('')
+    setEmailChangeMessage('')
+    try {
+      const result = await confirmCloudEmailChange(cloudAuth!.serverUrl, emailChangeToken.trim())
+      setEmailChangeMessage(result.message)
+      // Update stored auth with new email
+      if (cloudAuth) {
+        saveCloudAuth({ ...cloudAuth, email: result.email, savedAt: Date.now() })
+      }
+      // Refresh user info
+      const info = await fetchCloudUserInfo()
+      if (info) setUserInfo(info)
+      // Close dialog after a short delay
+      setTimeout(() => {
+        setEmailChangeOpen(false)
+        resetEmailChange()
+      }, 1500)
+    } catch (err) {
+      setEmailChangeError(err instanceof Error ? err.message : '请求失败')
+    } finally {
+      setEmailChangeLoading(false)
+    }
+  }
+
+  function resetEmailChange() {
+    setEmailChangeStep('input')
+    setNewEmail('')
+    setEmailChangePassword('')
+    setEmailChangeToken('')
+    setEmailChangeError('')
+    setEmailChangeMessage('')
+  }
+
+  const emailVerified = userInfo?.email_verified ?? true
+
+  // ── Not logged in ──
   if (!isCloudLoggedIn || !cloudAuth) {
     return (
       <>
@@ -123,12 +218,101 @@ export default function ActiNetSettings({
           <div className="settings-static-card">
             <div className="settings-entry-title">{cloudAuth.username || 'ActiNet 用户'}</div>
             <div className="summary-bar">
-              {cloudAuth.email ? <span>{cloudAuth.email}</span> : null}
+              {cloudAuth.email ? (
+                <>
+                  <span>{cloudAuth.email}</span>
+                  <span className={emailVerified ? 'email-verified' : 'email-unverified'}>
+                    {emailVerified ? '✓ 已验证' : '⚠ 未验证'}
+                  </span>
+                </>
+              ) : null}
               <span>已连接</span>
             </div>
           </div>
         </div>
       </section>
+
+      {/* ── Email change dialog ── */}
+      {emailChangeOpen && (
+        <section className="settings-section">
+          <div className="conversation-group-divider settings-section-divider">
+            <span className="conversation-group-label">更换邮箱</span>
+            <span className="conversation-group-dash" aria-hidden="true" />
+          </div>
+
+          <div className="settings-entry-list">
+            <div className="settings-static-card">
+              {emailChangeError && (
+                <p className="summary-muted" style={{ color: 'var(--cover-auth-error, #e74c3c)', marginBottom: 12 }}>{emailChangeError}</p>
+              )}
+              {emailChangeMessage && (
+                <p className="summary-muted" style={{ color: 'var(--cover-auth-notice, #27ae60)', marginBottom: 12 }}>{emailChangeMessage}</p>
+              )}
+
+              {emailChangeStep === 'input' ? (
+                <>
+                  <div className="settings-summary-list">
+                    <div className="settings-summary-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
+                      <label className="settings-summary-row-label">新邮箱</label>
+                      <input
+                        type="email"
+                        className="settings-chat-input"
+                        value={newEmail}
+                        onChange={(e) => setNewEmail((e.target as HTMLInputElement).value)}
+                        placeholder="new@example.com"
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div className="settings-summary-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
+                      <label className="settings-summary-row-label">当前密码（确认身份）</label>
+                      <input
+                        type="password"
+                        className="settings-chat-input"
+                        value={emailChangePassword}
+                        onChange={(e) => setEmailChangePassword((e.target as HTMLInputElement).value)}
+                        placeholder="输入当前密码"
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                  </div>
+                  <div className="model-tools" style={{ marginTop: 12 }}>
+                    <button type="button" onClick={handleRequestEmailChange} disabled={emailChangeLoading}>
+                      {emailChangeLoading ? '发送中...' : '发送验证码'}
+                    </button>
+                    <button type="button" onClick={() => { setEmailChangeOpen(false); resetEmailChange() }} style={{ marginLeft: 8 }}>
+                      取消
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="settings-summary-list">
+                    <div className="settings-summary-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
+                      <label className="settings-summary-row-label">验证码</label>
+                      <input
+                        type="text"
+                        className="settings-chat-input"
+                        value={emailChangeToken}
+                        onChange={(e) => setEmailChangeToken((e.target as HTMLInputElement).value)}
+                        placeholder="输入邮件中的验证码"
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                  </div>
+                  <div className="model-tools" style={{ marginTop: 12 }}>
+                    <button type="button" onClick={handleConfirmEmailChange} disabled={emailChangeLoading}>
+                      {emailChangeLoading ? '确认中...' : '确认更换'}
+                    </button>
+                    <button type="button" onClick={() => { setEmailChangeOpen(false); resetEmailChange() }} style={{ marginLeft: 8 }}>
+                      取消
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="settings-section">
         <div className="conversation-group-divider settings-section-divider">
@@ -143,6 +327,11 @@ export default function ActiNetSettings({
                 <span className="settings-summary-row-label">服务器地址</span>
                 <span className="settings-summary-row-value">{cloudAuth.serverUrl}</span>
               </div>
+            </div>
+            <div className="model-tools" style={{ marginTop: 10 }}>
+              <button type="button" onClick={() => { setEmailChangeOpen(true); resetEmailChange() }}>
+                更换邮箱
+              </button>
             </div>
           </div>
         </div>

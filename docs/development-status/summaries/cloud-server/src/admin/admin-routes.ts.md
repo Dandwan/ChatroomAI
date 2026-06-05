@@ -12,6 +12,10 @@
 
 **v7 全局设置更新：** GET/PUT `/api/admin/settings` 新增 `proxyUrl`、`wsAuth`、`tlsEnable`/`tlsCert`/`tlsKey` 字段。
 
+**v11 邮件端点：**
+- `POST /api/admin/email/test` — 发送测试邮件验证 SMTP 配置（`sendTestEmail`）
+- `GET /api/admin/email/status` — SMTP 状态（已配置、主机、发件人、最近 20 条发送记录）
+
 ## 关系
 ### 调用 / 引用
 - `cloud-server/src/app-context.ts`
@@ -19,6 +23,7 @@
 - `cloud-server/src/auth/auth-service.ts`
 - `cloud-server/src/auth/ip-rate-limiter.ts`
 - `cloud-server/src/proxy/proxy-agent.ts`
+- `cloud-server/src/email/email-service.ts` — `sendTestEmail`, `getSendHistory`
 - `node:fs`、`node:path`、`node:url`、`uuid`
 
 ### 提供

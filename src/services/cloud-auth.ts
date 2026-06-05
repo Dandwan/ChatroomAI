@@ -8,6 +8,19 @@ export interface CloudAuthResult {
   }
 }
 
+export interface CloudRegisterResult {
+  /** Whether the verification email was sent successfully */
+  email_sent: boolean
+  /** Human-readable message from the server */
+  message: string
+  /** Created user info (minimal — no token/api_key) */
+  user: {
+    id: string
+    username: string
+    email: string
+  }
+}
+
 const STORAGE_KEY = 'actichat_cloud_auth'
 const SERVER_URL_KEY = 'actichat_cloud_server_url'
 const CREDENTIALS_KEY = 'actichat_cloud_credentials'
@@ -21,6 +34,7 @@ export interface StoredCloudAuth {
   apiKey: string
   username: string
   email: string
+  emailVerified?: boolean
   savedAt: number
 }
 
@@ -138,6 +152,39 @@ export function deactivateCloudAuth(): void {
   })
 }
 
+export interface CloudUserInfo {
+  id: string
+  username: string
+  email: string
+  email_verified: boolean
+  api_key: string
+  rate_limit_rpm: number
+  rate_limit_tpd: number
+}
+
+/** Fetch current user info from the server. Returns null on failure. */
+export async function fetchCloudUserInfo(): Promise<CloudUserInfo | null> {
+  const auth = getStoredCloudAuth()
+  if (!auth || !auth.apiKey) return null
+
+  try {
+    const normalizedUrl = auth.serverUrl.replace(/\/+$/, '')
+    const response = await fetch(`${normalizedUrl}/api/auth/me`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${auth.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!response.ok) return null
+    const info = await response.json() as CloudUserInfo
+    return info
+  } catch {
+    return null
+  }
+}
+
 export function isCloudLoggedIn(): boolean {
   const auth = getStoredCloudAuth()
   return !!auth && !!auth.apiKey
@@ -174,7 +221,7 @@ export async function cloudRegister(
   username: string,
   email: string,
   password: string,
-): Promise<CloudAuthResult> {
+): Promise<CloudRegisterResult> {
   const normalizedUrl = serverUrl.replace(/\/+$/, '')
   const response = await fetch(`${normalizedUrl}/api/auth/register`, {
     method: 'POST',
@@ -187,21 +234,167 @@ export async function cloudRegister(
     throw new Error(err.error?.message ?? `HTTP ${response.status}`)
   }
 
-  const result = (await response.json()) as CloudAuthResult
+  const result = (await response.json()) as CloudRegisterResult
 
-  // Persist to local storage (same as login)
+  // Save server URL and credentials for later auto-login (no token/api_key yet)
   setCloudServerUrl(normalizedUrl)
+  saveCloudCredentials(normalizedUrl, username, email, password)
+
+  return result
+}
+
+/**
+ * Verify email using the token from the verification link.
+ * On success, persists auth data (same as login) and returns the result.
+ */
+export async function verifyCloudEmail(
+  serverUrl: string,
+  token: string,
+): Promise<CloudAuthResult> {
+  const normalizedUrl = serverUrl.replace(/\/+$/, '')
+  const response = await fetch(`${normalizedUrl}/api/auth/verify-email`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  })
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: { message: '请求失败' } }))
+    throw new Error(err.error?.message ?? `HTTP ${response.status}`)
+  }
+
+  const result = await response.json() as { api_key: string; user: { id: string; username: string; email: string }; message: string }
+
+  // Save auth data on successful verification
   saveCloudAuth({
     serverUrl: normalizedUrl,
-    token: result.token,
+    token: '',  // No JWT from email verification; user must login
     apiKey: result.api_key,
     username: result.user.username,
     email: result.user.email,
     savedAt: Date.now(),
   })
-  saveCloudCredentials(normalizedUrl, result.user.username, result.user.email, password)
+  // Note: credentials already saved from register step
 
-  return result
+  return {
+    token: '',  // Email verification doesn't return a JWT
+    api_key: result.api_key,
+    user: result.user,
+  }
+}
+
+/**
+ * Request a new verification email.
+ * Returns true if the server accepted the request (always returns success to avoid leaking user existence).
+ */
+export async function resendCloudVerification(
+  serverUrl: string,
+  email: string,
+): Promise<{ ok: boolean; message: string }> {
+  const normalizedUrl = serverUrl.replace(/\/+$/, '')
+  const response = await fetch(`${normalizedUrl}/api/auth/resend-verification`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  })
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: { message: '请求失败' } }))
+    throw new Error(err.error?.message ?? `HTTP ${response.status}`)
+  }
+
+  const result = await response.json() as { message: string }
+  return { ok: true, message: result.message }
+}
+
+/** Request a password reset. Always returns success message to avoid leaking user existence. */
+export async function requestCloudPasswordReset(
+  serverUrl: string,
+  email: string,
+): Promise<{ ok: boolean; message: string }> {
+  const normalizedUrl = serverUrl.replace(/\/+$/, '')
+  const response = await fetch(`${normalizedUrl}/api/auth/forgot-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  })
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: { message: '请求失败' } }))
+    throw new Error(err.error?.message ?? `HTTP ${response.status}`)
+  }
+
+  const result = await response.json() as { message: string }
+  return { ok: true, message: result.message }
+}
+
+/** Reset password using the token from the reset email. */
+export async function resetCloudPassword(
+  serverUrl: string,
+  token: string,
+  password: string,
+): Promise<{ ok: boolean; message: string }> {
+  const normalizedUrl = serverUrl.replace(/\/+$/, '')
+  const response = await fetch(`${normalizedUrl}/api/auth/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, password }),
+  })
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: { message: '请求失败' } }))
+    throw new Error(err.error?.message ?? `HTTP ${response.status}`)
+  }
+
+  const result = await response.json() as { message: string }
+  return { ok: true, message: result.message }
+}
+
+/** Request to change the bound email address. Requires API key auth. */
+export async function changeCloudEmail(
+  serverUrl: string,
+  apiKey: string,
+  newEmail: string,
+  password: string,
+): Promise<{ ok: boolean; message: string }> {
+  const normalizedUrl = serverUrl.replace(/\/+$/, '')
+  const response = await fetch(`${normalizedUrl}/api/auth/change-email`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({ new_email: newEmail, password }),
+  })
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: { message: '请求失败' } }))
+    throw new Error(err.error?.message ?? `HTTP ${response.status}`)
+  }
+
+  const result = await response.json() as { message: string }
+  return { ok: true, message: result.message }
+}
+
+/** Confirm email change using the verification token. */
+export async function confirmCloudEmailChange(
+  serverUrl: string,
+  token: string,
+): Promise<{ ok: boolean; message: string; email: string }> {
+  const normalizedUrl = serverUrl.replace(/\/+$/, '')
+  const response = await fetch(`${normalizedUrl}/api/auth/confirm-email-change`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  })
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: { message: '请求失败' } }))
+    throw new Error(err.error?.message ?? `HTTP ${response.status}`)
+  }
+
+  const result = await response.json() as { message: string; email: string }
+  return { ok: true, message: result.message, email: result.email }
 }
 
 export async function cloudLogin(
