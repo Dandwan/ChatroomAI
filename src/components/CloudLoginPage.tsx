@@ -35,7 +35,7 @@ export function CloudLoginPage({ serverUrl, onLoginSuccess, onCancel }: CloudLog
     <div className="cloud-login-page">
       <div className="cloud-login-card">
         <h2 className="cloud-login-title">云服务登录</h2>
-        <p className="cloud-login-desc">登录 ActiChat 云服务器以使用代理 API</p>
+        <p className="cloud-login-desc">登录 ActiNet 云服务以使用代理 API</p>
         <form onSubmit={handleSubmit}>
           {error && <div className="cloud-login-error">{error}</div>}
           <div className="settings-form-group">

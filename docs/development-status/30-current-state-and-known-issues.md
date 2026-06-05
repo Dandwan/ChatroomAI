@@ -34,6 +34,7 @@ See `20-run-and-skill-runtime.md` for full architecture.
 
 - Chinese user-facing: `动话`
 - English-facing project/config: `ActiChat`
+- Cloud service: `ActiNet`（ActiNet 云服务）
 - Android package: `com.dandwan.chatroomai` (preserved for install/update continuity)
 
 ## Current Build & Deploy State

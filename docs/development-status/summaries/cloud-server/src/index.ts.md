@@ -1,7 +1,7 @@
 # `cloud-server/src/index.ts`
 
 ## 功能
-Cloud server 入口文件。负责加载配置、初始化全局日志级别、创建 Express 应用并启动 HTTP 服务器，同时注册全局异常捕获（`uncaughtException`、`unhandledRejection`）和优雅关闭（SIGINT/SIGTERM 信号处理）。
+Cloud server 入口文件（ActiNet）。负责加载配置、初始化全局日志级别、创建 Express 应用并启动 HTTP 服务器，同时注册全局异常捕获（`uncaughtException`、`unhandledRejection`）和优雅关闭（SIGINT/SIGTERM 信号处理）。
 
 ## 关系
 ### 调用 / 引用

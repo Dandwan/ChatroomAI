@@ -454,7 +454,7 @@ export default function CloudAuthForm({ initialMode = 'login', onAuthSuccess }: 
         </h2>
 
         <p className="cover-empty-state-byline">
-          {mode === 'login' ? '登录 ActiChat 云服务器以使用代理 API' : '注册 ActiNet 账号以开始使用云服务'}
+          {mode === 'login' ? '登录 ActiNet 云服务以使用代理 API' : '注册 ActiNet 账号以开始使用云服务'}
         </p>
 
         <form className="cover-auth-form" onSubmit={handleSubmit}>
