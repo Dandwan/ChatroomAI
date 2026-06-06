@@ -1,6 +1,8 @@
 # Current State And Known Issues
 
-Last updated: 2026-06-06
+Last updated: 2026-06-07
+
+> ⚠️ **2026-06-06 数据丢失事故**：排查代理 bug 时直接操作运行中容器的 SQLite DB 文件，导致 upstream 配置和 8 个 API key 丢失。详见 `handoff-updates/048-proxy-fix-and-data-loss-incident.md`。**教训：永远不要直接写运行中容器的 SQLite DB；部署脚本需增加自动备份。**
 
 ## Run & Skill Runtime
 
