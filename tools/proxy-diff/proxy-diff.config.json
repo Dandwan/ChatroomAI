@@ -1,0 +1,22 @@
+{
+  "cpa": {
+    "baseUrl": "http://127.0.0.1:8080",
+    "apiKey": ""
+  },
+  "actiNet": {
+    "baseUrl": "http://127.0.0.1:3000",
+    "apiKey": ""
+  },
+  "proxy": {
+    "mihomoUrl": "http://127.0.0.1:7890",
+    "forwardSource": "cpa"
+  },
+  "realUpstream": {
+    "baseUrl": "https://api.openai.com",
+    "apiKey": ""
+  },
+  "testSuite": {
+    "port": 9000,
+    "outputDir": "./outputs"
+  }
+}

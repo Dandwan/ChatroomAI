@@ -1,0 +1,29 @@
+{
+  "method": "POST",
+  "path": "/v1beta/models/gemini-2.0-flash:generateContent",
+  "headers": {},
+  "stream": false,
+  "body": {
+    "systemInstruction": {
+      "parts": [
+        {
+          "text": "You are a helpful assistant. Answer concisely."
+        }
+      ]
+    },
+    "contents": [
+      {
+        "role": "user",
+        "parts": [
+          {
+            "text": "What is the capital of Germany? Reply with just the city name."
+          }
+        ]
+      }
+    ],
+    "generationConfig": {
+      "maxOutputTokens": 50,
+      "temperature": 0
+    }
+  }
+}

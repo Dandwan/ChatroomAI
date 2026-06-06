@@ -1,0 +1,19 @@
+{
+  "method": "POST",
+  "path": "/v1/messages",
+  "headers": {
+    "anthropic-version": "2023-06-01"
+  },
+  "stream": false,
+  "body": {
+    "model": "claude-sonnet-4-20250514",
+    "max_tokens": 50,
+    "system": "You are a helpful assistant. Answer concisely.",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is the capital of Japan? Reply with just the city name."
+      }
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "method": "POST",
+  "path": "/v1/chat/completions",
+  "headers": {},
+  "stream": false,
+  "body": {
+    "model": "gpt-4o-mini",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a helpful assistant. Answer concisely."
+      },
+      {
+        "role": "user",
+        "content": "What is the capital of France? Reply with just the city name."
+      }
+    ],
+    "max_tokens": 50,
+    "temperature": 0
+  }
+}
