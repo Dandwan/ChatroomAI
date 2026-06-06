@@ -1,7 +1,7 @@
 # `cloud-server/src/proxy/model-strategy.ts`
 
 ## 功能
-基于模型的 upstream+key 选择策略引擎。**v5: 健康状态从 per-upstream (`unhealthyUpstreams: Set<upstreamId>`) 改为 per-key (`unhealthyKeys: Set<keyId>`)。** 每个 API Key 独立追踪健康状态。`markUnhealthy()` 触发即时健康检测（通过回调 `setKeyCheckHandler` 注册）。`selectUpstreamForModel()` 按模型优先级依次筛选 upstream → 过滤出健康的 key → 根据 distribution_mode 选择，同 upstream 内不同 key 优先轮转。`getAvailableModels()` 聚合所有启用 upstream 的模型并集。**v13: 新增 `getPriorityGroups()` — 构建优先级组列表供重试循环使用，每组包含 upstream、priority 和预解析的 apiType。** 新增 `PriorityGroup` 接口。
+基于模型的 upstream+key 选择策略引擎。**v5: 健康状态从 per-upstream (`unhealthyUpstreams: Set<upstreamId>`) 改为 per-key (`unhealthyKeys: Set<keyId>`)。** 每个 API Key 独立追踪健康状态。`markUnhealthy()` 触发即时健康检测（通过回调 `setKeyCheckHandler` 注册）。`selectUpstreamForModel()` 按模型优先级依次筛选 upstream → 过滤出健康的 key → 根据 distribution_mode 选择，同 upstream 内不同 key 优先轮转。`getAvailableModels()` 聚合所有启用 upstream 的模型并集。**v13: 新增 `getPriorityGroups()` — 构建优先级组列表供重试循环使用，每组包含 upstream、priority 和预解析的 apiType。** 新增 `PriorityGroup` 接口。**v14: `scheduleImmediateCheck()` 冷却时间从 `setTimeout(0)` 改为 `30_000`（30 秒）— 纵深防御，防止同一 key 的即时检测形成高频循环。**
 
 ## 关系
 ### 调用 / 引用

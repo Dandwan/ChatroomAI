@@ -100,6 +100,19 @@ The project now includes a **cloud server** (API proxy gateway) at `cloud-server
 - `cd cloud-server/admin-ui && npm run build` — build admin UI
 - Config via environment variables or `cloud-server/config.json`
 
+## Cloud Server Performance — 054 修复（2026-06-07）
+
+- ✅ **健康检查即时检测无限循环**已修复 — `checkKeyById()` 失败后不再调用 `markUnhealthy()`
+- ✅ **即时检测冷却时间** — `scheduleImmediateCheck()` setTimeout 0→30s 纵深防御
+- ✅ **错误分类器** — 仅有网络不可达/5xx/认证计费/429 标记 key 不健康，400/422 等不标记
+- ✅ **重试断路器** — MAX_TOTAL_ATTEMPTS=30，连续 3 次 4xx 提前终止
+- ✅ **`reasoning_effort: 'none'` 格式 Bug** — 改为 delete 字段（DeepSeek 不接受 'none'）
+- ✅ **defaultFaultTolerance** 默认值 0→5
+- ✅ **DB 完整性**已验证（PRAGMA integrity_check=ok）
+- CPU: 31%→0.05%，内存: 185MB→128MB，日志: 70行/秒→空闲时 0
+
+**待用户处理**：手动删除 proxy-diff upstream（`http://127.0.0.1:9001`，7 个 unreachable key）
+
 ## Remaining Follow-Up Items
 
 - Continue front-end redesign polish (active-chat, settings, drawer states on-device verification).

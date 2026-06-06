@@ -6,7 +6,7 @@
 1. 模型名后缀解析：`claude-sonnet-4-5(high)` → level=high, `model-name(16384)` → budgetTokens=16384
 2. Level ↔ Budget 双向映射（6 个标准级别：none/minimal/low/medium/high/xhigh/max 对应具体 token 预算）
 3. Per-provider 配置提取：从 request body 中解析 reasoning_effort (OpenAI)、thinking.type+budget_tokens (Anthropic)、thinkingConfig.thinkingLevel/thinkingBudget (Gemini)
-4. Per-provider 配置应用：将 NormalizedThinkingConfig 写回 request body
+4. Per-provider 配置应用：将 NormalizedThinkingConfig 写回 request body。**v1: `applyOpenAIThinking()` 当 level 为 'none' 时删除 `reasoning_effort` 字段而非赋值为 `'none'` — 部分上游（如 DeepSeek）不接受 `'none'` 为有效值。**
 5. 统一的 `processThinking()` 管道
 
 ## 关系
