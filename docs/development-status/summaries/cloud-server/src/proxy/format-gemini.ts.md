@@ -1,7 +1,7 @@
 # `cloud-server/src/proxy/format-gemini.ts`
 
 ## 功能
-OpenAI ↔ Gemini (Google Generative Language API) 格式转换模块。提供请求体转换（双向）、非流式响应转换（双向）和 SSE 流式事件转换（双向）。支持系统消息→systemInstruction、多模态图片 inlineData、finishReason 映射和 usageMetadata token 统计。**v8: 新增反向转换器 `geminiToOpenaiRequest()`、`openaiToGeminiResponse()`、`createOpenaiToGeminiStreamTransformer()`，支持原生 Gemini API 端点。** **v11: `openaiToGeminiRequest()` 新增 OpenAI `reasoning_effort` → Gemini `thinkingConfig` 映射（Gemini 3 用 thinkingLevel，Gemini 2.5 用 thinkingBudget）。`geminiToOpenaiRequest()` 新增 Gemini `thinkingConfig` → OpenAI `reasoning_effort` 提取。**
+OpenAI ↔ Gemini (Google Generative Language API) 格式转换模块。提供请求体转换（双向）、非流式响应转换（双向）和 SSE 流式事件转换（双向）。支持系统消息→systemInstruction、多模态图片 inlineData、finishReason 映射和 usageMetadata token 统计。**v8: 新增反向转换器 `geminiToOpenaiRequest()`、`openaiToGeminiResponse()`、`createOpenaiToGeminiStreamTransformer()`，支持原生 Gemini API 端点。** **v11: `openaiToGeminiRequest()` 新增 OpenAI `reasoning_effort` → Gemini `thinkingConfig` 映射（Gemini 3 用 thinkingLevel，Gemini 2.5 用 thinkingBudget）。`geminiToOpenaiRequest()` 新增 Gemini `thinkingConfig` → OpenAI `reasoning_effort` 提取。** **v12: TransformStream 行缓冲 — `createGeminiStreamTransformer()` 和 `createOpenaiToGeminiStreamTransformer()` 新增 `lineBuffer`，防止 TCP 分片导致 SSE 事件被截断丢弃。**
 
 ## 关系
 ### 调用 / 引用

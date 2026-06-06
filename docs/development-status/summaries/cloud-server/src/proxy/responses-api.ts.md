@@ -20,7 +20,7 @@ Responses API 与 Chat Completions 的差异：
 - `responsesToChatCompletionsRequest(body)` — Responses API 请求 → Chat Completions 请求
 - `chatCompletionsToResponsesRequest(body)` — Chat Completions 请求 → Responses API 请求
 - `chatCompletionsToResponsesResponse(body, modelName?)` — Chat Completions 响应 → Responses API 响应
-- `createResponsesStreamTransformer(modelName?)` — SSE 流式转换 TransformStream
+- `createResponsesStreamTransformer(modelName?)` — SSE 流式转换 TransformStream（**v2: 新增行缓冲防止 TCP 分片截断 SSE 事件**）
 
 ### 被依赖
 - `proxy-routes.ts`
