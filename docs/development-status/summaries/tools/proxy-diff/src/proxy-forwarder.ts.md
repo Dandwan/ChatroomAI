@@ -1,17 +1,20 @@
-# `tools/proxy-diff/src/proxy-forwarder.ts`
-
 ## 功能
-通过 mihomo (Clash.Meta) 代理向真实上游转发 HTTP 事务。使用 undici 的 `ProxyAgent` 作为代理分发器，以完全相同的 `{method, path, headers, body}` 透传请求。不做任何格式解析或转换。支持自定义 API key 覆盖。
+
+代理转发器。通过 mihomo 代理（SOCKS5/HTTP）将捕获的 HTTP 事务原封不动转发到真实上游。使用 undici ProxyAgent，保持原始 method/path/headers/body 不变。返回完整上游响应（status + headers + body 原始字符串）。
 
 ## 关系
+
 ### 调用 / 引用
-- `types.ts` — `CapturedHttpTransaction`
+
+- `undici` — `fetch`、`ProxyAgent`
+- `types.ts` — `CapturedHttpTransaction`、`UpstreamResponse`
 - `logger.ts` — `createLogger`
-- `undici` — `fetch`, `ProxyAgent`
 
 ### 提供
-- `forwardToRealUpstream()` — 向真实上游转发 HTTP 事务
+
+- `forwardToRealUpstream(tx, realUpstreamBaseUrl, mihomoUrl, realUpstreamApiKey?)` — 转发事务到真实上游
 
 ### 被依赖
-- `upstream-simulator.ts`（通过函数参数注入）
-- `index.ts`（构造注入函数时）
+
+- `upstream-simulator.ts` — 作为回调传入
+- `index.ts` — 构造回调闭包

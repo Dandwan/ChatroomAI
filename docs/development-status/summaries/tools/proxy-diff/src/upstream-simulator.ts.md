@@ -1,18 +1,25 @@
-# `tools/proxy-diff/src/upstream-simulator.ts`
-
 ## 功能
-测试套件的核心组件 — 通配 HTTP 上游模拟器。创建一个 Express 服务器，使用 `ALL *` 路由捕获 CPA/ActiNet 的所有上游转发请求。不对请求体做任何格式假设，原样记录 `{method, path, headers, body}`。通过 `SessionRegistry` 按发送顺序匹配会话（单槽位 per-source 模式）。在两侧（CPA 和 ActiNet）的上游请求都到达后，选择其中一者的 HTTP 事务原封不动转发给真实上游，然后将真实上游响应同时 relay 给 CPA 和 ActiNet。
+
+上游模拟器 — 测试套件的核心。创建 Express 通配 HTTP 服务器，充当 CPA 和 ActiNet 的"假上游"。捕获两者翻译后的 HTTP 事务（method/path/headers/body，零格式假设），等待双方均到达后通过 mihomo 代理向真实上游转发其中一方的请求，然后将真实上游响应原封不动 relay 给 CPA 和 ActiNet。记录点 3a/3b（上游事务捕获）、记录点 4（真实上游响应）、记录点 5a/5b（relay 响应）。
+
+包含 `SessionRegistry` 内部类：单槽匹配模型（每源一个槽位），避免依赖自定义 HTTP 头进行会话匹配。
 
 ## 关系
+
 ### 调用 / 引用
-- `types.ts` — `PendingSession`, `CapturedHttpTransaction`, `ProxyDiffConfig`
+
+- `express` — HTTP 服务器框架
+- `types.ts` — `ProxyDiffConfig`、`PendingSession`、`CapturedHttpTransaction`、`UpstreamResponse`、`UpstreamRelayResponse`
 - `logger.ts` — `createLogger`
 
 ### 提供
-- `sessionRegistry` — 全局 SessionRegistry 单例
-- `createUpstreamSimulator()` — 创建 Express app
-- `startUpstreamSimulator()` — 启动 server 并返回 Promise
+
+- `sessionRegistry` — 全局 SessionRegistry 实例
+- `createUpstreamSimulator(config, forwardToRealUpstream)` — 创建 Express app
+- `startUpstreamSimulator(app, port)` — 启动 HTTP 服务器
+- `SessionRegistry` 类 — 会话注册与匹配
 
 ### 被依赖
-- `index.ts`
-- `request-dispatcher.ts`（通过 sessionRegistry）
+
+- `index.ts` — 创建和启动模拟器
+- `request-dispatcher.ts` — 通过 `sessionRegistry` 注册期望

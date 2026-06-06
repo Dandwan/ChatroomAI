@@ -1,17 +1,24 @@
-# `tools/proxy-diff/src/types.ts`
-
 ## 功能
-定义 proxy-diff 测试套件的所有共享 TypeScript 接口和类型。包括用户请求描述 (`UserRequest`)、上游 HTTP 事务捕获 (`CapturedHttpTransaction`)、会话生命周期 (`PendingSession`)、配置结构 (`ProxyDiffConfig`) 和对比结果 (`DiffResult`)。
+
+proxy-diff 测试套件的核心数据类型定义。包含所有接口/类型，从用户输入到最终对比结果的完整数据模型。强调接口无关性：所有 HTTP body 使用 `string` 类型，不预设 API 格式（OpenAI/Anthropic/Gemini/未知）。
 
 ## 关系
+
 ### 提供
-- `UserRequest` — 用户提供的 HTTP 请求描述符（供 CLI/request-dispatcher 使用）
-- `CapturedHttpTransaction` — 上游模拟器捕获的 HTTP 事务
-- `PendingSession` — 一次对比测试的完整状态
-- `ProxyDiffConfig` — 全量配置接口
-- `DiffResult` — 对比分析结果
+
+- `UserRequest` — 用户提供的 HTTP 请求描述符
+- `DispatcherOutbound` — dispatcher 发往 CPA/ActiNet 的原始出站请求
+- `CapturedHttpTransaction` — upstream-sim 捕获的 CPA/ActiNet 上游事务
+- `UpstreamResponse` — 真实上游完整响应（status+headers+body）
+- `UpstreamRelayResponse` — upstream-sim relay 给 CPA/ActiNet 的响应
+- `FinalResponse` — CPA/ActiNet 的最终响应
+- `PendingSession` — 单次对比会话（含全部 6 个记录点）
+- `ProxyDiffConfig` — 完整配置
+- `DiffResult` — 结构化对比结果
+- `RunRecord` — 运行记录
 
 ### 被依赖
+
 - `config.ts`
 - `upstream-simulator.ts`
 - `request-dispatcher.ts`
@@ -22,10 +29,14 @@
 - `index.ts`
 
 ## 关键词
+
 ### 接口
+
 - `UserRequest`
 - `CapturedHttpTransaction`
+- `DispatcherOutbound`
 - `UpstreamResponse`
+- `UpstreamRelayResponse`
 - `FinalResponse`
 - `PendingSession`
 - `ProxyTargetConfig`
@@ -35,5 +46,7 @@
 - `ProxyDiffConfig`
 - `DiffResult`
 - `RunRecord`
+
 ### 类型
-- `SessionStatus`
+
+- `SessionStatus` — `'waiting_cpa' | 'waiting_actinet' | 'waiting_upstream' | 'complete' | 'error'`

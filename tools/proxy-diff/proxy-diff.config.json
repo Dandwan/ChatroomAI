@@ -17,6 +17,6 @@
   },
   "testSuite": {
     "port": 9000,
-    "outputDir": "./outputs"
+    "outputDir": "outputs"
   }
 }

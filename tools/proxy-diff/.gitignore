@@ -1,4 +1,3 @@
-node_modules/
-dist/
 outputs/
-*.log
+proxy-diff.config.local.json
+node_modules/

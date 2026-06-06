@@ -1,55 +1,62 @@
+import { sessionRegistry } from './upstream-simulator.js';
+import { createLogger } from './logger.js';
 import type {
-  UserRequest,
-  FinalResponse,
   ProxyDiffConfig,
   PendingSession,
-  CapturedHttpTransaction,
-  UpstreamResponse,
-} from './types.js'
-import { sessionRegistry } from './upstream-simulator.js'
-import { createLogger } from './logger.js'
+  FinalResponse,
+  DispatcherOutbound,
+} from './types.js';
 
-const log = createLogger('dispatcher')
+const log = createLogger('dispatcher');
 
 /**
  * Send the user's request to a proxy (CPA or ActiNet) and return its final response.
  *
+ * Records the exact outbound HTTP request before sending (record point 2a/2b).
  * The proxy will translate the request and forward to its configured upstream
  * (our upstream simulator), which suspends the response until the real upstream
  * replies.
  */
 async function sendToProxy(
   target: { baseUrl: string; apiKey: string },
-  request: UserRequest,
+  request: PendingSession['userRequest'],
   sessionId: string,
   source: 'cpa' | 'actinet',
-): Promise<FinalResponse> {
-  const base = target.baseUrl.replace(/\/+$/, '')
-  const url = `${base}${request.path}`
+): Promise<{ finalResponse: FinalResponse; outbound: DispatcherOutbound }> {
+  const base = target.baseUrl.replace(/\/+$/, '');
+  const url = `${base}${request.path}`;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${target.apiKey}`,
     ...request.headers,
-  }
+  };
 
   // Add session tracking headers (best-effort — proxies may or may not forward these)
-  // Even if they don't forward them, we use sessionRegistry for correlation.
-  headers['x-proxy-diff-session'] = sessionId
-  headers['x-proxy-diff-source'] = source
+  headers['x-proxy-diff-session'] = sessionId;
+  headers['x-proxy-diff-source'] = source;
 
-  const body = typeof request.body === 'string' ? request.body : JSON.stringify(request.body)
+  const body: string =
+    typeof request.body === 'string' ? request.body : JSON.stringify(request.body);
 
-  log.info(`Sending ${request.method} ${url} to ${source} (stream=${request.stream ?? false})`)
+  // ── Record point 2a/2b: capture the exact outbound request ──
+  const outbound: DispatcherOutbound = {
+    source,
+    url,
+    method: request.method,
+    headers: { ...headers },
+    body,
+  };
 
-  const startTime = Date.now()
+  log.info(`Sending ${request.method} ${url} to ${source} (stream=${request.stream ?? false})`);
 
+  const startTime = Date.now();
   try {
     // Register expectation BEFORE sending so the upstream simulator knows what to expect
     if (source === 'cpa') {
-      sessionRegistry.expectCpa(sessionRegistry.get(sessionId)!)
+      sessionRegistry.expectCpa(sessionRegistry.get(sessionId)!);
     } else {
-      sessionRegistry.expectActiNet(sessionRegistry.get(sessionId)!)
+      sessionRegistry.expectActiNet(sessionRegistry.get(sessionId)!);
     }
 
     const resp = await fetch(url, {
@@ -57,61 +64,65 @@ async function sendToProxy(
       headers,
       body: request.method !== 'GET' && request.method !== 'HEAD' ? body : undefined,
       signal: AbortSignal.timeout(120_000), // 2-minute timeout
-    })
+    });
 
-    const latencyMs = Date.now() - startTime
-    const respHeaders: Record<string, string> = {}
+    const latencyMs = Date.now() - startTime;
+
+    const respHeaders: Record<string, string> = {};
     resp.headers.forEach((val, key) => {
-      respHeaders[key] = val
-    })
+      respHeaders[key] = val;
+    });
 
-    let respBody: unknown
-    const respText = await resp.text()
-
+    let respBody: unknown;
+    const respText = await resp.text();
     try {
-      respBody = JSON.parse(respText)
+      respBody = JSON.parse(respText);
     } catch {
-      respBody = respText
+      respBody = respText;
     }
 
-    log.info(`Got response from ${source}: ${resp.status} in ${latencyMs}ms`)
+    log.info(`Got response from ${source}: ${resp.status} in ${latencyMs}ms`);
 
-    return {
+    const finalResponse: FinalResponse = {
       status: resp.status,
       headers: respHeaders,
       body: respBody,
-    }
-  } catch (err) {
-    const latencyMs = Date.now() - startTime
-    const msg = err instanceof Error ? err.message : String(err)
-    log.error(`Request to ${source} failed: ${msg}`)
+    };
 
-    return {
+    return { finalResponse, outbound };
+  } catch (err) {
+    const latencyMs = Date.now() - startTime;
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error(`Request to ${source} failed: ${msg}`);
+
+    const finalResponse: FinalResponse = {
       status: 502,
       headers: {},
       body: { error: msg },
-    }
+    };
+
+    return { finalResponse, outbound };
   }
 }
 
 /**
- * Dispatch a user request to both CPA and ActiNet, and wait for both to complete.
+ * Dispatch a user request to both CPA and ActiNet concurrently, and wait for
+ * both to complete.
  *
- * The flow:
- * 1. Send to CPA (blocks until CPA's upstream request arrives at simulator, gets real upstream response, CPA translates back)
- * 2. Send to ActiNet (same flow)
+ * Each proxy translates the request → forwards to upstream simulator (which
+ * suspends until the real upstream replies) → receives relayed response →
+ * translates back → returns final response.
  *
- * Note: requests are sent sequentially because the upstream simulator expects
- * one source at a time. The timing of each is still independently measured.
+ * Both outbound requests and both final responses are recorded.
  */
 export async function dispatchRequest(
   config: ProxyDiffConfig,
   session: PendingSession,
 ): Promise<void> {
-  const { cpa, actiNet } = config
+  const { cpa, actiNet } = config;
 
   // Fire both requests concurrently
-  const [cpaResp, actiResp] = await Promise.all([
+  const [cpaResult, actiResult] = await Promise.all([
     sendToProxy(
       { baseUrl: cpa.baseUrl, apiKey: cpa.apiKey },
       session.userRequest,
@@ -124,12 +135,17 @@ export async function dispatchRequest(
       session.id,
       'actinet',
     ),
-  ])
+  ]);
 
-  session.cpaFinalResponse = cpaResp
-  session.actiNetFinalResponse = actiResp
-  session.completedAt = Date.now()
-  session.status = 'complete'
+  // ── Store recorded data ──
+  session.cpaOutbound = cpaResult.outbound;
+  session.actiNetOutbound = actiResult.outbound;
+  session.cpaFinalResponse = cpaResult.finalResponse;
+  session.actiNetFinalResponse = actiResult.finalResponse;
+  session.completedAt = Date.now();
+  session.status = 'complete';
 
-  log.info(`Session ${session.id} complete — CPA: ${cpaResp.status}, ActiNet: ${actiResp.status}`)
+  log.info(
+    `Session ${session.id} complete — CPA: ${cpaResult.finalResponse.status}, ActiNet: ${actiResult.finalResponse.status}`,
+  );
 }
