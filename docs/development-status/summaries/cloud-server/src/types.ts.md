@@ -6,7 +6,7 @@ Cloud server 共享类型定义。包含 `User`、`Upstream`、`ModelEntry`、`U
 ## 关系
 ### 提供
 - `ApiType` — 上游 API 类型联合
-- `Upstream`、`UpstreamApiKey`、`UpstreamWithKeys`
+- `Upstream`、`UpstreamApiKey`（含 `fault_tolerance` 字段，-1/null=使用默认值）、`UpstreamWithKeys`
 - `ModelEntry`、`ModelPriority`
 - `AdminApiKey` — 含 `id`/`name`/`api_key`/`enabled`/`created_by`/`last_used_at`/`created_at`/`updated_at`
 - `User` — 含 `email_verified`、`email_verify_token`、`email_verify_token_expires_at`、`password_reset_token`、`password_reset_token_expires_at`、`pending_email`
