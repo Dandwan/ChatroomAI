@@ -10,6 +10,10 @@
 - `GET /api/admin/stats/server` — 服务器指标（运行时间、内存、WS 连接、请求数）
 - `GET /api/admin/health/keys` — 所有 Key 健康状态
 
+**v14 健康标记端点：**
+- `PUT /api/admin/health/keys/:keyId` — 手动设置单个 Key 健康状态（`{ healthy: boolean }`）
+- `POST /api/admin/health/keys/batch` — 批量设置 Key 健康状态（`{ keyIds: string[], healthy: boolean }`）
+
 **v7 全局设置更新：** GET/PUT `/api/admin/settings` 新增 `proxyUrl`、`wsAuth`、`tlsEnable`/`tlsCert`/`tlsKey` 字段。**v13: 新增 `emailCooldownSeconds` 字段（非负整数，默认 120），支持 GET/PUT 和 config.json 持久化。**
 
 **v11 邮件端点：**
@@ -29,6 +33,7 @@
 - `cloud-server/src/auth/auth-service.ts`
 - `cloud-server/src/auth/ip-rate-limiter.ts`
 - `cloud-server/src/proxy/proxy-agent.ts`
+- `cloud-server/src/proxy/model-strategy.ts` — `getUnhealthyKeys`, `markHealthy`, `markUnhealthy`（动态导入）
 - `cloud-server/src/email/email-service.ts` — `sendTestEmail`, `getSendHistory`
 - `node:fs`、`node:path`、`node:url`、`uuid`
 

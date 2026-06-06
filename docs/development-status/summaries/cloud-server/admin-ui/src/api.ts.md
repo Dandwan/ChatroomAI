@@ -13,6 +13,7 @@ Admin UI API 客户端层。封装后端 `/api/admin/*` 端点的 HTTP 请求，
 - `fetchSettings`、`updateSettings`
 - `sendTestEmail`、`fetchEmailStatus` — 邮件测试与状态查询
 - `fetchApiKeys`、`createApiKey`、`updateApiKey`、`deleteApiKey` — 管理员 API 密钥管理
+- `updateKeyHealth`、`batchUpdateKeyHealth` — Key 健康标记（单个/批量）
 - Auth 和用户管理 API 函数
 
 ### 被依赖
@@ -22,3 +23,4 @@ Admin UI API 客户端层。封装后端 `/api/admin/*` 端点的 HTTP 请求，
 - `cloud-server/admin-ui/src/pages/UsersPage.tsx`
 - `cloud-server/admin-ui/src/pages/DashboardPage.tsx`
 - `cloud-server/admin-ui/src/pages/ApiKeysPage.tsx`
+- `cloud-server/admin-ui/src/pages/HealthPage.tsx`
