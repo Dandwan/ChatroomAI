@@ -113,6 +113,11 @@ The project now includes a **cloud server** (API proxy gateway) at `cloud-server
 
 **待用户处理**：手动删除 proxy-diff upstream（`http://127.0.0.1:9001`，7 个 unreachable key）
 
+## Cloud Server Performance — 057 修复（2026-06-07）
+
+- ✅ **流式日志洪水**已修复 — `format-converter.ts` 流式 hot path 4 处 `log.info()` → `log.debug()`（OpenAI delta chunk / Tool call delta / Tool call arguments assembled / Text content_block_start）。生产 logLevel=info 不再输出 chunk 级日志。
+- ✅ **cli-proxy-api 永久禁用** — 服务已停止，systemd unit 文件已移除。该 Go 服务在中国网络环境下无法刷新 OpenAI token（403），产生 16.7 万次失败日志。
+
 ## Remaining Follow-Up Items
 
 - Continue front-end redesign polish (active-chat, settings, drawer states on-device verification).
