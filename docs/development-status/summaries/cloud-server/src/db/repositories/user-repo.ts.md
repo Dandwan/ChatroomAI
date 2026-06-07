@@ -28,6 +28,7 @@
   - `confirmEmailChange(id)` — 将 pending_email 写入 email 并清空待定字段
   - `delete(id)` — 删除用户
   - `overwritePendingUser(id, data)` — **覆盖未验证用户（新用户名/密码/哈希/API Key/验证 token/过期时间）**
+  - `overwritePendingUserKeepToken(id, data)` — **覆盖未验证用户基本信息（保留现有验证 token，用于邮件冷却场景）**
   - `deleteExpiredUnverified(retentionHours)` — **删除所有超过保留时长的未验证账户，返回删除数量**
 
 ### 被依赖
