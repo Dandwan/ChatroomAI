@@ -2222,7 +2222,7 @@ function App() {
   const [cloudAuthMode, setCloudAuthMode] = useState<'none' | 'login' | 'register'>('none')
   const [pendingUpdate, setPendingUpdate] = useState<UpdateInfo | null>(null)
   const [showUpdateDialog, setShowUpdateDialog] = useState(false)
-  const [updatingNow, setUpdatingNow] = useState(false)
+  const [updatingNow, setUpdatingNow] = useState(false) // eslint-disable-line @typescript-eslint/no-unused-vars
 
   const handleInstallUpdate = useCallback(async (blob: Blob, fileName: string) => {
     setUpdatingNow(true)
@@ -9828,7 +9828,7 @@ function App() {
         />
       ) : null}
 
-      {showUpdateDialog && pendingUpdate ? (
+      {showUpdateDialog && pendingUpdate && !updatingNow ? (
         <UpdateDialog
           update={pendingUpdate}
           onCancel={() => setShowUpdateDialog(false)}

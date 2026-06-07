@@ -1,4 +1,4 @@
-import { getAppVersion, versionCodeToName } from '../utils/app-version'
+import { getAppVersion } from '../utils/app-version'
 
 export interface UpdateInfo {
   id: string
@@ -112,7 +112,7 @@ export async function downloadUpdate(
     onProgress?.(loaded, contentLength)
   }
 
-  const blob = new Blob(chunks, {
+  const blob = new Blob(chunks as BlobPart[], {
     type: update.download_type === 'patch' ? 'application/octet-stream' : 'application/vnd.android.package-archive',
   })
 
