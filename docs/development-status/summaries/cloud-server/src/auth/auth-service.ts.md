@@ -48,6 +48,7 @@
 - `resendVerificationEmail`
 - `resetPassword`
 - `seedAdminUser`
+- `cleanupExpiredPendingAccounts`
 - `verifyEmail`
 - `verifyJwtToken`
 - `verifyPassword`
@@ -56,7 +57,6 @@
 - `API_KEY_PREFIX`
 - `BCRYPT_ROUNDS`
 - `RESET_TOKEN_EXPIRY_MS`
-- `VERIFY_TOKEN_EXPIRY_MS`
 
 ### 类型
 - `LoginResult`

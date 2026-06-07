@@ -1,13 +1,21 @@
 # `cloud-server/admin-ui/src/pages/SettingsPage.tsx`
 
 ## 功能
-全局设置页面。v16: 移除了"服务器信息（只读）"卡片，新增"服务器运行参数"卡片（port/logLevel/healthCheckIntervalMs 可编辑）和代理转发卡片中的 `upstreamTimeoutMs` 字段。
-
-可配置项：容错配置（`defaultFaultTolerance`）、代理转发（`proxyUrl`、`upstreamTimeoutMs`）、WebSocket 认证（`wsAuth`）、邮件服务（SMTP/DKIM/冷却时间）、站点地址（`siteUrl`）、ActiNet 模型映射（`actiNetModelMapping`）、服务器运行参数（`port`、`logLevel`、`healthCheckIntervalMs`）。port 修改需重启生效，logLevel 和 healthCheckIntervalMs 支持热重载。设置即时生效并持久化到 `config.json`。容错链为两层：上游 `key_fault_tolerance` → 全局 `defaultFaultTolerance`。设置保存后显示成功提示 3 秒自动消失。
+Admin UI 全局设置页面。包含容错配置、代理转发、ActiNet 模型映射、WebSocket 认证、邮件服务（SMTP）配置、**内置邮件服务器配置**、**邮箱发送冷却时间**、**待验证账户保留时长**、上游超时、站点地址、服务器端口/日志级别/健康检查间隔等设置卡片。所有变更通过「保存」按钮原子提交。
 
 ## 关系
 ### 调用 / 引用
-- `cloud-server/admin-ui/src/api.ts` — `fetchSettings`、`updateSettings`、`sendTestEmail`、`ServerSettings`、`SmtpSettings`
+- `cloud-server/admin-ui/src/api.ts` — `fetchSettings`, `updateSettings`, `sendTestEmail`, `ServerSettings`, `SmtpSettings`, `MailServerSettings`
+
+### 提供
+- `SettingsPage` — React 组件（default export）
 
 ### 被依赖
-- `cloud-server/admin-ui/src/App.tsx`
+- `cloud-server/admin-ui/src/App.tsx` — 路由 `/settings`
+
+## 关键词
+### 函数
+- `SettingsPage` — 主组件
+- `load` — 加载当前设置
+- `handleSave` — 保存设置
+- `handleTestEmail` — 发送测试邮件
