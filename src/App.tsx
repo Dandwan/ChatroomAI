@@ -126,6 +126,8 @@ import ImageViewer, { type ImageViewerItem } from './components/ImageViewer'
 import NewConversationShowcase from './components/NewConversationShowcase'
 import CloudAuthForm from './components/CloudAuthForm'
 import { isCloudLoggedIn, getStoredCloudAuth, clearCloudAuth, deactivateCloudAuth, verifyCloudAuth, getCloudServerUrl, tryAutoLogin, hasStoredCredentials } from './services/cloud-auth'
+import { checkForUpdate, isUpdateDismissed, type UpdateInfo } from './services/app-update'
+import UpdateDialog from './components/UpdateDialog'
 import { getEffectiveActiNetModels } from './services/actinet-models'
 import SettingsSectionHeading from './components/SettingsSectionHeading'
 import SettingsInfoPromptToggleCard from './components/SettingsInfoPromptToggleCard'
@@ -2218,6 +2220,54 @@ function App() {
   )
   const [abortController, setAbortController] = useState<AbortController | null>(null)
   const [cloudAuthMode, setCloudAuthMode] = useState<'none' | 'login' | 'register'>('none')
+  const [pendingUpdate, setPendingUpdate] = useState<UpdateInfo | null>(null)
+  const [showUpdateDialog, setShowUpdateDialog] = useState(false)
+  const [updatingNow, setUpdatingNow] = useState(false)
+
+  const handleInstallUpdate = useCallback(async (blob: Blob, fileName: string) => {
+    setUpdatingNow(true)
+    try {
+      // Try native install path (Android/Capacitor)
+      const bridge = (window as any).SkillRuntimePlugin
+      if (bridge?.installApk) {
+        // Save the blob to a file path that the native side can access
+        const arrayBuffer = await blob.arrayBuffer()
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
+        await bridge.installApk({ apkData: base64, fileName })
+      } else {
+        // Fallback: trigger browser download
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = fileName
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+      }
+      setShowUpdateDialog(false)
+    } catch (err) {
+      console.error('[update] Install failed', err)
+    } finally {
+      setUpdatingNow(false)
+    }
+  }, [])
+
+  const handleManualUpdateCheck = useCallback(async () => {
+    if (!isCloudLoggedIn()) return
+    const update = await checkForUpdate(getCloudServerUrl())
+    if (update) {
+      setPendingUpdate(update)
+      setShowUpdateDialog(true)
+    } else {
+      // No update available — could show a notice
+      console.log('[update] No update available')
+    }
+  }, [])
+  // 强制刷新计数器 — 当 localStorage 中的 auth 状态被异步修改后
+  // (verifyCloudAuth/deactivateCloudAuth/tryAutoLogin)，需要触发重新渲染以
+  // 让 cloudLoggedIn = isCloudLoggedIn() 重新从 localStorage 读取最新值。
+  const [_authVersion, setAuthVersion] = useState(0)
 
   // ── Startup: verify ActiNet connectivity or auto-login ──
   useEffect(() => {
@@ -2230,6 +2280,7 @@ function App() {
         if (!valid) {
           console.warn('[actinet] Startup connectivity check failed — deactivating auth (credentials preserved)')
           deactivateCloudAuth()
+          setAuthVersion(v => v + 1)
         }
       })
     } else if (hasStoredCredentials()) {
@@ -2238,8 +2289,16 @@ function App() {
         if (cancelled) return
         if (success) {
           console.log('[actinet] Auto-login succeeded')
-          // 强制刷新状态以触发 UI 更新
+          // 强制刷新以让 cloudLoggedIn 重新从 localStorage 读取
           setCloudAuthMode('none')
+          setAuthVersion(v => v + 1)
+          // ── Check for app update ──
+          checkForUpdate(getCloudServerUrl()).then((update) => {
+            if (update && !isUpdateDismissed(update.version_code)) {
+              setPendingUpdate(update)
+              setShowUpdateDialog(true)
+            }
+          })
         }
         // 失败时静默 — 主页自然显示 CloudAuthForm
       })
@@ -8992,6 +9051,36 @@ function App() {
           <p className="summary-muted">未找到目标服务商。</p>
         )}
       </section>
+
+      {/* ── 软件更新 ── */}
+      <section className="settings-section">
+        <div className="conversation-group-divider settings-section-divider">
+          <span className="conversation-group-label">软件更新</span>
+          <span className="conversation-group-dash" aria-hidden="true" />
+        </div>
+
+        <div className="settings-static-card settings-summary-card">
+          <div className="settings-summary-list">
+            <div className="settings-summary-row">
+              <span className="settings-summary-row-label">当前版本</span>
+              <span className="settings-summary-row-value">1.5.0</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="settings-entry-list">
+          <button
+            type="button"
+            className="settings-entry-button"
+            onClick={() => void handleManualUpdateCheck()}
+          >
+            <span className="settings-entry-title">检查更新</span>
+            <span className="settings-entry-meta">
+              检测是否有可用的 ActiChat 新版本
+            </span>
+          </button>
+        </div>
+      </section>
     </>
   )
 
@@ -9260,7 +9349,10 @@ function App() {
                   showCloudAuthOnHomepage ? (
                     <CloudAuthForm
                       initialMode={isCloudAuthRegisterMode ? 'register' : 'login'}
-                      onAuthSuccess={() => setCloudAuthMode('none')}
+                      onAuthSuccess={() => {
+                        setCloudAuthMode('none')
+                        setAuthVersion(v => v + 1)
+                      }}
                     />
                   ) : (
                     <NewConversationShowcase
@@ -9733,6 +9825,14 @@ function App() {
           hint="删除后，依赖该运行时的 skill 执行可能失败；如果它当前是默认运行时，也会失去默认指向。"
           onCancel={closeDeleteDialog}
           onConfirm={confirmDeleteRuntime}
+        />
+      ) : null}
+
+      {showUpdateDialog && pendingUpdate ? (
+        <UpdateDialog
+          update={pendingUpdate}
+          onCancel={() => setShowUpdateDialog(false)}
+          onInstall={handleInstallUpdate}
         />
       ) : null}
 

@@ -160,6 +160,7 @@ export interface CloudUserInfo {
   api_key: string
   rate_limit_rpm: number
   rate_limit_tpd: number
+  app_version_code?: number
 }
 
 /** Fetch current user info from the server. Returns null on failure. */
@@ -168,8 +169,17 @@ export async function fetchCloudUserInfo(): Promise<CloudUserInfo | null> {
   if (!auth || !auth.apiKey) return null
 
   try {
+    // Report client version to server
+    let versionParam = ''
+    try {
+      const versionCode = (window as any).__ACTICHAT_VERSION_CODE__ as number | undefined
+      if (versionCode && versionCode > 0) {
+        versionParam = `?version_code=${versionCode}`
+      }
+    } catch { /* ignore */ }
+
     const normalizedUrl = auth.serverUrl.replace(/\/+$/, '')
-    const response = await fetch(`${normalizedUrl}/api/auth/me`, {
+    const response = await fetch(`${normalizedUrl}/api/auth/me${versionParam}`, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${auth.apiKey}`,
@@ -244,7 +254,7 @@ export async function cloudRegister(
 }
 
 /**
- * Verify email using the token from the verification link.
+ * Verify email using the verification code from the email.
  * On success, persists auth data (same as login) and returns the result.
  */
 export async function verifyCloudEmail(

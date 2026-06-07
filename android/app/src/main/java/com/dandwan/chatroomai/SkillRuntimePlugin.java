@@ -1706,4 +1706,211 @@ public class SkillRuntimePlugin extends Plugin {
             this.updatedAt = startedAt;
         }
     }
+
+    // ── App Update Methods ──
+
+    /**
+     * Get the current app version info from PackageManager.
+     */
+    @PluginMethod
+    public void getVersionCode(PluginCall call) {
+        try {
+            String packageName = getActivity().getPackageName();
+            android.content.pm.PackageInfo pInfo = getActivity().getPackageManager()
+                .getPackageInfo(packageName, 0);
+            String versionName = pInfo.versionName != null ? pInfo.versionName : "0";
+            int versionCode = (int) pInfo.getLongVersionCode();
+            JSObject result = new JSObject();
+            result.put("versionName", versionName);
+            result.put("versionCode", versionCode);
+            call.resolve(result);
+        } catch (Exception e) {
+            Log.e(TAG, "getVersionCode failed", e);
+            call.reject("Failed to get version code", e.getMessage());
+        }
+    }
+
+    /**
+     * Copy the currently installed APK to app-private cache for future incremental updates.
+     * Returns the cached path.
+     */
+    @PluginMethod
+    public void cacheCurrentApk(PluginCall call) {
+        ioExecutor.submit(() -> {
+            try {
+                String packageName = getActivity().getPackageName();
+                android.content.pm.ApplicationInfo appInfo = getActivity().getPackageManager()
+                    .getApplicationInfo(packageName, 0);
+                String sourcePath = appInfo.sourceDir;
+                File cacheDir = new File(getActivity().getCacheDir(), "apk-cache");
+                cacheDir.mkdirs();
+                File cachedApk = new File(cacheDir, "base.apk");
+
+                // Only copy if not already cached
+                if (!cachedApk.exists() || cachedApk.length() != new File(sourcePath).length()) {
+                    try (InputStream in = new java.io.FileInputStream(sourcePath);
+                         FileOutputStream out = new FileOutputStream(cachedApk)) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = in.read(buf)) > 0) {
+                            out.write(buf, 0, n);
+                        }
+                    }
+                }
+
+                JSObject result = new JSObject();
+                result.put("path", cachedApk.getAbsolutePath());
+                call.resolve(result);
+            } catch (Exception e) {
+                Log.e(TAG, "cacheCurrentApk failed", e);
+                call.reject("Failed to cache APK", e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * Apply an incremental patch using the bundled bspatch binary.
+     *
+     * Args:
+     *   oldApk - path to the cached base APK
+     *   patch  - path to the downloaded .patch file
+     *   output - path for the patched output APK
+     */
+    @PluginMethod
+    public void applyPatch(PluginCall call) {
+        String oldApk = call.getString("oldApk");
+        String patch = call.getString("patch");
+        String output = call.getString("output");
+
+        if (oldApk == null || patch == null || output == null) {
+            call.reject("oldApk, patch, and output are required");
+            return;
+        }
+
+        ioExecutor.submit(() -> {
+            try {
+                // Copy bspatch binary from assets to app-private dir and make executable
+                File binDir = new File(getActivity().getFilesDir(), "bin");
+                binDir.mkdirs();
+                File bspatchBin = new File(binDir, "bspatch");
+
+                if (!bspatchBin.exists()) {
+                    try (InputStream in = getActivity().getAssets().open("bspatch");
+                         FileOutputStream out = new FileOutputStream(bspatchBin)) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = in.read(buf)) > 0) {
+                            out.write(buf, 0, n);
+                        }
+                    }
+                    bspatchBin.setExecutable(true, false);
+                }
+
+                // Execute: bspatch OLD_APK NEW_APK PATCH
+                java.lang.ProcessBuilder pb = new java.lang.ProcessBuilder(
+                    bspatchBin.getAbsolutePath(),
+                    oldApk,
+                    output,
+                    patch
+                );
+                pb.redirectErrorStream(true);
+                java.lang.Process proc = pb.start();
+
+                // Read output for diagnostics
+                StringBuilder procOutput = new StringBuilder();
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        procOutput.append(line).append('\n');
+                    }
+                }
+
+                int exitCode = proc.waitFor();
+                if (exitCode != 0) {
+                    Log.e(TAG, "bspatch failed: exit=" + exitCode + " output=" + procOutput.toString());
+                    call.reject("bspatch failed with exit code " + exitCode + ": " + procOutput.toString());
+                    return;
+                }
+
+                JSObject result = new JSObject();
+                result.put("success", true);
+                result.put("output", output);
+                call.resolve(result);
+            } catch (Exception e) {
+                Log.e(TAG, "applyPatch failed", e);
+                call.reject("applyPatch failed", e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * Trigger the system package installer for an APK file.
+     * Uses FileProvider to grant temporary read access.
+     */
+    @PluginMethod
+    public void installApk(PluginCall call) {
+        String apkPath = call.getString("apkPath");
+        String apkDataBase64 = call.getString("apkData");
+        String fileName = call.getString("fileName", "update.apk");
+
+        if (apkPath == null && apkDataBase64 == null) {
+            call.reject("apkPath or apkData is required");
+            return;
+        }
+
+        ioExecutor.submit(() -> {
+            try {
+                File apkFile;
+                if (apkPath != null) {
+                    apkFile = new File(apkPath);
+                } else {
+                    // Decode base64 APK data and write to cache
+                    byte[] data = android.util.Base64.decode(apkDataBase64, android.util.Base64.DEFAULT);
+                    File cacheDir = new File(getActivity().getCacheDir(), "apk-updates");
+                    cacheDir.mkdirs();
+                    apkFile = new File(cacheDir, fileName);
+                    try (FileOutputStream out = new FileOutputStream(apkFile)) {
+                        out.write(data);
+                    }
+                }
+
+                if (!apkFile.exists()) {
+                    call.reject("APK file not found: " + apkFile.getAbsolutePath());
+                    return;
+                }
+
+                // Make the file readable
+                apkFile.setReadable(true, false);
+
+                // Use FileProvider or direct Intent+file URI
+                android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW);
+                android.net.Uri apkUri;
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    // Use FileProvider for Android N+
+                    apkUri = androidx.core.content.FileProvider.getUriForFile(
+                        getActivity(),
+                        getActivity().getPackageName() + ".fileprovider",
+                        apkFile
+                    );
+                    intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                } else {
+                    apkUri = android.net.Uri.fromFile(apkFile);
+                }
+
+                intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+
+                getActivity().startActivity(intent);
+
+                JSObject result = new JSObject();
+                result.put("success", true);
+                call.resolve(result);
+            } catch (Exception e) {
+                Log.e(TAG, "installApk failed", e);
+                call.reject("installApk failed", e.getMessage());
+            }
+        });
+    }
 }
