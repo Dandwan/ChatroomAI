@@ -24,6 +24,7 @@ See `20-run-and-skill-runtime.md` for full architecture.
 - Homepage sends use a CSS-animated overlay transition (920ms, `animationend` lifecycle).
 - Active chat overlays (header, summary bar, composer) are truly fixed; message list has invisible inset padding for scroll range.
 - `otherProvidersEnabled` setting (default `false`) controls visibility of non-ActiNet providers in account management and chat model selector.
+- **Admin UI (`cloud-server/admin-ui`)**: Visual redesign to **Nightfall Console**（夜色控制台）— warm-black ground + rice-paper white text + single warm-gold accent (`#c8a86b`, replacing the old soft blue), 同源于产品官网"夜色山水"。Grouped sidebar (4 groups), sticky topbar with breadcrumb, ⌘K command palette, skeleton-screen loading, graphical empty states. All original class names preserved; no business logic changed. Stray `.js` build artifacts (tsc `noEmit` 误产物) removed and gitignored. See `handoff-updates/063-admin-ui-redesign-nightfall-console.md`.
 
 ## Storage & Startup
 
