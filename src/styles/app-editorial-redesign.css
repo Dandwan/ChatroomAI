@@ -556,7 +556,7 @@
 
 .message-card.assistant > .markdown-content,
 .message-card.assistant .assistant-inline-flow > .markdown-content {
-  max-width: 38ch;
+  max-width: 46ch;
 }
 
 .message-card.assistant .assistant-inline-flow {
@@ -941,6 +941,11 @@
   color: #161412;
 }
 
+.homepage-model-popover .model-option:focus-visible,
+.homepage-model-mode-button:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
 .composer.is-editorial-chat-shell textarea.chat-input-box,
 .composer.is-editorial-chat-shell .composer-send-button,
 .composer.is-editorial-chat-shell .icon-button,
@@ -962,6 +967,14 @@
 
 .composer.is-editorial-chat-shell .icon-button {
   color: var(--text-secondary);
+}
+
+.composer.is-editorial-chat-shell textarea.chat-input-box:focus-visible,
+.composer.is-editorial-chat-shell .composer-send-button:focus-visible,
+.composer.is-editorial-chat-shell .icon-button:focus-visible,
+.composer.is-editorial-chat-shell .composer-model-trigger:focus-visible {
+  border-color: var(--accent-2);
+  box-shadow: var(--focus-ring);
 }
 
 .composer.is-editorial-chat-shell {
@@ -2656,7 +2669,7 @@
   font-size: 10px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: rgba(244, 247, 251, 0.52);
+  color: rgba(244, 247, 251, 0.66);
 }
 
 .cover-auth-input {
@@ -2674,11 +2687,16 @@
 }
 
 .cover-auth-input::placeholder {
-  color: rgba(244, 247, 251, 0.28);
+  color: rgba(244, 247, 251, 0.42);
 }
 
 .cover-auth-input:focus {
   border-bottom-color: rgba(244, 247, 251, 0.48);
+}
+
+.cover-auth-input:focus-visible {
+  border-bottom-color: rgba(244, 247, 251, 0.72);
+  box-shadow: 0 1px 0 0 rgba(244, 247, 251, 0.72);
 }
 
 .cover-auth-error {
@@ -2689,6 +2707,16 @@
   font-size: 13px;
   line-height: 1.5;
   color: rgba(255, 160, 150, 0.92);
+}
+
+.cover-auth-notice {
+  padding: 10px 14px;
+  border-radius: 6px;
+  background: rgba(96, 165, 140, 0.14);
+  border: 1px solid rgba(96, 165, 140, 0.24);
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(144, 210, 180, 0.9);
 }
 
 .cover-auth-actions {
@@ -2719,6 +2747,11 @@
 
 .cover-auth-btn:active {
   background: rgba(244, 247, 251, 0.06);
+}
+
+.cover-auth-btn:focus-visible {
+  border-color: rgba(244, 247, 251, 0.5);
+  box-shadow: 0 0 0 2px rgba(244, 247, 251, 0.32);
 }
 
 .cover-auth-btn-primary {
