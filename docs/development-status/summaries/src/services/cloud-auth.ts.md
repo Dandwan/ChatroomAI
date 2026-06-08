@@ -33,7 +33,7 @@
 - `tryAutoLogin()` — 用已存凭据尝试登录，成功返回 true，失败静默返回 false
 - `cloudLogin(serverUrl, username, password)` — POST /api/auth/login，成功后自动持久化 auth 和凭据
 - `cloudRegister(serverUrl, username, email, password)` — POST /api/auth/register，成功后仅保存凭据，不自动登录
-- `verifyCloudEmail(serverUrl, token)` — POST /api/auth/verify-email，成功后保存 api_key
+- `verifyCloudEmail(serverUrl, token)` — POST /api/auth/verify-email（`{ token }` 为 6 位数字验证码），成功后保存 api_key
 - `resendCloudVerification(serverUrl, email)` — POST /api/auth/resend-verification
 - `requestCloudPasswordReset(serverUrl, email)` — **POST /api/auth/forgot-password，请求密码重置**
 - `resetCloudPassword(serverUrl, token, password)` — **POST /api/auth/reset-password，使用重置码设置新密码**

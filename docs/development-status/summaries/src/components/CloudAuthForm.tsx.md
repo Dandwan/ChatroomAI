@@ -5,9 +5,11 @@
 
 **AuthMode 类型**: `'login' | 'register' | 'forgot' | 'forgotSent' | 'reset'`。登录页底部有"忘记密码？"链接按钮，点击进入 forgot 流程。密码重置流程为三步：输入邮箱（forgot）→ 邮件发送确认（forgotSent，可重新发送）→ 输入重置码和新密码（reset）。
 
+注册成功后显示验证码输入界面：6 位数字验证码输入框 + 「验证」按钮 + 「重新发送」按钮 + 「返回登录」按钮。验证成功自动触发 `onAuthSuccess` 进入主界面。
+
 ## 关系
 ### 调用 / 引用
-- `src/services/cloud-auth.ts` — `cloudLogin`、`cloudRegister`、`resendCloudVerification`、`requestCloudPasswordReset`、`resetCloudPassword`、`getCloudServerUrl`、`CloudAuthResult`、`CloudRegisterResult`
+- `src/services/cloud-auth.ts` — `cloudLogin`、`cloudRegister`、`verifyCloudEmail`、`resendCloudVerification`、`requestCloudPasswordReset`、`resetCloudPassword`、`getCloudServerUrl`、`CloudAuthResult`、`CloudRegisterResult`
 
 ### 提供
 - `CloudAuthForm` — React 组件（default export），接受 `initialMode` 和 `onAuthSuccess` props
@@ -24,11 +26,15 @@
 - `resetToken` — 密码重置码输入
 - `message` — 成功/提示消息（非错误）
 - `resetEmail` — 跨步骤保存的密码重置目标邮箱
+- `registerResult` — 注册成功后服务器返回的结果，非 null 时显示验证码输入视图
+- `verifyCode` / `verifyLoading` / `verifyError` — 验证码输入、验证加载和错误状态
+- `resendLoading` / `resendMessage` — 重发验证邮件的加载和反馈状态
 
 ### 函数
 - `CloudAuthForm` — 主组件
 - `handleLogin` — 登录处理
 - `handleRegister` — 注册处理
+- `handleVerifyEmail` — 提交验证码，成功后触发 `onAuthSuccess`
 - `handleForgotPassword` — 发送密码重置邮件
 - `handleResetPassword` — 提交重置码和新密码
 - `handleResendVerification` — 重新发送验证邮件
@@ -36,7 +42,7 @@
 
 ### 视图
 - 登录/注册视图（`mode === 'login' | 'register'`）— 含"忘记密码？"链接（仅 login 模式）
-- 注册成功视图（`registerResult !== null`）— 提示验证邮箱，可重新发送验证邮件
+- 注册成功视图（`registerResult !== null`）— 验证码输入框 + 验证按钮 + 重新发送按钮 + 返回登录
 - 忘记密码视图（`mode === 'forgot'`）— 输入邮箱请求重置邮件
 - 邮件已发送视图（`mode === 'forgotSent'`）— 显示发送成功，可重新发送或输入已有重置码
 - 重置密码视图（`mode === 'reset'`）— 输入重置码、新密码、确认密码

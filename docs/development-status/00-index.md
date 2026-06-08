@@ -1,6 +1,6 @@
 # Development Status Index
 
-Last updated: 2026-06-06
+Last updated: 2026-06-09
 
 This directory is the repo-tracked handoff state for **ActiChat** (`动话`, formerly `ChatroomAI`). Any agent taking over development in this repository should read these files before changing code and update them after finishing work.
 
