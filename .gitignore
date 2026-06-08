@@ -37,10 +37,3 @@ android/.gradle-home/
 android/keystore.properties
 android/keystore/
 public/runtime-packages/python-termux-aarch64-scientific.zip
-
-# Cloud server
-cloud-server/data/
-cloud-server/dist/
-cloud-server/src/admin/public/
-cloud-server/node_modules/
-cloud-server/admin-ui/node_modules/
