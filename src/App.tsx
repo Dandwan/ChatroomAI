@@ -128,6 +128,7 @@ import CloudAuthForm from './components/CloudAuthForm'
 import { isCloudLoggedIn, getStoredCloudAuth, clearCloudAuth, deactivateCloudAuth, verifyCloudAuth, getCloudServerUrl, tryAutoLogin, hasStoredCredentials } from './services/cloud-auth'
 import { checkForUpdate, isUpdateDismissed, type UpdateInfo } from './services/app-update'
 import UpdateDialog from './components/UpdateDialog'
+import ThinkingPhrase from './components/ThinkingPhrase'
 import { getEffectiveActiNetModels } from './services/actinet-models'
 import SettingsSectionHeading from './components/SettingsSectionHeading'
 import SettingsInfoPromptToggleCard from './components/SettingsInfoPromptToggleCard'
@@ -9510,13 +9511,7 @@ function App() {
                     </section>
                   ) : null}
 
-                  {isAssistantLoading ? (
-                    <div className="assistant-loading" aria-label="模型输出中">
-                      <span />
-                      <span />
-                      <span />
-                    </div>
-                  ) : null}
+                  {isAssistantLoading ? <ThinkingPhrase createdAt={message.createdAt} /> : null}
 
                   {message.role === 'assistant' && hasAssistantFlow ? (
                     <div className="assistant-inline-flow">
