@@ -1103,6 +1103,13 @@ button:not(:disabled):hover {
   transition: color 1s ease;
 }
 
+.empty-response-notice {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(148, 163, 184, 0.85);
+}
+
 .message-error {
   margin: 8px 0 0;
   font-size: 12px;

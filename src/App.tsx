@@ -9373,13 +9373,34 @@ function App() {
           const hasAssistantFlow = assistantFlow.length > 0
           const isAssistantLoading =
             message.role === 'assistant' && !message.error && !textValue && !hasReasoning && !hasAssistantFlow
-          const displayText =
-            textValue ||
-            (message.role === 'assistant' && !isAssistantLoading ? '（模型未返回文本内容）' : '')
+          const displayText = textValue
           const displayTextSanitized =
             message.role === 'assistant' ? stripSkillParsingHintLines(displayText) : displayText
           const shouldRenderText =
             displayTextSanitized.length > 0 || (message.role === 'user' && !(message.images?.length ?? 0))
+          const isMessageTrulyEmpty =
+            message.role === 'assistant' &&
+            !isAssistantLoading &&
+            !textValue &&
+            !hasReasoning &&
+            !hasAssistantFlow &&
+            !message.error
+
+          const resolveEmptyResponseProvider = (): { isActiNet: boolean; providerName: string } => {
+            const modelId = message.model
+            if (modelId) {
+              const actiNetModels = getEffectiveActiNetModels()
+              if (actiNetModels.some((m) => m.id === modelId)) {
+                return { isActiNet: true, providerName: ACTINET_PROVIDER_NAME }
+              }
+              for (const provider of settings.providers) {
+                if (provider.models.some((m) => m.id === modelId)) {
+                  return { isActiNet: false, providerName: provider.name }
+                }
+              }
+            }
+            return { isActiNet: true, providerName: ACTINET_PROVIDER_NAME }
+          }
           const renderSkillStepEntry = (step: AssistantFlowSkillNode, key: string) => {
             const hasResult = Boolean(step.result?.trim())
             const resultOpen = openSkillResultByStep[step.id] === true
@@ -9539,7 +9560,18 @@ function App() {
                     <div className="markdown-content">
                       <MarkdownMessage text={displayTextSanitized} />
                     </div>
-                  ) : null}
+                  ) : isMessageTrulyEmpty ? (() => {
+                    const pi = resolveEmptyResponseProvider()
+                    return (
+                      <div className="empty-response-notice">
+                        {pi.isActiNet ? (
+                          <>似乎......没有任何响应<br />稍安勿躁，ActiNet服务将很快恢复，如有不便敬请谅解！</>
+                        ) : (
+                          <>似乎......没有任何响应<br />请检查{pi.providerName}服务商提供的服务是否正常。</>
+                        )}
+                      </div>
+                    )
+                  })() : null}
 
                   {message.error ? <p className="message-error">{message.error}</p> : null}
 
