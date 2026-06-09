@@ -124,8 +124,9 @@ import ChatHeader from './components/ChatHeader'
 import ImageViewer, { type ImageViewerItem } from './components/ImageViewer'
 import NewConversationShowcase from './components/NewConversationShowcase'
 import CloudAuthForm from './components/CloudAuthForm'
-import { isCloudLoggedIn, getStoredCloudAuth, clearCloudAuth, deactivateCloudAuth, verifyCloudAuth, getCloudServerUrl, tryAutoLogin, hasStoredCredentials } from './services/cloud-auth'
-import { checkForUpdate, isUpdateDismissed, type UpdateInfo } from './services/app-update'
+import { isCloudLoggedIn, getStoredCloudAuth, clearCloudAuth, getCloudServerUrl } from './services/cloud-auth'
+import { useCloudAuth } from './hooks/useCloudAuth'
+import { checkForUpdate, type UpdateInfo } from './services/app-update'
 import UpdateDialog from './components/UpdateDialog'
 import ThinkingPhrase from './components/ThinkingPhrase'
 import { getEffectiveActiNetModels } from './services/actinet-models'
@@ -2142,7 +2143,7 @@ function App() {
     resolveBundledDailyCover(getLocalDateKey()),
   )
   const [abortController, setAbortController] = useState<AbortController | null>(null)
-  const [cloudAuthMode, setCloudAuthMode] = useState<'none' | 'login' | 'register'>('none')
+
   const [pendingUpdate, setPendingUpdate] = useState<UpdateInfo | null>(null)
   const [showUpdateDialog, setShowUpdateDialog] = useState(false)
   const [updatingNow, setUpdatingNow] = useState(false) // eslint-disable-line @typescript-eslint/no-unused-vars
@@ -2187,48 +2188,7 @@ function App() {
       console.log('[update] No update available')
     }
   }, [])
-  // 强制刷新计数器 — 当 localStorage 中的 auth 状态被异步修改后
-  // (verifyCloudAuth/deactivateCloudAuth/tryAutoLogin)，需要触发重新渲染以
-  // 让 cloudLoggedIn = isCloudLoggedIn() 重新从 localStorage 读取最新值。
-  const [_authVersion, setAuthVersion] = useState(0)
-
-  // ── Startup: verify ActiNet connectivity or auto-login ──
-  useEffect(() => {
-    let cancelled = false
-
-    if (isCloudLoggedIn()) {
-      // 已有 token — 验证连通性
-      verifyCloudAuth().then((valid) => {
-        if (cancelled) return
-        if (!valid) {
-          console.warn('[actinet] Startup connectivity check failed — deactivating auth (credentials preserved)')
-          deactivateCloudAuth()
-          setAuthVersion(v => v + 1)
-        }
-      })
-    } else if (hasStoredCredentials()) {
-      // 无 token 但有凭据 — 尝试自动登录
-      tryAutoLogin().then((success) => {
-        if (cancelled) return
-        if (success) {
-          console.log('[actinet] Auto-login succeeded')
-          // 强制刷新以让 cloudLoggedIn 重新从 localStorage 读取
-          setCloudAuthMode('none')
-          setAuthVersion(v => v + 1)
-          // ── Check for app update ──
-          checkForUpdate(getCloudServerUrl()).then((update) => {
-            if (update && !isUpdateDismissed(update.version_code)) {
-              setPendingUpdate(update)
-              setShowUpdateDialog(true)
-            }
-          })
-        }
-        // 失败时静默 — 主页自然显示 CloudAuthForm
-      })
-    }
-
-    return () => { cancelled = true }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // Startup auth logic extracted to useCloudAuth hook
 
   // Delete dialog helpers (unified store interface)
   const openDeleteDialog = useCallback((dialog: DeleteDialogState): void => {
@@ -2436,12 +2396,24 @@ function App() {
   const isHomepageEmptyState =
     activeConversation?.storageLoadState === 'hydrated' &&
     activeMessages.length === 0
-  const cloudLoggedIn = isCloudLoggedIn()
   const hasProviders = settings.providers.length > 0
-  const showCloudAuthOnHomepage =
-    isHomepageEmptyState &&
-    ((!cloudLoggedIn && !hasProviders) || cloudAuthMode !== 'none')
-  const isCloudAuthRegisterMode = cloudAuthMode === 'register'
+
+  // ── Cloud auth (extracted to useCloudAuth hook) ──
+  const {
+    cloudLoggedIn,
+    setCloudAuthMode,
+    showCloudAuthOnHomepage,
+    isCloudAuthRegisterMode,
+    setAuthVersion,
+  } = useCloudAuth({
+    hasOtherProviders: hasProviders && settings.otherProvidersEnabled,
+    isHomepageEmptyState,
+    onUpdateFound: (update: UpdateInfo) => {
+      setPendingUpdate(update)
+      setShowUpdateDialog(true)
+    },
+  })
+  // showCloudAuthOnHomepage & isCloudAuthRegisterMode now from useCloudAuth hook
   const displayConversationTitle = activeConversation?.title ?? '新对话'
   const shouldShowTitleRenameButton = activeConversation !== null && !isHomepageEmptyState
   const shouldShowHomepageBackground = isHomepageEmptyState && resolvedDailyCover !== null
