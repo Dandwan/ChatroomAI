@@ -1,5 +1,4 @@
 import {
-  memo,
   startTransition,
   useCallback,
   type CSSProperties,
@@ -18,10 +17,7 @@ import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 import { Geolocation } from '@capacitor/geolocation'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
-import ReactMarkdown, { type Components } from 'react-markdown'
-import rehypeKatex from 'rehype-katex'
-import remarkGfm from 'remark-gfm'
-import remarkMath from 'remark-math'
+// ReactMarkdown, rehypeKatex, remarkGfm, remarkMath moved to src/components/MarkdownMessage.tsx
 import {
   authHeaders,
   buildApiUrl,
@@ -118,6 +114,8 @@ import type {
   SkillRecord,
 } from './services/skills/types'
 import ChatInputBox from './components/ChatInputBox'
+import MarkdownMessage from './components/MarkdownMessage'
+import ChatScrollPlaceholder from './components/ChatScrollPlaceholder'
 import DeleteConfirmDialog from './components/DeleteConfirmDialog'
 import NoticeBanner from './components/NoticeBanner'
 import ChatSummaryBar from './components/ChatSummaryBar'
@@ -218,6 +216,7 @@ import type {
   ProviderNumericSettingKey,
   ProviderPromptSettingKey,
   RectSnapshot,
+  SettingsView,
   SkillStepKind,
   TagPromptEditorKey,
   TagPromptSettingKey,
@@ -365,20 +364,6 @@ const applyAssignedImageStorageKeys = (
     return conversationChanged ? { ...conversation, transcript: nextTranscript } : conversation
   })
 }
-
-type SettingsView =
-  | 'main'
-  | 'tag-prompts'
-  | 'accounts'
-  | 'actinet'
-  | 'providers'
-  | 'provider-detail'
-  | 'provider-tag-prompts'
-  | 'skills'
-  | 'skill-config'
-  | 'runtimes'
-  | 'permissions'
-  | 'daily-cover'
 
 const DEBUG_SKILL_ROUND_LOG_STORAGE_KEY = 'chatroom.debug.skill-round-log.v1'
 const DEBUG_OBJECT_FLOW_LOG_STORAGE_KEY = 'chatroom.debug.object-flow-log.v1'
@@ -576,9 +561,6 @@ const buildDebugLogReportText = (
   ].join('\n')
 }
 
-const REMARK_PLUGINS = [remarkGfm, remarkMath]
-const REHYPE_PLUGINS = [rehypeKatex]
-
 const DEFAULT_PERMISSION_TOGGLES: PermissionToggles = {
   location: false,
   camera: false,
@@ -744,8 +726,8 @@ const createProviderNumericSettingDrafts = (
     provider?.maxModelRetryCount === undefined ? '' : String(provider.maxModelRetryCount),
 })
 
-const numberFormatter = new Intl.NumberFormat('zh-CN')
-const dateFormatter = new Intl.DateTimeFormat('zh-CN', {
+export const numberFormatter = new Intl.NumberFormat('zh-CN')
+export const dateFormatter = new Intl.DateTimeFormat('zh-CN', {
   month: '2-digit',
   day: '2-digit',
   hour: '2-digit',
@@ -815,7 +797,7 @@ const startOfLocalDay = (time: number): number => {
   return next.getTime()
 }
 
-const formatDrawerGroupLabel = (time: number, referenceTime = Date.now()): string => {
+export const formatDrawerGroupLabel = (time: number, referenceTime = Date.now()): string => {
   const currentDay = startOfLocalDay(referenceTime)
   const targetDay = startOfLocalDay(time)
 
@@ -1593,11 +1575,6 @@ const createStaticAssistantEvent = (
   model,
 })
 
-const normalizeLatexDelimiters = (text: string): string =>
-  text
-    .replace(/\\\[((?:.|\n)*?)\\\]/g, (_, captured: string) => `$$${captured}$$`)
-    .replace(/\\\(((?:.|\n)*?)\\\)/g, (_, captured: string) => `$${captured}$`)
-
 const normalizePermissionToggles = (value: unknown): PermissionToggles => {
   if (!isRecord(value)) {
     return DEFAULT_PERMISSION_TOGGLES
@@ -1948,59 +1925,6 @@ const buildPersistChatState = (
   ),
   activeConversationId,
 })
-
-const MarkdownMessage = memo(({ text }: { text: string }) => {
-  const normalizedText = useMemo(() => normalizeLatexDelimiters(text), [text])
-
-  return (
-    <ReactMarkdown
-      remarkPlugins={REMARK_PLUGINS}
-      rehypePlugins={REHYPE_PLUGINS}
-      components={MARKDOWN_COMPONENTS}
-    >
-      {normalizedText}
-    </ReactMarkdown>
-  )
-})
-
-MarkdownMessage.displayName = 'MarkdownMessage'
-
-const ChatScrollPlaceholder = memo(
-  ({ heightPx, position }: { heightPx: number; position: 'top' | 'bottom' }) => {
-    if (heightPx <= 0) {
-      return null
-    }
-
-    return (
-      <div
-        aria-hidden="true"
-        className={`chat-scroll-placeholder chat-scroll-placeholder--${position}`}
-        style={{ height: `${heightPx}px` }}
-      />
-    )
-  },
-)
-
-ChatScrollPlaceholder.displayName = 'ChatScrollPlaceholder'
-
-const MARKDOWN_COMPONENTS: Components = {
-  img: ({ node, ...props }) => {
-    void node
-    return (
-      <span className="markdown-media-scroll">
-        <img {...props} />
-      </span>
-    )
-  },
-  table: ({ node, ...props }) => {
-    void node
-    return (
-      <div className="markdown-table-scroll">
-        <table {...props} />
-      </div>
-    )
-  },
-}
 
 function App() {
   const initialSettingsRef = useRef<AppSettings | null>(null)
