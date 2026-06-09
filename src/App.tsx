@@ -116,8 +116,8 @@ import type {
 import ChatInputBox from './components/ChatInputBox'
 import MarkdownMessage from './components/MarkdownMessage'
 import ChatScrollPlaceholder from './components/ChatScrollPlaceholder'
+import DeleteConfirmationLayer from './components/DeleteConfirmationLayer'
 import AppDrawer from './components/AppDrawer'
-import DeleteConfirmDialog from './components/DeleteConfirmDialog'
 import NoticeBanner from './components/NoticeBanner'
 import ChatSummaryBar from './components/ChatSummaryBar'
 import ChatHeader from './components/ChatHeader'
@@ -2399,34 +2399,7 @@ function App() {
     [skillConfigTargetId, skillRecords],
   )
   const nativeRuntimeAvailable = isNativeRuntimeAvailable()
-  const deleteDialogConversation = useMemo(
-    () =>
-      deleteDialogConversationId
-        ? conversations.find((conversation) => conversation.id === deleteDialogConversationId) ?? null
-        : null,
-    [conversations, deleteDialogConversationId],
-  )
-  const deleteDialogProvider = useMemo(
-    () =>
-      deleteDialogProviderId
-        ? settings.providers.find((provider) => provider.id === deleteDialogProviderId) ?? null
-        : null,
-    [deleteDialogProviderId, settings.providers],
-  )
-  const deleteDialogSkill = useMemo(
-    () =>
-      deleteDialogSkillId
-        ? skillRecords.find((skill) => skill.id === deleteDialogSkillId) ?? null
-        : null,
-    [deleteDialogSkillId, skillRecords],
-  )
-  const deleteDialogRuntime = useMemo(
-    () =>
-      deleteDialogRuntimeId
-        ? runtimeRecords.find((runtime) => runtime.id === deleteDialogRuntimeId) ?? null
-        : null,
-    [deleteDialogRuntimeId, runtimeRecords],
-  )
+
   const projectedMessagesByConversationId = useMemo(
     () =>
       new Map(
@@ -9612,42 +9585,12 @@ function App() {
         />
       ) : null}
 
-      {deleteDialogConversation ? (
-        <DeleteConfirmDialog
-          entityName={deleteDialogConversation.title}
-          showGraceHint
-          graceSeconds={settings.deleteConfirmGraceSeconds}
-          onCancel={closeDeleteDialog}
-          onConfirm={confirmDeleteConversation}
-        />
-      ) : null}
-
-      {deleteDialogProvider ? (
-        <DeleteConfirmDialog
-          entityName={deleteDialogProvider.name.trim() || '未命名服务商'}
-          hint="该服务商下的接口配置、模型列表和参数覆盖都会一并删除。"
-          onCancel={closeDeleteDialog}
-          onConfirm={confirmDeleteProvider}
-        />
-      ) : null}
-
-      {deleteDialogSkill ? (
-        <DeleteConfirmDialog
-          entityName={deleteDialogSkill.frontmatter.name || deleteDialogSkill.id}
-          hint="该 skill 的配置文件与启用状态都会一起移除。若它覆盖了同名内置 skill，删除后将回退到内置版本。"
-          onCancel={closeDeleteDialog}
-          onConfirm={confirmDeleteSkill}
-        />
-      ) : null}
-
-      {deleteDialogRuntime ? (
-        <DeleteConfirmDialog
-          entityName={deleteDialogRuntime.displayName || deleteDialogRuntime.id}
-          hint="删除后，依赖该运行时的 skill 执行可能失败；如果它当前是默认运行时，也会失去默认指向。"
-          onCancel={closeDeleteDialog}
-          onConfirm={confirmDeleteRuntime}
-        />
-      ) : null}
+      <DeleteConfirmationLayer
+        confirmDeleteConversation={confirmDeleteConversation}
+        confirmDeleteProvider={confirmDeleteProvider}
+        confirmDeleteSkill={confirmDeleteSkill}
+        confirmDeleteRuntime={confirmDeleteRuntime}
+      />
 
       {showUpdateDialog && pendingUpdate && !updatingNow ? (
         <UpdateDialog
