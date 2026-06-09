@@ -2,7 +2,7 @@
 
 ## 功能
 
-Release APK 一键构建并安装脚本。与 `build-and-install.sh` 逻辑对等，但构建目标为 release variant。在 `build-release.sh` 的基础上增加 `adb install` 步骤：构建完成后自动检测连接的 Android 设备（优先物理设备），并安装 APK。
+Release APK 一键构建并安装脚本。在 `build-release.sh` 的基础上增加 `adb install` 步骤：构建完成后复制到 `build-output/ActiChat-release.apk`，自动检测设备并安装。
 
 支持环境变量：
 - `SKIP_RUNTIME_PACKAGE=true` — 跳过运行时打包

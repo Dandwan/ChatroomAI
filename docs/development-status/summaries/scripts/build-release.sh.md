@@ -2,7 +2,7 @@
 
 ## 功能
 
-Release APK 一键构建脚本。与 `build.sh` 逻辑对等，但构建目标为 release variant。同步 union-search skill → 打包 Node.js/Python 运行时 → 构建 Android release APK。
+Release APK 一键构建脚本。与 `build.sh` 逻辑对等，但构建目标为 release variant。构建完成后复制到 `build-output/ActiChat-release.apk`。
 
 支持环境变量：
 - `SKIP_RUNTIME_PACKAGE=true` — 跳过运行时打包（使用已有缓存）

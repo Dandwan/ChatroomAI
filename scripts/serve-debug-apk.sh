@@ -19,11 +19,11 @@ while getopts "p:h" opt; do
   esac
 done
 
-DIR="$PROJECT_DIR/android/app/build/outputs/apk/debug"
+DIR="$PROJECT_DIR/build-output"
 
-if [ ! -d "$DIR" ]; then
-  echo "ERROR: debug 构建目录不存在: $DIR"
-  echo "请先运行构建: scripts/build-and-install.sh"
+if [ ! -d "$DIR" ] || [ -z "$(ls -A "$DIR" 2>/dev/null)" ]; then
+  echo "ERROR: 构建产物目录为空或不存在: $DIR"
+  echo "请先运行构建: bash scripts/build.sh"
   exit 1
 fi
 

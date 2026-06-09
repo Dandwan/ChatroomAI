@@ -46,7 +46,7 @@ See `20-run-and-skill-runtime.md` for full architecture.
 - Android sync: `node scripts/cap-sync-android.mjs`
 - Android build: Gradle via `.gradle-local-v120`, JDK 21 required (`JAVA_HOME=/opt/android-studio/jbr`)
 - Physical phone: `c3fec216`, Emulator: `emulator-5554`
-- Release APK: `android/app/build/outputs/apk/release/app-release.apk`
+- 构建产物统一输出到 `build-output/`（`ActiChat-debug.apk` / `ActiChat-release.apk`）
 - Debug APK LAN share: `scripts/serve-debug-apk.sh`
 - Package: `versionName=1.5.0`, `versionCode=1500`
 

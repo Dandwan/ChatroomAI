@@ -37,3 +37,4 @@ android/.gradle-home/
 android/keystore.properties
 android/keystore/
 public/runtime-packages/python-termux-aarch64-scientific.zip
+build-output/

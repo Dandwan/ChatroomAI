@@ -53,4 +53,7 @@ if [ ! -f "$APK" ]; then
   exit 1
 fi
 
-echo "==> 构建完成: $APK"
+OUT_DIR="$PROJECT_DIR/build-output"
+mkdir -p "$OUT_DIR"
+cp "$APK" "$OUT_DIR/ActiChat-debug.apk"
+echo "==> 构建完成: $OUT_DIR/ActiChat-debug.apk"

@@ -54,6 +54,11 @@ if [ ! -f "$APK" ]; then
   exit 1
 fi
 
+OUT_DIR="$PROJECT_DIR/build-output"
+mkdir -p "$OUT_DIR"
+INSTALL_APK="$OUT_DIR/ActiChat-debug.apk"
+cp "$APK" "$INSTALL_APK"
+
 # ============================================================
 # 检测设备并安装
 # ============================================================
@@ -81,6 +86,6 @@ else
 fi
 
 echo "==> 安装到设备: $TARGET"
-adb -s "$TARGET" install -r "$APK"
+adb -s "$TARGET" install -r "$INSTALL_APK"
 
 echo "==> 完成!"

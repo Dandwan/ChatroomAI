@@ -2,7 +2,7 @@
 
 ## 功能
 
-Debug APK 一键构建脚本。同步 union-search skill → 打包 Node.js/Python 运行时 → 构建 Android debug APK。
+Debug APK 一键构建脚本。同步 union-search skill → 打包 Node.js/Python 运行时 → 构建 Android debug APK → 复制到 `build-output/ActiChat-debug.apk`。
 
 支持环境变量：
 - `SKIP_RUNTIME_PACKAGE=true` — 跳过运行时打包（使用已有缓存）
