@@ -9372,7 +9372,7 @@ function App() {
           const assistantFlow = message.role === 'assistant' ? message.assistantFlow ?? [] : []
           const hasAssistantFlow = assistantFlow.length > 0
           const isAssistantLoading =
-            message.role === 'assistant' && !message.error && !textValue && !hasReasoning && !hasAssistantFlow
+            message.role === 'assistant' && !message.error && !textValue && !hasAssistantFlow
           const displayText = textValue
           const displayTextSanitized =
             message.role === 'assistant' ? stripSkillParsingHintLines(displayText) : displayText
