@@ -61,20 +61,26 @@
 
 ```
 src/
-├── App.tsx (9493 行，减少 91 行)
+├── App.tsx (9398 行，减少 186 行)
 ├── hooks/
-│   ├── useChatUI.ts       ← 新建（已创建，待集成）
-│   ├── useAssistant.ts    ← 新建（规划文件）
-│   └── useCloudAuth.ts    ← 已有
-├── views/                 ← 待创建
+│   ├── useChatUI.ts        ← 新建（待集成）
+│   ├── useAssistant.ts     ← 新建（1736行，完整提取）
+│   ├── useConversation.ts  ← 新建（骨架）
+│   ├── useSettings.ts      ← 新建（骨架）
+│   ├── useExtensions.ts    ← 新建（骨架）
+│   ├── usePermissions.ts   ← 新建（骨架）
+│   ├── useUpdates.ts       ← 新建（骨架）
+│   └── useCloudAuth.ts     ← 已有
+├── views/
+│   └── SettingsPage.tsx    ← 新建（骨架）
 ├── utils/
-│   ├── app-debug.ts       ← 新建（已集成 ✅）
-│   ├── app-formatting.ts  ← 新建（待集成）
-│   ├── app-images.ts      ← 新建（待集成）
-│   ├── model-utils.ts     ← 已有
-│   ├── text-utils.ts      ← 已有
-│   ├── time-utils.ts      ← 已有
-│   ├── assistant-flow.ts  ← 已有
+│   ├── app-debug.ts        ← 新建（已集成 ✅）
+│   ├── app-formatting.ts   ← 新建（待集成）
+│   ├── app-images.ts       ← 新建（已集成 ✅）
+│   ├── model-utils.ts      ← 已有
+│   ├── text-utils.ts       ← 已有
+│   ├── time-utils.ts       ← 已有
+│   ├── assistant-flow.ts   ← 已有
 │   └── ...
 ```
 
@@ -89,12 +95,12 @@ src/
 | 1e | 对话工厂 → app-conversation.ts | ~150 | 📋 待创建 |
 | 1f | 动画工具 → app-animation.ts | ~80 | 📋 待创建 |
 | 2a | Chat UI hook → useChatUI.ts | ~200 | 🔧 待集成 |
-| 2b | 助手 hook → useAssistant.ts | ~1357 | 📋 已规划 |
-| 2c | 对话 hook → useConversation.ts | ~300 | 📋 待创建 |
-| 2d | 设置 hook → useSettings.ts | ~300 | 📋 待创建 |
-| 2e | 扩展 hook → useExtensions.ts | ~200 | 📋 待创建 |
-| 2f | 权限 hook → usePermissions.ts | ~100 | 📋 待创建 |
-| 2g | 更新 hook → useUpdates.ts | ~100 | 📋 待创建 |
+| 2b | 助手 hook → useAssistant.ts | ~1357 | 🔧 完整提取（待集成） |
+| 2c | 对话 hook → useConversation.ts | ~400 | 📋 骨架已创建 |
+| 2d | 设置 hook → useSettings.ts | ~300 | 📋 骨架已创建 |
+| 2e | 扩展 hook → useExtensions.ts | ~200 | 📋 骨架已创建 |
+| 2f | 权限 hook → usePermissions.ts | ~80 | 📋 骨架已创建 |
+| 2g | 更新 hook → useUpdates.ts | ~80 | 📋 骨架已创建 |
 | 3 | 设置页 → SettingsPage.tsx | ~1280 | 🔧 骨架已创建 |
 | **合计** | | **~5687** | |
 
