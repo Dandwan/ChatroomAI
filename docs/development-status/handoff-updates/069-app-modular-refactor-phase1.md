@@ -95,7 +95,7 @@ src/
 | 2e | 扩展 hook → useExtensions.ts | ~200 | 📋 待创建 |
 | 2f | 权限 hook → usePermissions.ts | ~100 | 📋 待创建 |
 | 2g | 更新 hook → useUpdates.ts | ~100 | 📋 待创建 |
-| 3 | 设置页 → SettingsPage.tsx | ~1300 | 📋 待创建 |
+| 3 | 设置页 → SettingsPage.tsx | ~1280 | 🔧 骨架已创建 |
 | **合计** | | **~5687** | |
 
 最终目标：App.tsx ~400 行
