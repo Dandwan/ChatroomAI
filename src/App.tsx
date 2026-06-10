@@ -24,9 +24,7 @@ import {
   readErrorMessage,
   requestNonStreamCompletion,
   requestStreamCompletion,
-  type ApiContentPart,
   type ApiMessage,
-  type ApiRole,
 } from './services/chat-api'
 import {
   buildApiMessagesFromTranscript,
@@ -367,10 +365,16 @@ const applyAssignedImageStorageKeys = (
   })
 }
 
-const DEBUG_SKILL_ROUND_LOG_STORAGE_KEY = 'chatroom.debug.skill-round-log.v1'
-const DEBUG_OBJECT_FLOW_LOG_STORAGE_KEY = 'chatroom.debug.object-flow-log.v1'
-const DEBUG_LOG_ENTRY_LIMIT = 240
-const DEBUG_LOG_TEXT_LIMIT = 6000
+import {
+  DEBUG_SKILL_ROUND_LOG_STORAGE_KEY,
+  DEBUG_OBJECT_FLOW_LOG_STORAGE_KEY,
+  truncateDebugLogText,
+  normalizePromptMessagesForDebug,
+  readDebugLogEntries,
+  appendDebugLogEntry,
+  clearDebugLogEntries,
+  buildDebugLogReportText,
+} from './utils/app-debug'
 
 const MAX_EMPTY_STATE_STATS_MIN_CONVERSATIONS = 9999
 const TITLE_EDIT_TRANSITION_MS = 220
@@ -423,9 +427,6 @@ const resolveConversationResponseMode = (
 ): ConversationResponseMode =>
   normalizeConversationResponseMode(conversation?.preferences?.responseMode) ?? defaultResponseMode
 
-const truncateDebugLogText = (value: string, limit = DEBUG_LOG_TEXT_LIMIT): string =>
-  value.length <= limit ? value : `${value.slice(0, limit)}…(truncated ${value.length - limit})`
-
 const easeOutCubic = (value: number): number => 1 - (1 - value) ** 3
 
 const applyMessageListSmoothScrollAccelerationBoost = (normalizedDistance: number): number => {
@@ -470,98 +471,6 @@ const resolveMessageListSmoothScrollStep = ({
   )
 }
 
-const normalizePromptMessagesForDebug = (
-  messages: ApiMessage[],
-): Array<{ role: ApiRole; content: string | ApiContentPart[] }> =>
-  messages.map((message) => ({
-    role: message.role,
-    content:
-      typeof message.content === 'string'
-        ? truncateDebugLogText(message.content)
-        : message.content.map((part) =>
-            part.type === 'text'
-              ? {
-                  type: 'text' as const,
-                  text: truncateDebugLogText(part.text, 1200),
-                }
-              : {
-                  type: 'image_url' as const,
-                  image_url: {
-                    url: part.image_url.url.startsWith('data:')
-                      ? '[data-url omitted]'
-                      : truncateDebugLogText(part.image_url.url, 300),
-                  },
-                },
-          ),
-  }))
-
-const readDebugLogEntries = (storageKey: string): Record<string, unknown>[] => {
-  if (typeof localStorage === 'undefined') {
-    return []
-  }
-  try {
-    const raw = localStorage.getItem(storageKey)
-    if (!raw) {
-      return []
-    }
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) {
-      return []
-    }
-    return parsed.filter((item): item is Record<string, unknown> => isRecord(item))
-  } catch {
-    return []
-  }
-}
-
-const appendDebugLogEntry = (storageKey: string, entry: Record<string, unknown>): void => {
-  if (typeof localStorage === 'undefined') {
-    return
-  }
-  try {
-    const next = [...readDebugLogEntries(storageKey), entry].slice(-DEBUG_LOG_ENTRY_LIMIT)
-    localStorage.setItem(storageKey, JSON.stringify(next))
-  } catch {
-    // Ignore debug log persistence errors.
-  }
-}
-
-const clearDebugLogEntries = (storageKey: string): void => {
-  if (typeof localStorage === 'undefined') {
-    return
-  }
-  try {
-    localStorage.removeItem(storageKey)
-  } catch {
-    // Ignore debug log cleanup errors.
-  }
-}
-
-const buildDebugLogReportText = (
-  roundLogs: Record<string, unknown>[],
-  objectLogs: Record<string, unknown>[],
-): string => {
-  const roundTail = roundLogs.slice(-80)
-  const objectTail = objectLogs.slice(-160)
-  const roundText = JSON.stringify(roundTail, null, 2) ?? '[]'
-  const objectText = JSON.stringify(objectTail, null, 2) ?? '[]'
-
-  return [
-    `调试日志导出：`,
-    `- skill 回合日志总数：${roundLogs.length}（本次导出尾部 ${roundTail.length} 条）`,
-    `- 对象流日志总数：${objectLogs.length}（本次导出尾部 ${objectTail.length} 条）`,
-    '',
-    '## skill 回合日志（输入/回答）',
-    '```json',
-    roundText,
-    '```',
-    '',
-    '## 界面对象流日志（添加/修改）',
-    '```json',
-    objectText,
-    '```',
-  ].join('\n')
-}
 
 const DEFAULT_PERMISSION_TOGGLES: PermissionToggles = {
   location: false,

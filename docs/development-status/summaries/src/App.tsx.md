@@ -1,58 +1,34 @@
 # `src/App.tsx`
 
 ## 功能
-ActiChat 应用的主 shell 组件。包含对话管理、设置面板、主页空白态渲染、消息流处理、streaming 协议解析、云服务认证集成（含启动自动登录）、首页发送过渡动画等全部核心 UI 逻辑。是应用最大、最复杂的组件。
+ActiChat 应用的主 shell 组件。包含对话管理、设置面板、主页空白态渲染、消息流处理、streaming 协议解析、云服务认证集成、首页发送过渡动画等全部核心 UI 逻辑。
 
-**近期变更（2026-06-09）：**
-- **思考状态指示器增强**：`isAssistantLoading` 不再因 reasoning 内容到达而变为 false；流式思考期间 `ThinkingPhrase` 计时器继续显示，推理面板同时展示流式思考内容
-- **思考状态短语指示器**：加载等待期间以 `ThinkingPhrase` 组件替换三点动画，按时间区间切换趣味短语+颜色渐变
-- **空响应处理**：移除 `（模型未返回文本内容）` 占位文本；空正文+仅有思考内容时仅展示推理面板；真正空响应时按服务商展示对应提示（ActiNet / 其它服务商）
-
-**近期变更（2026-06-05）：**
-- **其它服务商默认关闭**：新增 `otherProvidersEnabled` 设置（默认 false），控制其它服务商在账号管理和模型选择器中的可见性；关闭时仅显示 ActiNet 模型
-- **启动自动登录**：若已存储凭据（用户名+密码），启动时自动尝试登录，失败静默回退到登录表单
-- **ActiNet 模型切换修复**：`selectCurrentModel` 新增 `__actinet__` 虚拟服务商分支，修复点击 ActiNet 模型无响应的问题
-- **删除旧版迁移**：移除 `buildLegacyProvider` 函数，不再从旧版 settings 格式创建"默认服务商"
+**近期变更（2026-06-10）：**
+- **模块化重构阶段 1**：提取 debug 日志工具函数到 `src/utils/app-debug.ts`，减少约 90 行
+- 创建 `src/utils/app-formatting.ts`、`src/utils/app-images.ts`（待集成）
+- 创建 `src/hooks/useChatUI.ts`、`src/hooks/useAssistant.ts`（计划提取）
 
 ## 关系
 ### 调用 / 引用
-- `src/components/NewConversationShowcase.tsx` — 主页每日封面+统计数据展示
-- `src/components/CloudAuthForm.tsx` — 主页云服务登录/注册表单（条件渲染）
-- `src/components/CloudLoginPage.tsx` — 独立云服务登录页面（当前未使用）
-- `src/components/ThinkingPhrase.tsx` — 模型加载等待趣味短语指示器
-- `src/components/settings/ActiNetSettings.tsx` — ActiNet 账户与模型管理设置页
-- `src/components/settings/ProvidersSettings.tsx` — 服务商管理设置页
-- `src/components/settings/DailyCoverSettings.tsx` — 每日封面设置页
-- `src/components/settings/RuntimeSettings.tsx` — 运行时设置页
-- `src/components/settings/SkillsSettings.tsx` — Skills 管理设置页
-- `src/components/settings/SkillConfigSettings.tsx` — Skill 配置设置页
-- `src/components/settings/PermissionsSettings.tsx` — 权限设置页
-- `src/components/ChatHeader.tsx` — 对话顶部栏
-- `src/components/ChatSummaryBar.tsx` — 对话摘要栏
-- `src/components/ChatInputBox.tsx` — 消息输入框
-- `src/components/HomepageSendTransition.tsx` — 首页发送过渡动画
-- `src/components/SettingsScreen.tsx` — 设置页面壳
-- `src/services/cloud-auth.ts` — 登录状态、connectivity 检测、自动登录、软/硬退出
-- `src/services/actinet-models.ts` — ActiNet 模型启用偏好
-- `src/services/daily-cover.ts` — 每日封面解析
-- `src/services/homepage-highlights.ts` — 首页统计高亮
-- `src/services/chat-storage/` — 对话持久化
-- `src/services/skills/` — skill 运行时
-- `src/state/ui-store.ts` — UI 状态管理（settings 导航等）
+- `src/components/` — ChatHeader, ChatInputBox, ChatSummaryBar, AppDrawer, ImageViewer 等
+- `src/components/settings/` — 各设置页组件
+- `src/services/cloud-auth.ts`、`src/services/chat-api.ts`、`src/services/chat-storage/`、`src/services/chat-transcript/`、`src/services/skills/`
+- `src/state/chat-store.ts`、`src/state/ui-store.ts`、`src/state/settings-store.ts`、`src/state/extensions-store.ts`
+- `src/hooks/useCloudAuth.ts`、`src/hooks/useChatUI.ts`
+- `src/utils/app-debug.ts` — 导入 debug 工具函数
 
 ### 提供
 - `App` — React 根组件（default export）
 
+### 被依赖
+- `src/main.tsx` — 入口文件渲染 App 组件
+
 ## 关键词
 ### 函数
 - `App`
-- `getResponseModeLabel`
-- `buildHomepageModelTriggerLabel`
-- `getEnabledModelOptions`
-- `ensureValidCurrentModelSelection`
-- `resolveProviderRequestSettings`
+- `executeAssistantTurn` — 核心 AI 交互逻辑（待提取到 useAssistant，1068行）
+- `handleSend`、`handleAppend`、`regenerate`、`copyMessageText`
 
 ### 常量
-- `ACTINET_PROVIDER_ID`
-- `ACTINET_PROVIDER_NAME`
-- `HOMEPAGE_SEND_TRANSITION_DURATION_MS`
+- `SETTINGS_STORAGE_KEY`、`SETTINGS_PERSIST_DEBOUNCE_MS`
+- `ACTINET_PROVIDER_ID`、`ACTINET_PROVIDER_NAME`
