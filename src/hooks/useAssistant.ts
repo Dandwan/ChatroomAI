@@ -17,9 +17,9 @@ import {
   createUserMessageTranscriptEvent,
   normalizeConversationResponseMode,
   projectConversationMessages,
-  withConversationResponseMode,
   withConversationTranscript,
   type AssistantMessageTranscriptEvent,
+  type HostMessageTranscriptEvent,
   type TranscriptContentPart,
   type TranscriptEvent,
   type UserMessageTranscriptEvent,
@@ -507,10 +507,10 @@ const resolveProviderRequestSettings = (settings: AppSettings): ActiveProviderRe
 
 const toHydratedConversation = (
   conversation: Conversation,
-  draftText = '',
+  _draftText = '',
 ): Conversation => ({
   ...conversation,
-  storageLoadState: 'hydrated',
+  storageLoadState: 'hydrated' as const,
   storageLoadError: undefined,
 })
 
@@ -523,20 +523,7 @@ const withConversationRecordTranscript = (
   },
 ): Conversation =>
   toHydratedConversation(
-    withConversationTranscript(conversation, transcript, options),
-    draftText,
-  )
-
-const withConversationRecordResponseMode = (
-  conversation: Conversation,
-  responseMode: ConversationResponseMode,
-  draftText: string,
-  options?: {
-    keepUpdatedAt?: boolean
-  },
-): Conversation =>
-  toHydratedConversation(
-    withConversationResponseMode(conversation, responseMode, options),
+    withConversationTranscript(conversation, transcript, options) as Conversation,
     draftText,
   )
 
@@ -568,7 +555,7 @@ const estimateUsage = (promptMessages: ApiMessage[], responseText: string): Toke
       typeof message.content === 'string'
         ? message.content
         : Array.isArray(message.content)
-          ? message.content.map((part) => (typeof part === 'string' ? part : part.text ?? '')).join(' ')
+          ? message.content.map((part) => (typeof part === 'string' ? part : part.type === 'text' ? part.text : '')).join(' ')
           : ''
     promptTokens += Math.ceil(content.length / 3.5)
   }
@@ -703,7 +690,7 @@ export function useAssistant() {
       const enabledModels = getEnabledModelOptions(allSettings.providers, isCloudLoggedIn(), allSettings.otherProvidersEnabled)
       if (enabledModels.length === 0) {
         useUIStore.getState().setSettingsVisibility(true, true)
-        useUIStore.getState().setSettingsView('providers')
+        useUIStore.getState().navigateSettingsView('providers')
       } else {
         useUIStore.getState().setModelMenuVisibility(true, false)
       }
@@ -1072,7 +1059,7 @@ export function useAssistant() {
       const settingsSnapshot = getActiveProviderRequestSettings()
       if (!settingsSnapshot) return 'blocked'
 
-      const firstTokenHapticsEnabled = (settingsSnapshot as Record<string, unknown>).firstTokenHapticsEnabled as boolean | undefined
+      const firstTokenHapticsEnabled = (settingsSnapshot as unknown as Record<string, unknown>).firstTokenHapticsEnabled as boolean | undefined
       let hasTriggeredFirstTokenHaptic = false
       const currentUserEvent = historyTranscript[historyTranscript.length - 1]
       const traceId = createId()
@@ -1578,7 +1565,7 @@ export function useAssistant() {
     if (isObjectFlowDebugCommand) {
       const turnId = createId()
       const userEvent = createUserMessageTranscriptEvent(turnId, Date.now(), buildUserTranscriptContent(trimmedDraft))
-      const historyTranscript = [...conversation.transcript, userEvent]
+      void [...conversation.transcript, userEvent]
       appendConversationTranscriptEvents(conversation.id, [userEvent])
       resetComposerState(conversation.id)
       // Inline object-flow debug scenario
