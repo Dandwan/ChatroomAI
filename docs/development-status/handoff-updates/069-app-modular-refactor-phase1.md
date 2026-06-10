@@ -40,12 +40,13 @@
 - `copyTextToClipboard`、`openDeleteDialog`
 - **状态**：文件已创建，等待集成到 App.tsx
 
-### 5. 助手交互 hook 规划 (`src/hooks/useAssistant.ts`)
+### 5. 助手交互 hook (`src/hooks/useAssistant.ts`) ✅ 里程碑
 
-- 记录 `executeAssistantTurn`（1068行）及相关处理函数的完整提取边界
-- 列出需要解耦的依赖清单（约 20 项）
-- 记录需要迁移的 local state/refs（7 项）
-- **状态**：planned — 将在后续阶段实施
+- 完整提取 `executeAssistantTurn` (1068行) 及所有相关处理函数到独立 hook
+- `useAssistant()` 通过 Zustand stores 实现与 App 组件的状态共享
+- 修复 9 个 TypeScript 类型错误，现可正常编译
+- **已集成到 App.tsx**：委托 handleSend, handleAppend, handleImageSelect, cancelEdit, regenerate, copyMessageText, executeAssistantTurn
+- App.tsx 减少 1,732 行（本阶段最大单项减少）
 
 ### 6. 代码摘要
 
@@ -61,7 +62,7 @@
 
 ```
 src/
-├── App.tsx (9398 行，减少 186 行)
+├── App.tsx (7,576 行，减少 2,008 行，−21%）
 ├── hooks/
 │   ├── useChatUI.ts        ← 新建（待集成）
 │   ├── useAssistant.ts     ← 新建（1736行，完整提取）
@@ -75,7 +76,7 @@ src/
 │   └── SettingsPage.tsx    ← 新建（骨架）
 ├── utils/
 │   ├── app-debug.ts        ← 新建（已集成 ✅）
-│   ├── app-formatting.ts   ← 新建（待集成）
+│   ├── app-formatting.ts   ← 新建（已集成 ✅）
 │   ├── app-images.ts       ← 新建（已集成 ✅）
 │   ├── model-utils.ts      ← 已有
 │   ├── text-utils.ts       ← 已有
@@ -90,11 +91,12 @@ src/
 |------|------|------|------|
 | 1a | 调试日志工具 → app-debug.ts | ~90 | ✅ 完成 |
 | 1b | 图片工具 → app-images.ts | ~110 | ✅ 完成 |
-| 1c | 格式化/类型工具 → app-formatting.ts | ~200 | 🔧 待集成 |
+| 1c | 格式化/类型工具 → app-formatting.ts | ~200 | ✅ 完成 |
 | 1d | 设置标准化 → app-settings.ts | ~1100 | 📋 待创建 |
 | 1e | 对话工厂 → app-conversation.ts | ~150 | 📋 待创建 |
 | 1f | 动画工具 → app-animation.ts | ~80 | 📋 待创建 |
-| 2a | Chat UI hook → useChatUI.ts | ~200 | 🔧 待集成 |
+| 2a | Chat UI hook → useChatUI.ts | ~200 | 🔧 已创建，待集成 |
+| 2b | 助手 hook → useAssistant.ts | ~1357 | ✅ 已集成（里程碑） |
 | 2b | 助手 hook → useAssistant.ts | ~1357 | 🔧 完整提取（待集成） |
 | 2c | 对话 hook → useConversation.ts | ~400 | 📋 骨架已创建 |
 | 2d | 设置 hook → useSettings.ts | ~300 | 📋 骨架已创建 |
