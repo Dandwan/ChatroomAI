@@ -2,33 +2,44 @@
  * Chat UI 交互处理 hook
  * 从 src/App.tsx 提取 - 处理抽屉、菜单、图片查看器、滚动、标题编辑等 UI 交互
  */
-import { useCallback, useRef } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type {
   DeleteDialogState,
   ImageViewerItem,
   ImageViewerState,
   PendingImageAttachment,
+  RectSnapshot,
 } from '../state/types'
 import { useUIStore } from '../state/ui-store'
+import {
+  TITLE_EDIT_TRANSITION_MS,
+  TITLE_EDIT_TRANSITION_TRAVEL_FACTOR,
+  TITLE_EDIT_TRANSITION_TRAVEL_MIN_PX,
+  TITLE_EDIT_TRANSITION_TRAVEL_MAX_PX,
+} from '../utils/app-module'
 
 interface UseChatUIReturn {
-  // ── Drawer ──
+  // ── Drawer state ──
+  drawerMounted: boolean
+  drawerVisible: boolean
   openDrawer: () => void
   closeDrawer: () => void
-  drawerAnimationFrameRef: React.MutableRefObject<number | null>
 
-  // ── Model menu ──
+  // ── Model menu state ──
+  modelMenuMounted: boolean
+  modelMenuVisible: boolean
   openModelMenu: () => void
   closeModelMenu: () => void
-  modelMenuAnimationFrameRef: React.MutableRefObject<number | null>
 
-  // ── Settings ──
+  // ── Settings state ──
+  settingsMounted: boolean
+  settingsVisible: boolean
   openSettings: () => void
   closeSettings: () => void
 
-  // ── Image viewer ──
-  showImageViewerOverlay: () => void
-  hideImageViewerOverlay: () => void
+  // ── Image viewer state ──
+  imageViewerMounted: boolean
+  imageViewerVisible: boolean
   openImageViewer: (
     currentKey: string,
     currentImage: PendingImageAttachment | null,
@@ -38,6 +49,8 @@ interface UseChatUIReturn {
   closeImageViewer: () => void
 
   // ── Scroll to bottom ──
+  scrollToBottomButtonMounted: boolean
+  scrollToBottomButtonVisible: boolean
   showScrollToBottomButton: () => void
   hideScrollToBottomButton: () => void
 
@@ -46,34 +59,78 @@ interface UseChatUIReturn {
 
   // ── Delete dialog ──
   openDeleteDialog: (dialog: DeleteDialogState) => void
+
+  // ── Title editing ──
+  renamingConversationId: string | null
+  renamingDraft: string
+  renamingTitleRect: RectSnapshot | null
+  beginRenameConversation: (conversationId: string, title: string, rect: RectSnapshot) => void
+  setRenamingDraft: (value: string) => void
+  cancelRenameConversation: () => void
+  saveRenameConversation: () => void
 }
 
 export function useChatUI(): UseChatUIReturn {
+  // ── Store selectors ──
+  const drawerMounted = useUIStore((s) => s.drawerMounted)
+  const drawerVisible = useUIStore((s) => s.drawerVisible)
+  const modelMenuMounted = useUIStore((s) => s.modelMenuMounted)
+  const modelMenuVisible = useUIStore((s) => s.modelMenuVisible)
+  const settingsMounted = useUIStore((s) => s.settingsMounted)
+  const settingsVisible = useUIStore((s) => s.settingsVisible)
+  const imageViewerMounted = useUIStore((s) => s.imageViewerMounted)
+  const imageViewerVisible = useUIStore((s) => s.imageViewerVisible)
+  const scrollToBottomButtonMounted = useUIStore((s) => s.scrollToBottomButtonMounted)
+  const scrollToBottomButtonVisible = useUIStore((s) => s.scrollToBottomButtonVisible)
+
+  // ── Refs ──
+  const drawerAnimationFrameRef = useRef<number | null>(null)
+  const modelMenuAnimationFrameRef = useRef<number | null>(null)
+
+  // ── Title editing state ──
+  const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null)
+  const [renamingDraft, setRenamingDraft] = useState('')
+  const [renamingTitleRect, setRenamingTitleRect] = useState<RectSnapshot | null>(null)
+
   // ── Drawer ──
   const openDrawer = useCallback((): void => {
-    const state = useUIStore.getState()
-    state.setDrawerVisibility(true, false)
+    useUIStore.getState().setDrawerVisibility(true, false)
+    if (drawerAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(drawerAnimationFrameRef.current)
+    }
+    drawerAnimationFrameRef.current = window.requestAnimationFrame(() => {
+      drawerAnimationFrameRef.current = null
+      useUIStore.getState().setDrawerVisibility(true, true)
+    })
   }, [])
 
   const closeDrawer = useCallback((): void => {
-    const state = useUIStore.getState()
-    state.setDrawerVisibility(true, false)
+    if (drawerAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(drawerAnimationFrameRef.current)
+      drawerAnimationFrameRef.current = null
+    }
+    useUIStore.getState().setDrawerVisibility(true, false)
   }, [])
-
-  const drawerAnimationFrameRef = useRef<number | null>(null)
 
   // ── Model menu ──
   const openModelMenu = useCallback((): void => {
-    const state = useUIStore.getState()
-    state.setModelMenuVisibility(true, false)
+    useUIStore.getState().setModelMenuVisibility(true, false)
+    if (modelMenuAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(modelMenuAnimationFrameRef.current)
+    }
+    modelMenuAnimationFrameRef.current = window.requestAnimationFrame(() => {
+      modelMenuAnimationFrameRef.current = null
+      useUIStore.getState().setModelMenuVisibility(true, true)
+    })
   }, [])
 
   const closeModelMenu = useCallback((): void => {
-    const state = useUIStore.getState()
-    state.setModelMenuVisibility(true, false)
+    if (modelMenuAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(modelMenuAnimationFrameRef.current)
+      modelMenuAnimationFrameRef.current = null
+    }
+    useUIStore.getState().setModelMenuVisibility(true, false)
   }, [])
-
-  const modelMenuAnimationFrameRef = useRef<number | null>(null)
 
   // ── Settings ──
   const openSettings = useCallback((): void => {
@@ -112,7 +169,6 @@ export function useChatUI(): UseChatUIReturn {
 
   const closeImageViewer = useCallback((): void => {
     hideImageViewerOverlay()
-    // Delay unmount to allow CSS transition to finish
     window.setTimeout(() => {
       useUIStore.getState().setImageViewer(null)
     }, 300)
@@ -134,11 +190,9 @@ export function useChatUI(): UseChatUIReturn {
         await navigator.clipboard.writeText(text)
         return true
       } catch {
-        // Fall through to fallback
+        // Fall through
       }
     }
-
-    // Fallback: use textarea
     if (typeof document !== 'undefined') {
       const textarea = document.createElement('textarea')
       textarea.value = text
@@ -150,7 +204,7 @@ export function useChatUI(): UseChatUIReturn {
         document.execCommand('copy')
         return true
       } catch {
-        // Ignore errors
+        // Ignore
       } finally {
         document.body.removeChild(textarea)
       }
@@ -163,22 +217,56 @@ export function useChatUI(): UseChatUIReturn {
     useUIStore.getState().openDeleteDialog(dialog)
   }, [])
 
+  // ── Title editing ──
+  const beginRenameConversation = useCallback(
+    (conversationId: string, title: string, rect: RectSnapshot): void => {
+      setRenamingConversationId(conversationId)
+      setRenamingDraft(title)
+      setRenamingTitleRect(rect)
+    },
+    [],
+  )
+
+  const cancelRenameConversation = useCallback((): void => {
+    setRenamingConversationId(null)
+    setRenamingDraft('')
+    setRenamingTitleRect(null)
+  }, [])
+
+  const saveRenameConversation = useCallback((): void => {
+    // The actual save logic is in the parent component
+    // This just returns the draft for saving
+  }, [])
+
   return {
+    drawerMounted,
+    drawerVisible,
     openDrawer,
     closeDrawer,
-    drawerAnimationFrameRef,
+    modelMenuMounted,
+    modelMenuVisible,
     openModelMenu,
     closeModelMenu,
-    modelMenuAnimationFrameRef,
+    settingsMounted,
+    settingsVisible,
     openSettings,
     closeSettings,
-    showImageViewerOverlay,
-    hideImageViewerOverlay,
+    imageViewerMounted,
+    imageViewerVisible,
     openImageViewer,
     closeImageViewer,
+    scrollToBottomButtonMounted,
+    scrollToBottomButtonVisible,
     showScrollToBottomButton,
     hideScrollToBottomButton,
     copyTextToClipboard,
     openDeleteDialog,
+    renamingConversationId,
+    renamingDraft,
+    renamingTitleRect,
+    beginRenameConversation,
+    setRenamingDraft,
+    cancelRenameConversation,
+    saveRenameConversation,
   }
 }

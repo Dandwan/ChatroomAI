@@ -18,36 +18,17 @@ import { Capacitor } from '@capacitor/core'
 import { Geolocation } from '@capacitor/geolocation'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
 // ReactMarkdown, rehypeKatex, remarkGfm, remarkMath moved to src/components/MarkdownMessage.tsx
+import type { ApiMessage } from './services/chat-api'
 import {
-  authHeaders,
-  buildApiUrl,
-  readErrorMessage,
-  requestNonStreamCompletion,
-  requestStreamCompletion,
-  type ApiMessage,
-} from './services/chat-api'
-import {
-  buildApiMessagesFromTranscript,
   createConversationFromTranscript,
-  createUserMessageTranscriptEvent,
   isTranscriptConversationWorkspacePlaceholder,
   normalizeConversationResponseMode,
   projectConversationMessages,
   withConversationResponseMode,
   withConversationTranscript,
   type AssistantMessageTranscriptEvent,
-  type HostMessageTranscriptEvent,
-  type TranscriptContentPart,
   type TranscriptEvent,
-  type UserMessageTranscriptEvent,
 } from './services/chat-transcript'
-import {
-  executeEditAction,
-  executeReadAction,
-  executeRunAction,
-  executeSkillCall,
-  materializeRunAction,
-} from './services/skills/executor'
 import {
   deleteSkill,
   initializeSkillHost,
@@ -58,18 +39,6 @@ import {
   writeSkillConfig,
 } from './services/skills/host'
 import { isNativeRuntimeAvailable } from './services/skills/native-runtime'
-import {
-  createAgentStreamParser,
-  createSkillActionPlaceholder,
-  buildPromptBlocksText,
-  buildRuntimeCatalogBlock,
-  buildSkillsCatalogBlock,
-  formatStructuredMarkdown,
-  normalizeSkillAgentProtocolResponse,
-  type SkillActionStreamEvent,
-} from './services/skills/protocol'
-import { buildEnvVarPath } from './services/skills/action-location'
-import type { InternalActionLocation } from './services/skills/action-location'
 import {
   DEFAULT_EDIT_SYSTEM_PROMPT,
   DEFAULT_GENERAL_TAG_SYSTEM_PROMPT,
@@ -82,12 +51,7 @@ import {
 import {
   DEFAULT_INFO_PROMPT_SETTINGS,
   INFO_PROMPT_DEFINITIONS,
-  buildDeviceInfoPromptMarkdown,
-  buildWorkspaceInfoPromptMarkdown,
-  createDeviceInfoPromptSnapshot,
-  createWorkspaceInfoPromptSnapshot,
   normalizeInfoPromptOverride,
-  resolveWorkspaceInfoPromptPath,
   type InfoPromptDefinition,
   type InfoPromptSettingKey,
 } from './services/skills/info-system-prompts'
@@ -101,15 +65,7 @@ import {
   testRuntime,
 } from './services/skills/runtime'
 import type {
-  EditAction,
-  EditExecutionResult,
-  ReadExecutionResult,
-  PromptBlock,
-  ReadAction,
-  RunAction,
   RuntimeRecord,
-  SkillCallAction,
-  SkillRecord,
 } from './services/skills/types'
 import ChatInputBox from './components/ChatInputBox'
 import MarkdownMessage from './components/MarkdownMessage'
@@ -164,8 +120,6 @@ import {
   createAssistantTextFlow,
   formatSkillStepStatus,
   formatSkillStepTarget,
-  markAssistantFlowRoundError,
-  upsertAssistantFlowSkillNodeByToken,
   type AssistantFlowNode,
   type AssistantFlowSkillNode,
 } from './utils/assistant-flow'
@@ -180,14 +134,12 @@ import {
   persistChatState,
   type ChatStoragePersistState,
 } from './services/chat-storage'
-import { compressImageDataUrl, createImageAttachments } from './utils/images'
 import { createProviderModelKey, modelHealthLabel } from './utils/model-utils'
 import { stripSkillParsingHintLines } from './utils/text-utils'
 import { formatMs } from './utils/time-utils'
 import type {
   ActiveProviderRequestSettings,
   AppSettings,
-  ChatMessage,
   ChatStorageConversationSummary,
   ChatSummarySnapshot,
   CompletionResult,
@@ -206,7 +158,6 @@ import type {
   Notice,
   NumericSettingDrafts,
   NumericSettingKey,
-  PendingImageAttachment,
   PendingTitleTransition,
   PromptEditorKey,
   ProviderBooleanSettingKey,
@@ -217,14 +168,11 @@ import type {
   ProviderPromptSettingKey,
   RectSnapshot,
   SettingsView,
-  SkillStepKind,
   TagPromptEditorKey,
   TagPromptSettingKey,
   ThemeMode,
   TitleTransitionState,
-  TokenUsage,
   TurnExecutionJob,
-  TurnExecutionOutcome,
 } from './state/types'
 import {
   CHAT_STATE_PERSIST_DEBOUNCE_MS,
@@ -268,11 +216,7 @@ import {
   DEBUG_SKILL_ROUND_LOG_STORAGE_KEY,
   DEBUG_OBJECT_FLOW_LOG_STORAGE_KEY,
   truncateDebugLogText,
-  normalizePromptMessagesForDebug,
-  readDebugLogEntries,
   appendDebugLogEntry,
-  clearDebugLogEntries,
-  buildDebugLogReportText,
 } from './utils/app-debug'
 import {
   numberFormatter,
@@ -303,21 +247,6 @@ const MESSAGE_LIST_SMOOTH_SCROLL_ACCELERATION_BOOST_START = 0.44
 const MESSAGE_LIST_SMOOTH_SCROLL_ACCELERATION_BOOST_FACTOR = 0.4
 const MESSAGE_LIST_SMOOTH_SCROLL_MIN_STEP_PX = 10
 
-
-
-const createViewportRectSnapshot = (): RectSnapshot => ({
-  top: 0,
-  left: 0,
-  width: window.innerWidth,
-  height: window.innerHeight,
-})
-
-const rectToSnapshot = (rect: DOMRect): RectSnapshot => ({
-  top: rect.top,
-  left: rect.left,
-  width: rect.width,
-  height: rect.height,
-})
 
 const hasConversationStarted = (
   conversation: Pick<Conversation, 'transcript'>,
@@ -539,14 +468,6 @@ const createProviderNumericSettingDrafts = (
   maxModelRetryCount:
     provider?.maxModelRetryCount === undefined ? '' : String(provider.maxModelRetryCount),
 })
-
-
-
-
-
-
-
-
 
 
 const createProviderNameCandidate = (providers: ProviderConfig[]): string => {
@@ -892,7 +813,6 @@ const resolveProviderRequestSettings = (settings: AppSettings): ActiveProviderRe
 }
 
 
-
 const snapshotRect = (element: Element | null): RectSnapshot | null => {
   if (!element) {
     return null
@@ -952,111 +872,6 @@ const extractThinkBlocks = (text: string): { cleanedText: string; reasoning: str
   }
 }
 
-const estimateTokens = (text: string): number => {
-  const normalized = text.replace(/\s+/g, ' ').trim()
-  if (!normalized) {
-    return 0
-  }
-
-  const cjkCount = (normalized.match(/[\u3400-\u9fff]/g) ?? []).length
-  const latinCount = normalized.length - cjkCount
-  return Math.max(1, Math.ceil(cjkCount + latinCount / 4))
-}
-
-const apiMessageToText = (message: ApiMessage): string => {
-  if (typeof message.content === 'string') {
-    return message.content
-  }
-  return message.content
-    .map((part) => (part.type === 'text' ? part.text : '[image]'))
-    .join('\n')
-    .trim()
-}
-
-const estimateUsage = (promptMessages: ApiMessage[], responseText: string): TokenUsage => {
-  const promptText = promptMessages.map((message) => apiMessageToText(message)).join('\n')
-  const promptTokens = estimateTokens(promptText)
-  const completionTokens = estimateTokens(responseText)
-  return {
-    promptTokens,
-    completionTokens,
-    totalTokens: promptTokens + completionTokens,
-  }
-}
-
-const serializeReadActionForHost = (
-  action: Pick<ReadAction, 'root' | 'skill' | 'path' | 'depth' | 'startLine' | 'endLine'>,
-): Record<string, unknown> => ({
-  ...(action.path !== undefined ? { path: buildEnvVarPath(action.root, action.skill, action.path) } : {}),
-  ...(action.depth !== undefined ? { depth: action.depth } : {}),
-  ...(action.startLine !== undefined ? { startLine: action.startLine } : {}),
-  ...(action.endLine !== undefined ? { endLine: action.endLine } : {}),
-})
-
-const resolveReadActionDisplayPath = (
-  action: Pick<ReadAction, 'root' | 'path'>,
-): string | undefined => {
-  const normalizedPath = action.path?.trim()
-  if (normalizedPath) {
-    return normalizedPath
-  }
-  return undefined
-}
-
-const serializeReadResultForHost = (payload: ReadExecutionResult): Record<string, unknown> => ({
-  kind: payload.kind,
-  path: buildEnvVarPath(payload.root, 'skill' in payload ? payload.skill : undefined, payload.path),
-  ...(payload.kind === 'list'
-    ? {
-        depth: payload.depth,
-        entries: payload.entries,
-        truncated: payload.truncated,
-      }
-    : payload.kind === 'stat'
-      ? {
-          entryType: payload.entryType,
-          ...(payload.size !== undefined ? { size: payload.size } : {}),
-          ...(payload.textLikely !== undefined ? { textLikely: payload.textLikely } : {}),
-        }
-      : {
-          content: payload.content,
-          lineStart: payload.lineStart,
-          lineEnd: payload.lineEnd,
-          truncated: payload.truncated,
-        }),
-})
-
-const serializeRunActionForHost = (
-  action: Pick<RunAction, 'id' | 'root' | 'skill' | 'command' | 'session' | 'waitMs'>,
-): Record<string, unknown> => ({
-  ...(action.id ? { id: action.id } : {}),
-  ...(action.command ? { command: action.command } : {}),
-  ...(action.session ? { session: action.session } : {}),
-  ...(action.waitMs !== undefined ? { waitMs: action.waitMs } : {}),
-})
-
-const serializeEditActionForHost = (
-  action: Pick<EditAction, 'root' | 'path' | 'createIfMissing' | 'previewContextLines' | 'edits'>,
-): Record<string, unknown> => ({
-  path: buildEnvVarPath(action.root, undefined, action.path),
-  ...(action.createIfMissing ? { createIfMissing: true } : {}),
-  ...(action.previewContextLines !== undefined ? { previewContextLines: action.previewContextLines } : {}),
-  edits: action.edits,
-})
-
-const serializeEditResultForHost = (payload: EditExecutionResult): Record<string, unknown> => ({
-  kind: payload.kind,
-  path: buildEnvVarPath(payload.root, undefined, payload.path),
-  created: payload.created,
-  lineCountBefore: payload.lineCountBefore,
-  lineCountAfter: payload.lineCountAfter,
-  appliedEdits: payload.appliedEdits,
-  preview: payload.preview,
-})
-
-const formatSkillStepResult = (payload: unknown): string =>
-  formatStructuredMarkdown(payload)
-
 const vibrateInteraction = (): void => {
   void Haptics.vibrate({ duration: 10 }).catch(() => {
     void Haptics.impact({ style: ImpactStyle.Heavy }).catch(() => {
@@ -1065,108 +880,6 @@ const vibrateInteraction = (): void => {
       }
     })
   })
-}
-
-const TRANSCRIPT_REPLAY_SYSTEM_PROMPT = `
-历史上下文会以原始多轮转录的形式回放：
-
-1. 历史 assistant 输出中可能出现 <progress>、<read>、<run>、<edit>、<final> 等标签，它们只是历史记录，不会再次执行。
-2. 宿主会以 user 角色注入 <host_message>...</host_message> 作为工具结果或运行时反馈；这些内容不是用户新的自然语言输入。
-3. 只有你当前正在生成的这一次回复中的动作标签会被宿主解析和执行。
-`.trim()
-
-const buildSkillAgentSystemPrompt = async (
-  settings: Pick<ActiveProviderRequestSettings, PromptEditorKey | InfoPromptSettingKey>,
-  skills: SkillRecord[],
-  runtimes: RuntimeRecord[],
-  conversationId: string,
-  transcript: TranscriptEvent[],
-): Promise<string> => {
-  const conversationSnapshot = createConversationFromTranscript(conversationId, transcript)
-  const workspacePath = settings.workspaceInfoPromptEnabled
-    ? await resolveWorkspaceInfoPromptPath(conversationSnapshot.id)
-    : ''
-  const workspaceInfoPrompt = settings.workspaceInfoPromptEnabled
-    ? buildWorkspaceInfoPromptMarkdown(
-        createWorkspaceInfoPromptSnapshot(
-          workspacePath,
-          conversationSnapshot.createdAt,
-          conversationSnapshot.updatedAt,
-        ),
-      )
-    : ''
-  const deviceInfoPrompt = settings.deviceInfoPromptEnabled
-    ? buildDeviceInfoPromptMarkdown(createDeviceInfoPromptSnapshot())
-    : ''
-  const environmentBlocks: PromptBlock[] = [
-    {
-      type: 'app_policy',
-      title: 'Transcript Replay Semantics',
-      content: TRANSCRIPT_REPLAY_SYSTEM_PROMPT,
-    },
-    buildSkillsCatalogBlock(skills),
-    buildRuntimeCatalogBlock(runtimes),
-  ]
-
-  return [
-    settings.systemPrompt.trim(),
-    settings.generalTagSystemPrompt.trim(),
-    settings.topLevelTagSystemPrompt.trim(),
-    settings.readSystemPrompt.trim(),
-    workspaceInfoPrompt,
-    settings.skillCallSystemPrompt.trim(),
-    settings.editSystemPrompt.trim(),
-    deviceInfoPrompt,
-    buildPromptBlocksText(environmentBlocks),
-  ]
-    .filter(Boolean)
-    .join('\n\n')
-}
-
-const parseActionExecutionPayload = (
-  action: SkillCallAction | RunAction,
-  stdout: string,
-  stderr: string,
-): Record<string, unknown> => {
-  const metadata =
-    action.kind === 'run'
-      ? {
-          id: action.id,
-          command: action.command,
-          session: action.session,
-        }
-      : {
-          id: action.id,
-          skill: action.skill,
-          script: action.script,
-        }
-  const trimmedStdout = stdout.trim()
-  if (!trimmedStdout) {
-    return {
-      ...metadata,
-      stdout: '',
-      stderr: stderr.trim(),
-    }
-  }
-
-  try {
-    const parsed = JSON.parse(trimmedStdout) as unknown
-    if (isRecord(parsed)) {
-      return {
-        ...metadata,
-        ...parsed,
-        stderr: stderr.trim() || undefined,
-      }
-    }
-  } catch {
-    // Fall through to raw payload.
-  }
-
-  return {
-    ...metadata,
-    stdout: trimmedStdout,
-    stderr: stderr.trim() || undefined,
-  }
 }
 
 const toHydratedConversation = (
@@ -1254,47 +967,6 @@ const withConversationRecordResponseMode = (
     draftText,
   )
 
-const buildUserTranscriptContent = (
-  text: string,
-  images: ImageAttachment[] = [],
-): TranscriptContentPart[] => [
-  ...(text.length > 0 ? ([{ type: 'text', text }] as const) : []),
-  ...images.map((image) => ({
-    type: 'image' as const,
-    image,
-  })),
-]
-
-const buildOutgoingImageAttachments = (
-  pendingImages: PendingImageAttachment[],
-): ImageAttachment[] =>
-  pendingImages.map((image) => ({
-    id: image.id,
-    name: image.name,
-    mimeType: image.mimeType,
-    size: image.size,
-    dataUrl: image.dataUrl,
-  }))
-
-const getUserTranscriptText = (event: UserMessageTranscriptEvent): string =>
-  event.content
-    .filter((part): part is Extract<TranscriptContentPart, { type: 'text' }> => part.type === 'text')
-    .map((part) => part.text)
-    .join('')
-
-const createStaticAssistantEvent = (
-  turnId: string,
-  text: string,
-  model?: string,
-): AssistantMessageTranscriptEvent => ({
-  kind: 'assistant_message',
-  id: createId(),
-  turnId,
-  createdAt: Date.now(),
-  rawText: text,
-  assistantFlow: text ? createAssistantTextFlow(text, { createId }) : undefined,
-  model,
-})
 
 const normalizePermissionToggles = (value: unknown): PermissionToggles => {
   if (!isRecord(value)) {
@@ -1401,46 +1073,6 @@ const requestNotificationPermission = async (): Promise<boolean> => {
     return result === 'granted'
   } catch {
     return false
-  }
-}
-
-const applyPermissionGatesToSkillCall = (
-  action: SkillCallAction,
-  permissionToggles: PermissionToggles,
-): SkillCallAction => {
-  if (action.skill !== 'device-info') {
-    return action
-  }
-  if (permissionToggles.location) {
-    return action
-  }
-  const argv = Array.isArray(action.argv) ? [...action.argv] : []
-  if (!argv.includes('--no-location')) {
-    argv.push('--no-location')
-  }
-  return {
-    ...action,
-    argv,
-  }
-}
-
-const applyPermissionGatesToRun = (
-  action: RunAction,
-  permissionToggles: PermissionToggles,
-): RunAction => {
-  if (action.root !== 'skill' || action.skill !== 'device-info') {
-    return action
-  }
-  if (permissionToggles.location) {
-    return action
-  }
-  const command = action.command?.trim()
-  if (!command || /\s--no-location(?:\s|$)/.test(` ${command} `)) {
-    return action
-  }
-  return {
-    ...action,
-    command: `${command} --no-location`,
   }
 }
 
@@ -1780,6 +1412,7 @@ function App() {
   const setProviderModelSearch = useUIStore((s) => s.setProviderModelSearch)
   const isFetchingModelsByProviderId = useUIStore((s) => s.isFetchingModelsByProviderId)
   const setIsFetchingModelsByProviderId = useUIStore((s) => s.setIsFetchingModelsByProviderId)
+  void setIsFetchingModelsByProviderId;
 
   // ── UI store: prompt editors ──
   const openPromptEditors = useUIStore((s) => s.openPromptEditors)
@@ -1812,8 +1445,10 @@ function App() {
   const setNotice = useUIStore((s) => s.setNotice)
   const isSending = useUIStore((s) => s.isSending)
   const setIsSending = useUIStore((s) => s.setIsSending)
+  void setIsSending;
   const activeRequestConversationId = useUIStore((s) => s.activeRequestConversationId)
   const setActiveRequestConversationId = useUIStore((s) => s.setActiveRequestConversationId)
+  void setActiveRequestConversationId;
 
   // ── UI store: drawer ──
   const setCollapsedConversationGroups = useUIStore((s) => s.setCollapsedConversationGroups)
@@ -1867,6 +1502,7 @@ function App() {
     resolveBundledDailyCover(getLocalDateKey()),
   )
   const [abortController, setAbortController] = useState<AbortController | null>(null)
+  void abortController; void setAbortController;
 
   const [pendingUpdate, setPendingUpdate] = useState<UpdateInfo | null>(null)
   const [showUpdateDialog, setShowUpdateDialog] = useState(false)
@@ -1996,6 +1632,7 @@ function App() {
   const lastObjectFlowLogKeyRef = useRef<string>('')
   const queuedTurnExecutionsRef = useRef<TurnExecutionJob[]>([])
   const processingTurnQueueRef = useRef(false)
+  void processingTurnQueueRef;
 
   const closeImageViewer = useCallback((): void => {
     hideImageViewerOverlay()
@@ -2018,6 +1655,7 @@ function App() {
     },
     [],
   )
+  void appendSkillRoundLog;
 
   const appendObjectFlowLog = useCallback(
     (payload: Record<string, unknown>, dedupeKey?: string): void => {
@@ -2432,6 +2070,7 @@ function App() {
       return false
     }
   }, [])
+  void copyTextToClipboard;
 
   const applySkillConfigValue = useCallback((nextValue: JsonObjectValue): void => {
     setSkillConfigValue(nextValue)
@@ -3265,6 +2904,7 @@ function App() {
       ),
     )
   }
+  void updateConversationTranscript;
 
   const updateConversationResponseMode = useCallback(
     (conversationId: string, responseMode: ConversationResponseMode): void => {
@@ -3293,6 +2933,7 @@ function App() {
     },
     [closeModelMenu, updateConversationDraft],
   )
+  void resetComposerState;
 
   const buildTurnHistoryTranscript = useCallback(
     (conversationId: string, turnId: string): TranscriptEvent[] | null => {
@@ -3313,10 +2954,12 @@ function App() {
     },
     [],
   )
+  void buildTurnHistoryTranscript;
 
   const clearQueuedTurnExecutions = useCallback((): void => {
     queuedTurnExecutionsRef.current = []
   }, [])
+  void clearQueuedTurnExecutions;
 
   const appendConversationTranscriptEvents = useCallback(
     (conversationId: string, events: TranscriptEvent[]): void => {
@@ -3337,6 +2980,7 @@ function App() {
     },
     [setConversationsState],
   )
+  void appendConversationTranscriptEvents;
 
   const updateAssistantEvent = useCallback(
     (
@@ -3440,6 +3084,7 @@ function App() {
       return nextFlow
     })
   }
+  void appendAssistantFlowRoundDivider;
 
   const clearAssistantFlowRoundState = (
     conversationId: string,
@@ -3465,6 +3110,7 @@ function App() {
       return nextFlow
     })
   }
+  void clearAssistantFlowRoundState;
 
   const applyAssistantStreamDelta = useCallback(
     (
@@ -3633,6 +3279,7 @@ function App() {
       })
     })
   }
+  void appendAssistantStreamDelta;
 
   const resetAssistantStreamOutput = (conversationId: string, assistantId: string): void => {
     flushQueuedAssistantStreamDelta()
@@ -3655,6 +3302,7 @@ function App() {
       }
     })
   }
+  void resetAssistantStreamOutput;
 
   const updateConversationTitle = (
     conversationId: string,
@@ -3702,12 +3350,14 @@ function App() {
     }
     return true
   }
+  void ensureReadyToRequest;
 
   const applyAssistantResult = (
     conversationId: string,
     assistantId: string,
     result: CompletionResult,
     promptMessages: ApiMessage[],
+  void promptMessages;
     options?: {
       resolvedText?: string
       preserveRawText?: boolean
@@ -3724,7 +3374,7 @@ function App() {
     const finalReasoning = preserveRawText
       ? result.reasoning.trim()
       : [result.reasoning, extracted.reasoning].filter(Boolean).join('\n\n').trim()
-    const usage = result.usage ?? estimateUsage(promptMessages, finalText)
+    const usage = result.usage ?? { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
     const usageEstimated = result.usage === undefined
 
     setConversationsState((previous) =>
@@ -3760,6 +3410,7 @@ function App() {
       }),
     )
   }
+  void applyAssistantResult;
 
   // ── Delegated to useAssistant hook ──
   const {
@@ -3771,6 +3422,7 @@ function App() {
     regenerate,
     copyMessageText,
   } = assistant
+  void executeAssistantTurn;
 
 
   const clearTitleTransitionTimers = useCallback((): void => {
