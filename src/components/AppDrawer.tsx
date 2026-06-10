@@ -1,7 +1,7 @@
 import { type PointerEvent } from 'react'
 import { useUIStore } from '../state/ui-store'
 import { useChatStore } from '../state/chat-store'
-import { formatDrawerGroupLabel, dateFormatter } from '../App'
+import { formatDrawerGroupLabel, dateFormatter } from '../utils/app-formatting'
 import type { ConversationGroup } from '../state/types'
 
 export interface AppDrawerProps {
