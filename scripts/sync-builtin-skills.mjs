@@ -7,7 +7,7 @@ const projectRoot = resolve(currentDir, '..')
 const builtinSkillsRoot = resolve(projectRoot, 'builtin-skills')
 const publicSkillsRoot = resolve(projectRoot, 'public', 'builtin-skills')
 
-const skills = ['device-info', 'runtime-shell']
+const skills = ['device-info']
 
 for (const skill of skills) {
   const source = resolve(builtinSkillsRoot, skill)
