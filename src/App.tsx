@@ -119,7 +119,7 @@ import AppDrawer from './components/AppDrawer'
 import NoticeBanner from './components/NoticeBanner'
 import ChatSummaryBar from './components/ChatSummaryBar'
 import ChatHeader from './components/ChatHeader'
-import ImageViewer, { type ImageViewerItem } from './components/ImageViewer'
+import ImageViewer from './components/ImageViewer'
 import NewConversationShowcase from './components/NewConversationShowcase'
 import CloudAuthForm from './components/CloudAuthForm'
 import { isCloudLoggedIn, getStoredCloudAuth, clearCloudAuth, getCloudServerUrl } from './services/cloud-auth'
@@ -255,115 +255,13 @@ import { useSettingsStore } from './state/settings-store'
 import './App.css'
 import './styles/app-editorial-redesign.css'
 
-const buildMessageImageViewerKey = (messageId: string, imageId: string): string =>
-  `message:${messageId}:${imageId}`
-
-const buildPendingImageViewerKey = (imageId: string): string => `pending:${imageId}`
-
-const toImageViewerItem = (
-  key: string,
-  image: Pick<ImageAttachment, 'name' | 'dataUrl'>,
-): ImageViewerItem | null => {
-  const dataUrl = image.dataUrl.trim()
-  if (!dataUrl) {
-    return null
-  }
-
-  return {
-    key,
-    name: image.name.trim() || '图片预览',
-    dataUrl,
-  }
-}
-
-const collectConversationImageViewerItems = (
-  messages: ChatMessage[],
-  pendingImages: PendingImageAttachment[],
-): ImageViewerItem[] => {
-  const items: ImageViewerItem[] = []
-
-  for (const message of messages) {
-    for (const image of message.images ?? []) {
-      const item = toImageViewerItem(buildMessageImageViewerKey(message.id, image.id), image)
-      if (item) {
-        items.push(item)
-      }
-    }
-  }
-
-  for (const image of pendingImages) {
-    const item = toImageViewerItem(buildPendingImageViewerKey(image.id), image)
-    if (item) {
-      items.push(item)
-    }
-  }
-
-  return items
-}
-
-const applyAssignedImageStorageKeys = (
-  conversations: Conversation[],
-  assignments: Array<{
-    conversationId: string
-    messageId: string
-    imageId: string
-    storageKey: string
-  }>,
-): Conversation[] => {
-  if (assignments.length === 0) {
-    return conversations
-  }
-
-  return conversations.map((conversation) => {
-    const conversationAssignments = assignments.filter((item) => item.conversationId === conversation.id)
-    if (conversationAssignments.length === 0) {
-      return conversation
-    }
-
-    let conversationChanged = false
-    const nextTranscript = conversation.transcript.map((event) => {
-      if (event.kind !== 'user_message') {
-        return event
-      }
-
-      const messageAssignments = conversationAssignments.filter((item) => item.messageId === event.id)
-      if (messageAssignments.length === 0) {
-        return event
-      }
-
-      let eventChanged = false
-      const nextContent = event.content.map((part) => {
-        if (part.type !== 'image') {
-          return part
-        }
-        const matched = messageAssignments.find((item) => item.imageId === part.image.id)
-        if (!matched || part.image.storageKey === matched.storageKey) {
-          return part
-        }
-        eventChanged = true
-        return {
-          type: 'image' as const,
-          image: {
-            ...part.image,
-            storageKey: matched.storageKey,
-          },
-        }
-      })
-
-      if (!eventChanged) {
-        return event
-      }
-
-      conversationChanged = true
-      return {
-        ...event,
-        content: nextContent,
-      }
-    })
-
-    return conversationChanged ? { ...conversation, transcript: nextTranscript } : conversation
-  })
-}
+import {
+  buildMessageImageViewerKey,
+  buildPendingImageViewerKey,
+  toImageViewerItem,
+  collectConversationImageViewerItems,
+  applyAssignedImageStorageKeys,
+} from './utils/app-images'
 
 import {
   DEBUG_SKILL_ROUND_LOG_STORAGE_KEY,
@@ -518,6 +416,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   dailyCover: DEFAULT_DAILY_COVER_SETTINGS,
   actiNetModels: [],
   otherProvidersEnabled: false,
+  actiNetAdvancedModelsEnabled: false,
 }
 
 const PROMPT_DEFAULTS: Record<GlobalPromptSettingKey, string> = {
@@ -1795,6 +1694,10 @@ const loadSettings = (): AppSettings => {
       otherProvidersEnabled:
         typeof parsed.otherProvidersEnabled === 'boolean'
           ? parsed.otherProvidersEnabled
+          : false,
+      actiNetAdvancedModelsEnabled:
+        typeof parsed.actiNetAdvancedModelsEnabled === 'boolean'
+          ? parsed.actiNetAdvancedModelsEnabled
           : false,
     })
     const migrated = migratePromptVersions(
@@ -8486,6 +8389,8 @@ function App() {
       }}
       actiNetModels={settings.actiNetModels}
       onUpdateActiNetModels={(models) => updateSetting('actiNetModels', models)}
+      actiNetAdvancedModelsEnabled={settings.actiNetAdvancedModelsEnabled}
+      onToggleAdvancedModels={(enabled) => updateSetting('actiNetAdvancedModelsEnabled', enabled)}
     />
   )
 

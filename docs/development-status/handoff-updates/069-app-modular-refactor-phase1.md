@@ -15,17 +15,16 @@
 - 移动 `truncateDebugLogText`、`readDebugLogEntries`、`appendDebugLogEntry`、`clearDebugLogEntries`
 - 移动 `buildDebugLogReportText`、`normalizePromptMessagesForDebug`
 - 已集成到 App.tsx（通过 `import from './utils/app-debug'`）
-- App.tsx 减少约 90 行
+- App.tsx 减少约 186 行（9,398 行）
 
-### 2. 创建格式化工具 (`src/utils/app-formatting.ts`)
+### 2. 提取图片查看器工具 (`src/utils/app-images.ts`) ✅
 
-- `isRecord`、`isJsonObjectRecord`、`formatJsonObject`、`parseSkillConfigDraft`
-- `toFiniteNumber`、`createId`
-- 日期/数字格式化器：`numberFormatter`、`dateFormatter`、`formatDrawerGroupLabel`、`formatCompactCount`
-- `getResponseModeLabel`、`buildHomepageModelTriggerLabel`
-- **状态**：文件已创建，等待集成到 App.tsx
+- `buildMessageImageViewerKey`、`buildPendingImageViewerKey`
+- `toImageViewerItem`、`collectConversationImageViewerItems`
+- `applyAssignedImageStorageKeys`
+- **已集成到 App.tsx**（替换约 110 行内联定义为 6 行导入）
 
-### 3. 创建图片查看器工具 (`src/utils/app-images.ts`)
+### 3. 创建格式化工具 (`src/utils/app-formatting.ts`)
 
 - `buildMessageImageViewerKey`、`buildPendingImageViewerKey`
 - `toImageViewerItem`、`collectConversationImageViewerItems`
@@ -84,8 +83,8 @@ src/
 | 阶段 | 内容 | 行数 | 状态 |
 |------|------|------|------|
 | 1a | 调试日志工具 → app-debug.ts | ~90 | ✅ 完成 |
-| 1b | 格式化/类型工具 → app-formatting.ts | ~200 | 🔧 待集成 |
-| 1c | 图片工具 → app-images.ts | ~110 | 🔧 待集成 |
+| 1b | 图片工具 → app-images.ts | ~110 | ✅ 完成 |
+| 1c | 格式化/类型工具 → app-formatting.ts | ~200 | 🔧 待集成 |
 | 1d | 设置标准化 → app-settings.ts | ~1100 | 📋 待创建 |
 | 1e | 对话工厂 → app-conversation.ts | ~150 | 📋 待创建 |
 | 1f | 动画工具 → app-animation.ts | ~80 | 📋 待创建 |
