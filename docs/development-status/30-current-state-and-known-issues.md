@@ -1,6 +1,6 @@
 # Current State And Known Issues
 
-Last updated: 2026-06-07
+Last updated: 2026-06-10
 
 > ⚠️ **2026-06-06 数据丢失事故**：排查代理 bug 时直接操作运行中容器的 SQLite DB 文件，导致 upstream 配置和 8 个 API key 丢失。详见 `handoff-updates/048-proxy-fix-and-data-loss-incident.md`。**教训：永远不要直接写运行中容器的 SQLite DB；部署脚本需增加自动备份。**
 
@@ -60,6 +60,20 @@ See `20-run-and-skill-runtime.md` for full architecture.
 6. **`android/gradlew`**: Tracked with CRLF line endings — requires LF wrapper on Linux.
 7. **Duplicate asset merge**: Repeated debug rebuilds after `cap sync` can intermittently hit duplicate asset merge errors under `public/builtin-skills/union-search/`. Workaround: `clean` → `assembleDebug`.
 8. **Emulator system bar**: White status-bar background visible above WebView — not yet matching prototype appearance.
+9. **App.tsx 未使用导入**：集成 useAssistant hook 后，约 70 个导入名不再使用。`eslint --fix` 可清理部分，剩余的需手动删除整个导入块（chat-api、chat-transcript、skills/executor、skills/protocol 等已不再被 App.tsx 直接使用）。
+
+## App.tsx 模块化重构（2026-06-10）
+
+**当前状态**：阶段 1-2 完成，App.tsx 从 9,584 降至 7,576 行（−21%）
+
+**已完成**：
+- 3 个工具模块提取并集成（app-debug, app-images, app-formatting）
+- useAssistant hook 完整提取并集成（1,736 行，−1,745 行）
+- 8 个 hook 文件 + SettingsPage 骨架
+- 构建成功，39 测试通过
+
+**目标**：App.tsx ~400 行
+**详细路线图**：`handoff-updates/070-app-modular-refactor-completion-plan.md`
 
 ## Cloud Server (`cloud-server/`)
 
