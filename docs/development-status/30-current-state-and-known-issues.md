@@ -64,28 +64,40 @@ See `20-run-and-skill-runtime.md` for full architecture.
 
 ## App.tsx 模块化重构（2026-06-11）
 
-**当前状态**：阶段 A/B/D2 完成，App.tsx 从 7,576 降至 6,080 行（−1,496 行，−19.7%）
+**当前状态**：阶段 A/B/D2/D3/D4/D5/D6 完成（hooks 已创建），App.tsx 从 7,576 降至 5,982 行（−1,594 行，−21.0%）
 
 **已完成**：
 - **阶段 A** 导入清理：移除 5 个完全未使用的导入块，修剪 6 个部分使用的导入块
 - **阶段 A** 移除 21 个死模块级函数（已复制到 useAssistant.ts）
 - **阶段 B** 模块提取：1,050 行模块级代码提取到 `src/utils/app-module.ts`
 - **阶段 D2** useChatUI 集成：UI handler 替换为 hook 调用
+- **阶段 D5** useUpdates hook 创建+集成：提取 update 检查/安装逻辑（−45 行）
+- **阶段 D6** usePermissions hook 创建+集成：提取权限管理逻辑（−54 行）
+- **阶段 D3** useSettings hook 创建（319 行，编译通过）
+- **阶段 D4** useExtensions hook 创建（416 行，编译通过）
 - 构建成功，39 测试通过
 
-**待完成**（详见 `handoff-updates/072-app-modular-refactor-progress.md`）：
-- D1：useConversation hook（~500 行）
-- D3：useSettings hook（~400 行）
-- D4：useExtensions hook（~200 行）
-- D5：useUpdates hook（~100 行）
-- D6：usePermissions hook（~80 行）
+**Hook 文件状态**：
+| Hook | 文件 | 行数 | 已集成到 App.tsx？ |
+|------|------|------|-------------------|
+| useAssistant | `src/hooks/useAssistant.ts` | 1,722 | ✅ |
+| useChatUI | `src/hooks/useChatUI.ts` | 260 | ✅ |
+| useCloudAuth | `src/hooks/useCloudAuth.ts` | 94 | ✅ |
+| useUpdates | `src/hooks/useUpdates.ts` | 83 | ✅ |
+| usePermissions | `src/hooks/usePermissions.ts` | 94 | ✅ |
+| useExtensions | `src/hooks/useExtensions.ts` | 416 | ❌ 待集成 |
+| useSettings | `src/hooks/useSettings.ts` | 319 | ❌ 待集成 |
+| useConversation | `src/hooks/useConversation.ts` | 22 | ❌ 骨架 |
+
+**待完成**（详见 `handoff-updates/073-app-modular-refactor-d3-d6-hooks.md`）：
+- D3b/D4b：useSettings/useExtensions 集成到 App.tsx（需手动更新渲染函数引用）
+- D1：useConversation hook（~500 行，最复杂的提取）
 - E1-E5：渲染函数提取到 views/（~1,500 行）
 - F：最终精简
 
 **目标**：App.tsx ~400 行
 **路线图**：`handoff-updates/070-app-modular-refactor-completion-plan.md`
-**阶段 A 报告**：`handoff-updates/071-app-modular-refactor-phase-a.md`
-**进度报告**：`handoff-updates/072-app-modular-refactor-progress.md`
+**阶段报告**：071, 072, 073
 
 ## Cloud Server (`cloud-server/`)
 
