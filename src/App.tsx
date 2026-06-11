@@ -63,6 +63,7 @@ import { isCloudLoggedIn, getStoredCloudAuth, clearCloudAuth } from './services/
 import type { UpdateInfo } from './services/app-update'
 import { useCloudAuth } from './hooks/useCloudAuth'
 import { useUpdates } from './hooks/useUpdates'
+import { useConversation } from './hooks/useConversation'
 import { usePermissions } from './hooks/usePermissions'
 import UpdateDialog from './components/UpdateDialog'
 import ThinkingPhrase from './components/ThinkingPhrase'
@@ -871,7 +872,10 @@ function App() {
   }, [])
 
   // ── Permissions (delegated to usePermissions hook) ──
+  const conv = useConversation(initialStateRef)
   const perms = usePermissions(pushNotice)
+  const ext = useExtensions(pushNotice, openDeleteDialog)
+  const set = useSettings(pushNotice, openDeleteDialog)
 
   // ── Relay ActiNetSettings custom events as pushNotice ──
   useEffect(() => {
