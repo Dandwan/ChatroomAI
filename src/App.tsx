@@ -1,9 +1,5 @@
 import {
-  startTransition,
-  useCallback,
   type CSSProperties,
-  type PointerEvent,
-  type UIEvent,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -16,9 +12,7 @@ import type { ApiMessage } from './services/chat-api'
 import {
   isTranscriptConversationWorkspacePlaceholder,
   projectConversationMessages,
-  type AssistantMessageTranscriptEvent,
   type TranscriptContentPart,
-  type TranscriptEvent,
   type UserMessageTranscriptEvent,
 } from './services/chat-transcript'
 
@@ -62,7 +56,6 @@ import {
 } from './utils/assistant-flow'
 import {
   buildHistoryStatsFromSummaries,
-  deleteConversationStorage,
 } from './services/chat-storage'
 import type {
   AppSettings,
@@ -73,21 +66,13 @@ import type {
   ConversationDrafts,
   ConversationGroup,
   LoadedChatState,
-  MessageListScrollMetrics,
   Notice,
-  PromptEditorKey,
   SettingsView,
-  TagPromptEditorKey,
   TurnExecutionJob,
 } from './state/types'
 import {
   HOMEPAGE_SEND_TRANSITION_DURATION_MS,
   SETTINGS_STORAGE_KEY,
-  SWIPE_DELETE_TOGGLE_THRESHOLD_PX,
-  SWIPE_DELETE_MAX_OFFSET_PX,
-  LONG_PRESS_DELETE_MODE_MS,
-  LONG_PRESS_MOVE_TOLERANCE_PX,
-  DRAWER_TO_SETTINGS_OPEN_DELAY_MS,
   SETTINGS_PERSIST_DEBOUNCE_MS,
 } from './state/types'
 import { useUIStore } from './state/ui-store'
@@ -109,7 +94,6 @@ import './styles/app-editorial-redesign.css'
 import {
   numberFormatter,
   createId,
-  clamp,
   formatCompactCount,
   getResponseModeLabel,
 } from './utils/app-formatting'
@@ -125,15 +109,10 @@ import {
   ACTINET_PROVIDER_ID,
   ACTINET_PROVIDER_NAME,
   hasConversationStarted,
-  MESSAGE_LIST_AUTO_SCROLL_MAX_MS,
-  MESSAGE_LIST_BOTTOM_THRESHOLD_PX,
-  MESSAGE_LIST_INTERACTION_IDLE_MS,
   MESSAGE_LIST_SCROLL_BUTTON_DISTANCE_FACTOR,
   createNumericSettingDrafts,
   resolveConversationResponseMode,
-  resolveMessageListSmoothScrollStep,
   toConversationSummary,
-  vibrateInteraction,
   withConversationRecordTranscript,
 } from './utils/app-module'
 function App() {
@@ -172,7 +151,6 @@ function App() {
   void numericSettingDrafts; // E1
   const providerNumericSettingDrafts = useSettingsStore((s) => s.providerNumericSettingDrafts)
   void providerNumericSettingDrafts; // E1
-  const setProviderNumericSettingDrafts = useSettingsStore((s) => s.setProviderNumericSettingDrafts)
 
   // ── Chat store ──
   const conversations = useChatStore((s) => s.conversations)
@@ -206,12 +184,9 @@ function App() {
   // ── UI store: settings navigation ──
   const settingsView = useUIStore((s) => s.settingsView)
   const providerDetailTargetId = useUIStore((s) => s.providerDetailTargetId)
-  const setProviderDetailTargetId = useUIStore((s) => s.setProviderDetailTargetId)
   const manualModelDraft = useUIStore((s) => s.manualModelDraft)
   void manualModelDraft; // E1
-  const setManualModelDraft = useUIStore((s) => s.setManualModelDraft)
   const providerModelSearch = useUIStore((s) => s.providerModelSearch)
-  const setProviderModelSearch = useUIStore((s) => s.setProviderModelSearch)
   const isFetchingModelsByProviderId = useUIStore((s) => s.isFetchingModelsByProviderId)
   void isFetchingModelsByProviderId; // E1
   const setIsFetchingModelsByProviderId = useUIStore((s) => s.setIsFetchingModelsByProviderId)
@@ -222,7 +197,6 @@ function App() {
   void openPromptEditors; // E1
   const openProviderPromptEditors = useUIStore((s) => s.openProviderPromptEditors)
   void openProviderPromptEditors; // E1
-  const setOpenProviderPromptEditors = useUIStore((s) => s.setOpenProviderPromptEditors)
 
   // ── UI store: delete / edit / notice / sending ──
   const setDeleteModeEnabled = useUIStore((s) => s.setDeleteModeEnabled)
@@ -248,17 +222,12 @@ function App() {
 
   // ── UI store: drawer ──
   const setCollapsedConversationGroups = useUIStore((s) => s.setCollapsedConversationGroups)
-  const swipingConversationId = useUIStore((s) => s.swipingConversationId)
   const setSwipingConversationId = useUIStore((s) => s.setSwipingConversation)
   const setSwipeOffsetX = useUIStore((s) => s.setSwipeOffsetX)
 
   // ── UI store: scroll ──
-  const isAutoFollowEnabled = useUIStore((s) => s.isAutoFollowEnabled)
-  const setIsAutoFollowEnabled = useUIStore((s) => s.setIsAutoFollowEnabled)
   const messageListScrollMetrics = useUIStore((s) => s.messageListScrollMetrics)
-  const setMessageListScrollMetrics = useUIStore((s) => s.setMessageListScrollMetrics)
   const activeChatScrollInsets = useUIStore((s) => s.activeChatScrollInsets); void activeChatScrollInsets
-  const setActiveChatScrollInsets = useUIStore((s) => s.setActiveChatScrollInsets)
 
   // ── UI store: transitions ──
   const homepageSendTransition = useUIStore((s) => s.homepageSendTransition)
@@ -314,13 +283,6 @@ function App() {
     'daily-cover': 0,
   })
   const drawerScrollTopRef = useRef(0)
-  const messageListInteractionTimerRef = useRef<number | null>(null)
-  const messageListUserInteractingRef = useRef(false)
-  const messageListProgrammaticScrollRef = useRef(false)
-  const messageListProgrammaticScrollAnimationFrameRef = useRef<number | null>(null)
-  const messageListSmoothScrollAnimationFrameRef = useRef<number | null>(null)
-  const messageListSmoothScrollInProgressRef = useRef(false)
-  const pendingMessageListBottomResetRef = useRef(true)
   const hasAutoCollapsedConversationGroupsRef = useRef(false)
   const conversationGroupElementRefs = useRef<Record<string, HTMLElement | null>>({})
   const deleteConfirmBypassUntilRef = useRef(0)
@@ -333,9 +295,6 @@ function App() {
     longPressTriggered: boolean
     longPressTimerId: number | null
   } | null>(null)
-  const ignoreNextConversationClickRef = useRef<string | null>(null)
-  const openSettingsAfterDrawerTimerRef = useRef<number | null>(null)
-  const queuedTurnExecutionsRef = useRef<TurnExecutionJob[]>([])
   const processingTurnQueueRef = useRef(false)
   void processingTurnQueueRef;
 
@@ -635,7 +594,6 @@ function App() {
     [emptyStateStats],
   )
 
-  const shouldShowScrollToBottomButton =
     activeMessages.length > 0 &&
     messageListScrollMetrics.viewportHeight > 0 &&
     messageListScrollMetrics.bottomOffset >
