@@ -64,7 +64,7 @@ See `20-run-and-skill-runtime.md` for full architecture.
 
 ## App.tsx 模块化重构（2026-06-11）
 
-**当前状态**：阶段 A/B/D1-D6 全部完成（5 个 hooks 已创建），App.tsx 从 7,576 降至 5,982 行（−1,594 行，−21.0%）
+**当前状态**：阶段 A/B/D1-D6 全部完成（4 个 hooks 已集成），App.tsx 从 7,576 降至 5,416 行（−2,160 行，−28.5%）
 
 **已完成**：
 - **阶段 A** 导入清理 + 死代码移除（−348 行）
@@ -72,10 +72,10 @@ See `20-run-and-skill-runtime.md` for full architecture.
 - **阶段 D2** useChatUI 集成（−141 行）
 - **阶段 D5** useUpdates hook 创建+集成（−45 行）
 - **阶段 D6** usePermissions hook 创建+集成（−54 行）
-- **阶段 D1** useConversation hook 创建（470 行，零编译错误）
-- **阶段 D3** useSettings hook 创建（319 行，零编译错误）
-- **阶段 D4** useExtensions hook 创建（416 行，零编译错误）
-- 构建成功，39 测试通过，所有 hook 编译零错误
+- **阶段 D3** useSettings hook 创建+集成（−304 行）—— 解构替换 17 个内联函数
+- **阶段 D4** useExtensions hook 创建+集成（−266 行）—— 解构替换 28 个内联函数
+- **阶段 D1** useConversation hook 创建（470 行）—— 已导入但保留命名空间调用
+- 构建成功，39 测试通过
 
 **Hook 文件状态**（共 8 个 hooks，~3,400 行）：
 | Hook | 文件 | 行数 | 已集成？ |
@@ -83,14 +83,18 @@ See `20-run-and-skill-runtime.md` for full architecture.
 | useAssistant | `src/hooks/useAssistant.ts` | 1,722 | ✅ |
 | useChatUI | `src/hooks/useChatUI.ts` | 260 | ✅ |
 | useCloudAuth | `src/hooks/useCloudAuth.ts` | 94 | ✅ |
-| useConversation | `src/hooks/useConversation.ts` | 470 | ✅ 新建 |
-| useSettings | `src/hooks/useSettings.ts` | 319 | ✅ 新建 |
-| useExtensions | `src/hooks/useExtensions.ts` | 416 | ✅ 新建 |
+| useSettings | `src/hooks/useSettings.ts` | 319 | ✅ 已集成 |
+| useExtensions | `src/hooks/useExtensions.ts` | 416 | ✅ 已集成 |
 | useUpdates | `src/hooks/useUpdates.ts` | 83 | ✅ 已集成 |
 | usePermissions | `src/hooks/usePermissions.ts` | 94 | ✅ 已集成 |
+| useConversation | `src/hooks/useConversation.ts` | 470 | 🔧 已导入 |
 
-**待完成**（详见 `handoff-updates/073-app-modular-refactor-d1-d6-complete.md`）：
-- D1b/D3b/D4b：useConversation/useSettings/useExtensions 集成到 App.tsx（需手动更新 ~65 处渲染函数引用）
+**待完成**：
+- D1b：useConversation 集成到 App.tsx（effects 与 App.tsx 深度交织，需谨慎）
+- E1-E5：渲染函数提取到 views/（~1,500 行）
+- F：最终精简 App.tsx + 更新全部摘要
+
+**目标**：App.tsx ~400 行
 - E1-E5：渲染函数提取到 views/（~1,500 行）
 - F：最终精简 App.tsx + 更新全部摘要
 
