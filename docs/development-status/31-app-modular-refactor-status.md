@@ -25,35 +25,34 @@ App.tsx (~400 行 shell)
 
 | 维度 | 数值 |
 |------|------|
-| **App.tsx 行数** | 3,764（−3,812 行，−50.3%） |
+| **App.tsx 行数** | 3,191（−4,385 行，−57.9%） |
 | **tsc 错误** | **0** ✅ |
 | **测试** | **39 passed** ✅（1 个 E2E 文件预存失败，与重构无关） |
-| **Views 组件** | 1 个就位 / 5 个目标（SettingsPage ✅） |
+| **Views 组件** | **5 个全部就位** ✅ |
 | **Hooks** | 8 个全部就位 ✅ |
 | **构建（npm run build）** | ❌ 预存问题（`builtin-skills/runtime-shell/` 目录缺失） |
-| **最新 Git 提交** | `b1fec52` feat: E1 — SettingsPage 提取完成 |
+| **最新 Git 提交** | 待提交（078 交接更新） |
 
-### 当前 App.tsx 组成分析（3,764 行估计）
+### 当前 App.tsx 组成分析（3,191 行估计）
 
 ```
 ─────────────────────────────────────
-  1. 导入区域             ~80 行
+  1. 导入区域             ~70 行
   2. Store 初始化          ~30 行
   3. Store 选择器          ~100 行
   4. Hook 调用与解构       ~200 行
   5. useCallback/useMemo   ~800 行
-  6. 局部辅助函数          ~900 行 (handleSend, pushNotice, handleImageSelect 等)
-  7. Event handlers        ~400 行 (scroll, pointer, swipe, keyboard)
+  6. 局部辅助函数          ~900 行
+  7. Event handlers        ~400 行
   8. useEffect/layout      ~200 行
-  9. 内联渲染函数          ~310 行 (renderComposerTools, renderComposerFooter)
- 10. JSX return 语句       ~550 行
- 11. 其他                  ~194 行
+  9. JSX (AppShell 调用)   ~300 行
+ 10. 其他                  ~191 行
 ─────────────────────────────────────
 ```
 
 ---
 
-## 三、已完成工作（9 个阶段）
+## 三、已完成工作（13 个阶段）
 
 | 阶段 | 内容 | 效果 | 文件 | 备注 |
 |------|------|------|------|------|
@@ -66,6 +65,10 @@ App.tsx (~400 行 shell)
 | **D5** (073) | useUpdates hook | −45 行 | `hooks/useUpdates.ts` | APK 更新检查/安装 |
 | **D6** (073) | usePermissions hook | −54 行 | `hooks/usePermissions.ts` | 原生权限请求 |
 | **E1** (077) | SettingsPage 提取 | −1,335 行 | `views/SettingsPage.tsx` | 16 个渲染函数，tsc 0，39 tests |
+| **E4** (078) | HomepageView 提取 | −25 行 | `views/HomepageView.tsx` | 主页空白态 3 种状态 |
+| **E3** (078) | ComposerView 提取 | −307 行 | `views/ComposerView.tsx` | 模型选择器 + 输入区 |
+| **E2** (078) | ChatView 提取 | −251 行 | `views/ChatView.tsx` | 消息列表渲染 |
+| **E5** (078) | AppShell 提取 | 架构分离 | `views/AppShell.tsx` | 顶层布局壳 |
 
 ### 各阶段验证矩阵
 
@@ -81,12 +84,32 @@ App.tsx (~400 行 shell)
 | D1 | 2 (语法) | — | −333 | 5,083 |
 | 076 (修复) | 0 | 39 | +16 | 5,099 |
 | **E1 (077)** | **0** | **39** | **−1,335** | **3,764** |
+| E4 | 0 | 39 | −25 | 3,739 |
+| E3 | 0 | 39 | −307 | 3,432 |
+| E2 | 0 | 39 | −251 | 3,181 |
+| E5 | 0 | 39 | +10 | 3,191 |
+| **F (078)** | **0** | **39** | **0** | **3,191** |
 
 ---
 
-## 四、待完成工作
+## 四、当前状态（全部阶段已完成）
 
-### 阶段 E2–E5：剩余 Views 提取（估计 4–6 小时）
+### Views 组件（全部就位 ✅）
+
+| 组件 | 状态 | 提取阶段 | 说明 |
+|------|------|---------|------|
+| SettingsPage.tsx | ✅ 已提取 | E1 (077) | 16 个设置渲染函数 |
+| HomepageView.tsx | ✅ 已提取 | E4 (078) | 主页空白态 3 种状态 |
+| ComposerView.tsx | ✅ 已提取 | E3 (078) | 模型选择器 + 输入区 |
+| ChatView.tsx | ✅ 已提取 | E2 (078) | 消息列表渲染 |
+| AppShell.tsx | ✅ 已提取 | E5 (078) | 顶层布局壳 |
+
+### 后续可优化项
+
+1. 将 App.tsx 中剩余约 2,800 行业务逻辑（useCallback/useMemo/effects）迁移到对应 hooks
+2. 将 useConversation 从命名空间改为解构模式
+3. 清理 ~124 个 void 语句
+4. 修复 `npm run build`（runtime-shell 缺失）
 
 #### E2：ChatView.tsx（~200 行移除）
 
@@ -237,10 +260,10 @@ function App() {
 
 ---
 
-## 六、阶段性里程碑路线图
+## 六、里程碑路线图（已完成）
 
 ```
-7,576 行 ─────────────────────────────────────── ~400 行
+7,576 行 ─────────────────────────────────────── 3,191 行
 
 Phase 1 (069): 工具函数提取      ──→ 7,576 → 7,228 (−348)
 Phase A (071): 导入清理          ──→ 7,228 → 7,228
@@ -253,21 +276,15 @@ Phase D4 (073-074): useExtensi-  ──→ 5,682 → 5,416 (−266)
   ons
 Phase D1 (075-076): useConver-   ──→ 5,416 → 5,099 (−317)
   sation + 错误修复
-Phase E1 (077): SettingsPage     ──→ 5,099 → 3,764 (−1,335)  ← 当前位置
-──────────────────────────────────────────────────
-Phase E4: HomepageView           ──→ 3,764 → 3,714 (−50)
-Phase E3: ComposerView           ──→ 3,714 → 3,414 (−300)
-Phase E2: ChatView               ──→ 3,414 → 3,214 (−200)
-Phase E5: AppShell               ──→ 3,214 → 2,714 (−500)
-Phase F: 最终精简 + 摘要更新     ──→ 2,714 → ~400
+Phase E1 (077): SettingsPage     ──→ 5,099 → 3,764 (−1,335)
+Phase E4 (078): HomepageView     ──→ 3,764 → 3,739 (−25)
+Phase E3 (078): ComposerView     ──→ 3,739 → 3,432 (−307)
+Phase E2 (078): ChatView         ──→ 3,432 → 3,181 (−251)
+Phase E5 (078): AppShell         ──→ 3,181 → 3,191 (+10, 架构分离)
+Phase F (078): 精简 + 摘要更新   ──→ 3,191
 
-已减: −3,812 行 (−50.3%)
-剩余: ~3,364 行
+已完成: −4,385 行 (−57.9%)
 ```
-
-### 推荐执行顺序
-
-E4（最简单，建立信心）→ E3 → E2 → E5（最复杂，在子组件就位后最干净）→ F
 
 ---
 

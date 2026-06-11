@@ -3,7 +3,6 @@ import {
   useCallback,
   type CSSProperties,
   type PointerEvent,
-  type ReactNode,
   type UIEvent,
   useEffect,
   useLayoutEffect,
@@ -24,8 +23,6 @@ import {
 } from './services/chat-transcript'
 
 import { isNativeRuntimeAvailable } from './services/skills/native-runtime'
-import ChatInputBox from './components/ChatInputBox'
-import MarkdownMessage from './components/MarkdownMessage'
 import ChatScrollPlaceholder from './components/ChatScrollPlaceholder'
 import DeleteConfirmationLayer from './components/DeleteConfirmationLayer'
 import AppDrawer from './components/AppDrawer'
@@ -33,9 +30,11 @@ import NoticeBanner from './components/NoticeBanner'
 import ChatSummaryBar from './components/ChatSummaryBar'
 import ChatHeader from './components/ChatHeader'
 import ImageViewer from './components/ImageViewer'
-import NewConversationShowcase from './components/NewConversationShowcase'
-import CloudAuthForm from './components/CloudAuthForm'
 import { SettingsPage } from './views/SettingsPage'
+import { HomepageView } from './views/HomepageView'
+import { ComposerView } from './views/ComposerView'
+import { ChatView } from './views/ChatView'
+import { AppShell } from './views/AppShell'
 import { isCloudLoggedIn } from './services/cloud-auth'
 import type { UpdateInfo } from './services/app-update'
 import { useCloudAuth } from './hooks/useCloudAuth'
@@ -45,7 +44,6 @@ import { useExtensions } from './hooks/useExtensions'
 import { useSettings } from './hooks/useSettings'
 import { usePermissions } from './hooks/usePermissions'
 import UpdateDialog from './components/UpdateDialog'
-import ThinkingPhrase from './components/ThinkingPhrase'
 import { getEffectiveActiNetModels } from './services/actinet-models'
 import HomepageSendTransition from './components/HomepageSendTransition'
 import TitleTransition from './components/TitleTransition'
@@ -65,18 +63,12 @@ import {
   assistantFlowToPlainText,
   clearAssistantFlowRound,
   createAssistantTextFlow,
-  formatSkillStepStatus,
-  formatSkillStepTarget,
   type AssistantFlowNode,
-  type AssistantFlowSkillNode,
 } from './utils/assistant-flow'
 import {
   buildHistoryStatsFromSummaries,
   deleteConversationStorage,
 } from './services/chat-storage'
-import { createProviderModelKey } from './utils/model-utils'
-import { stripSkillParsingHintLines } from './utils/text-utils'
-import { formatMs } from './utils/time-utils'
 import type {
   AppSettings,
   ChatSummarySnapshot,
@@ -85,7 +77,6 @@ import type {
   Conversation,
   ConversationDrafts,
   ConversationGroup,
-  ConversationResponseMode,
   LoadedChatState,
   MessageListScrollMetrics,
   Notice,
@@ -117,11 +108,6 @@ import './App.css'
 import './styles/app-editorial-redesign.css'
 
 import {
-  buildMessageImageViewerKey,
-  buildPendingImageViewerKey,
-} from './utils/app-images'
-
-import {
   DEBUG_SKILL_ROUND_LOG_STORAGE_KEY,
   DEBUG_OBJECT_FLOW_LOG_STORAGE_KEY,
   truncateDebugLogText,
@@ -133,7 +119,6 @@ import {
   clamp,
   formatCompactCount,
   getResponseModeLabel,
-  buildHomepageModelTriggerLabel,
 } from './utils/app-formatting'
 
 import {
@@ -160,7 +145,6 @@ import {
   TITLE_EDIT_TRANSITION_MS,
   toConversationSummary,
   vibrateInteraction,
-  withConversationRecordResponseMode,
   withConversationRecordTranscript,
 } from './utils/app-module'
 function App() {
@@ -218,7 +202,7 @@ function App() {
   // ── Chat UI (delegated to useChatUI hook) ──
   const {
     openDrawer, closeDrawer, drawerMounted, drawerVisible,
-    openModelMenu, closeModelMenu, modelMenuMounted, modelMenuVisible,
+    openModelMenu, closeModelMenu, modelMenuMounted,
     openSettings, closeSettings, settingsMounted, settingsVisible,
     openImageViewer, closeImageViewer, imageViewerMounted, imageViewerVisible,
     showScrollToBottomButton, hideScrollToBottomButton,
@@ -261,8 +245,6 @@ function App() {
   const editingText = useUIStore((s) => s.editingText)
   const setEditingText = useUIStore((s) => s.setEditingText)
   const imageViewer = useUIStore((s) => s.imageViewer)
-  const openReasoningByMessage = useUIStore((s) => s.openReasoningByMessage)
-  const openSkillResultByStep = useUIStore((s) => s.openSkillResultByStep)
   const isEditingTitle = useUIStore((s) => s.isEditingTitle)
   const titleDraft = useUIStore((s) => s.titleDraft)
   const titleTransition = useUIStore((s) => s.titleTransition)
@@ -276,7 +258,6 @@ function App() {
   const isSending = useUIStore((s) => s.isSending)
   const setIsSending = useUIStore((s) => s.setIsSending)
   void setIsSending;
-  const activeRequestConversationId = useUIStore((s) => s.activeRequestConversationId)
   const setActiveRequestConversationId = useUIStore((s) => s.setActiveRequestConversationId)
   void setActiveRequestConversationId;
 
@@ -608,10 +589,6 @@ function App() {
     },
     [settings.providers, settings.actiNetModels, settings.otherProvidersEnabled, cloudLoggedIn],
   )
-  const isRunningInActiveConversation =
-    activeConversation !== null &&
-    activeRequestConversationId !== null &&
-    activeConversation.id === activeRequestConversationId
   const providerDetailTarget = useMemo(
     () => settings.providers.find((provider) => provider.id === providerDetailTargetId) ?? null,
     [providerDetailTargetId, settings.providers],
@@ -724,17 +701,6 @@ function App() {
     [emptyStateStats],
   )
 
-  const hasDraftText = draft.trim().length > 0
-  const hasComposerPayload = hasDraftText || pendingImages.length > 0
-  const isComposerLocked =
-    activeConversation === null || isActiveConversationLoading || isActiveConversationLoadError
-  const canSend = !isComposerLocked && hasComposerPayload && !isSending
-  const canAppendWhileSending =
-    !isComposerLocked &&
-    activeConversationResponseMode === 'tool' &&
-    isSending &&
-    isRunningInActiveConversation &&
-    hasComposerPayload
   const shouldShowScrollToBottomButton =
     activeMessages.length > 0 &&
     messageListScrollMetrics.viewportHeight > 0 &&
@@ -1010,23 +976,6 @@ function App() {
   void updateConversationTranscript;
   void toggleProviderPromptEditor; // E1
   void togglePromptEditor; // E1
-
-  const updateConversationResponseMode = useCallback(
-    (conversationId: string, responseMode: ConversationResponseMode): void => {
-      setConversationsState((previous) =>
-        previous.map((conversation) =>
-          conversation.id === conversationId
-            ? withConversationRecordResponseMode(
-                conversation,
-                responseMode,
-                draftsByConversationRef.current[conversation.id] ?? '',
-              )
-            : conversation,
-        ),
-      )
-    },
-    [setConversationsState],
-  )
 
   const resetComposerState = useCallback(
     (conversationId: string): void => {
@@ -2920,342 +2869,32 @@ function App() {
       }
     }
   }, [conversationGroups, drawerVisible, settings.autoCollapseConversations])
-
-  const renderComposerTools = ({
-    className = 'composer-tools',
-  }: {
-    className?: string
-  } = {}) => (
-    <div className={className}>
-      <div className="model-picker composer-model-picker homepage-model-picker" ref={modelMenuRef}>
-        <button
-          type="button"
-          className="model-trigger composer-model-trigger is-editorial-chat-shell"
-          onClick={() => (modelMenuVisible ? closeModelMenu() : openModelMenu())}
-        >
-          <span className="model-trigger-label">
-            {buildHomepageModelTriggerLabel(settings.currentModel, activeConversationResponseMode)}
-          </span>
-          <span className={`arrow ${modelMenuVisible ? 'open' : ''}`}>▾</span>
-        </button>
-
-        {modelMenuMounted ? (
-          <div
-            className={`model-popover composer-model-popover homepage-model-popover frosted-surface ${
-              modelMenuVisible ? 'is-open' : 'is-closing'
-            }`}
-            style={{ top: 'auto', bottom: 'calc(100% + 8px)', transformOrigin: 'center bottom' }}
-            onTransitionEnd={(event) => {
-              if (!modelMenuVisible && event.target === event.currentTarget) {
-                useUIStore.getState().setModelMenuVisibility(false, false)
-              }
-            }}
-          >
-            {enabledModelOptions.length === 0 ? (
-              <div className="model-popover-empty">
-                <p>暂无模型</p>
-                <button
-                  type="button"
-                  className="tiny-button"
-                  onClick={() => {
-                    closeModelMenu()
-                    openSettings()
-                    navigateSettingsView('providers')
-                  }}
-                >
-                  去设置
-                </button>
-              </div>
-            ) : (
-              enabledModelsByProvider.map((provider) => (
-                <div key={provider.providerId} className="model-provider-group">
-                  <div className="conversation-group-divider model-provider-divider">
-                    <span className="conversation-group-label">{provider.providerName || '未命名服务商'}</span>
-                    <span className="conversation-group-dash" aria-hidden="true" />
-                  </div>
-
-                  {provider.models.map((model) => (
-                    <button
-                      key={createProviderModelKey(provider.providerId, model.id)}
-                      type="button"
-                      className={`model-option ${
-                        settings.currentProviderId === provider.providerId &&
-                        settings.currentModel === model.id
-                          ? 'active'
-                          : ''
-                      }`}
-                      onClick={() => {
-                        selectCurrentModel(provider.providerId, model.id)
-                        closeModelMenu()
-                      }}
-                    >
-                      {model.id}
-                    </button>
-                  ))}
-                </div>
-              ))
-            )}
-
-            {enabledModelOptions.length > 0 ? (
-              <div className="homepage-model-mode-footer">
-                <span className="homepage-model-mode-label">Response mode</span>
-                <div className="homepage-model-mode-actions" role="group" aria-label="选择首页响应模式">
-                  <button
-                    type="button"
-                    className={`homepage-model-mode-button ${
-                      activeConversationResponseMode === 'tool' ? 'active' : ''
-                    }`}
-                    disabled={activeConversationModeLocked || !activeConversation || isComposerLocked}
-                    onClick={() => {
-                      if (!activeConversation || activeConversationModeLocked || isComposerLocked) {
-                        return
-                      }
-                      updateConversationResponseMode(activeConversation.id, 'tool')
-                      updateSetting('defaultResponseMode', 'tool')
-                      closeModelMenu()
-                    }}
-                  >
-                    技能模式
-                  </button>
-                  <button
-                    type="button"
-                    className={`homepage-model-mode-button ${
-                      activeConversationResponseMode === 'text' ? 'active' : ''
-                    }`}
-                    disabled={activeConversationModeLocked || !activeConversation || isComposerLocked}
-                    onClick={() => {
-                      if (!activeConversation || activeConversationModeLocked || isComposerLocked) {
-                        return
-                      }
-                      updateConversationResponseMode(activeConversation.id, 'text')
-                      updateSetting('defaultResponseMode', 'text')
-                      closeModelMenu()
-                    }}
-                  >
-                    文本模式
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-
-      <button
-        type="button"
-        className="icon-button"
-        aria-label="选择图片"
-        disabled={isComposerLocked}
-        onClick={() => fileInputRef.current?.click()}
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <rect
-            x="3.75"
-            y="4.75"
-            width="16.5"
-            height="14.5"
-            rx="2.25"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-          />
-          <circle cx="8.8" cy="9.7" r="1.45" fill="none" stroke="currentColor" strokeWidth="1.8" />
-          <path
-            d="M4.8 16.5l3.9-3.9a1.1 1.1 0 0 1 1.56 0l2 2a1.1 1.1 0 0 0 1.56 0l1.7-1.7a1.1 1.1 0 0 1 1.56 0l2.06 2.06"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
-
-      <button
-        type="button"
-        className="icon-button"
-        aria-label="拍照"
-        disabled={isComposerLocked}
-        onClick={() => {
-          if (isComposerLocked) {
-            return
-          }
-          if (!settings.permissionToggles.camera) {
-            pushNotice('请先在权限设置中开启相机权限。', 'error')
-            return
-          }
-          cameraInputRef.current?.click()
-        }}
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M8 6.5 9.1 4.9h5.8L16 6.5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <rect
-            x="3.5"
-            y="6.5"
-            width="17"
-            height="12"
-            rx="2.5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-          />
-          <circle cx="12" cy="12.5" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
-        </svg>
-      </button>
-    </div>
-  )
-
-  const renderComposerFooter = (): ReactNode => (
-    <footer ref={composerFooterRef} className="composer is-editorial-chat-shell">
-      {scrollToBottomButtonMounted ? (
-        <button
-          type="button"
-          className={`icon-button composer-scroll-bottom-button ${
-            scrollToBottomButtonVisible ? 'is-open' : 'is-closing'
-          }`}
-          onClick={handleScrollToBottomButtonClick}
-          aria-label="回到底部"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M12 5.5v11.2"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-            />
-            <path
-              d="m7.5 13.3 4.5 4.9 4.5-4.9"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
-      ) : null}
-
-      <div className="composer-panel">
-        {pendingImages.length > 0 ? (
-          <div className="pending-image-strip">
-            {pendingImages.map((image) => (
-              <div key={image.id} className="pending-image-item">
-                <button
-                  type="button"
-                  className="pending-image-preview"
-                  onClick={() => openImageViewer(buildPendingImageViewerKey(image.id), image)}
-                  aria-label={`查看图片 ${image.name}`}
-                >
-                  <img src={image.dataUrl} alt={image.name} />
-                </button>
-                <button
-                  type="button"
-                  className="pending-image-remove-button"
-                  onClick={() => conv.removePendingImage(image.id)}
-                  aria-label={`移除图片 ${image.name}`}
-                >
-                  ×
-                </button>
-                <div className="pending-image-controls">
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={image.compressionRate}
-                    onChange={(event) =>
-                      conv.updatePendingImageCompression(image.id, Number(event.target.value))
-                    }
-                    aria-label={`压缩率 ${image.name}`}
-                  />
-                  <span>{image.compressionRate}%</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        <div className="composer-row">
-          <ChatInputBox
-            ref={composerInputRef}
-            className="chat-input-box composer-input"
-            value={draft}
-            onChange={(event) => {
-              if (!activeConversation) {
-                return
-              }
-              updateConversationDraft(activeConversation.id, event.target.value)
-            }}
-            placeholder={isComposerLocked ? '请先等待历史对话载入完成' : '输入消息'}
-            maxHeight={188}
-            disabled={isComposerLocked}
-          />
-
-          {isSending ? (
-            canAppendWhileSending ? (
-              <button type="button" className="composer-send-button" onClick={handleAppend}>
-                追加
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="composer-send-button danger-button"
-                onClick={assistant.stopGeneration}
-              >
-                停止
-              </button>
-            )
-          ) : (
-            <button
-              type="button"
-              className="composer-send-button"
-              disabled={!canSend}
-              onClick={() => void handleSend()}
-            >
-              发送
-            </button>
-          )}
-        </div>
-
-        {renderComposerTools()}
-      </div>
-    </footer>
-  )
-
+  // ── Composer rendering extracted to views/ComposerView.tsx (Phase E3) ──
   // ── Settings rendering extracted to views/SettingsPage.tsx (Phase E1) ──
 
   return (
-    <div
-      className={`app-shell chat-page-shell ${isHomepageEmptyState ? 'is-homepage-empty' : ''} ${
-        hasActiveMessages ? 'has-active-messages' : ''
-      } ${homepageSendTransition ? 'is-homepage-send-transition-active' : ''}`}
-      style={appShellStyle}
-    >
-      {shouldShowHomepageBackground ? (
-        <div className={`homepage-empty-background ${resolvedDailyCover ? 'has-cover' : 'is-fallback'}`} aria-hidden="true" />
-      ) : null}
-
-      {shouldShowChatBackground ? <div className="chat-active-background" aria-hidden="true" /> : null}
-
-      {homepageSendTransition ? (
-        <HomepageSendTransition
-          transition={homepageSendTransition}
-          numberFormatter={numberFormatter}
-          onAnimationEnd={() => setHomepageSendTransition(null)}
-        />
-      ) : null}
-
-      {titleTransition ? <TitleTransition transition={titleTransition} /> : null}
-
-      <div className="app-shell-content">
+    <AppShell
+      isHomepageEmptyState={isHomepageEmptyState}
+      hasActiveMessages={hasActiveMessages}
+      homepageSendTransition={homepageSendTransition}
+      appShellStyle={appShellStyle}
+      shouldShowHomepageBackground={shouldShowHomepageBackground}
+      resolvedDailyCover={resolvedDailyCover}
+      shouldShowChatBackground={shouldShowChatBackground}
+      onHomepageTransitionEnd={() => setHomepageSendTransition(null)}
+      transitionElements={
+        <>
+          {homepageSendTransition ? (
+            <HomepageSendTransition
+              transition={homepageSendTransition}
+              numberFormatter={numberFormatter}
+              onAnimationEnd={() => setHomepageSendTransition(null)}
+            />
+          ) : null}
+          {titleTransition ? <TitleTransition transition={titleTransition} /> : null}
+        </>
+      }
+      headerElement={
         <ChatHeader
           chatHeaderRef={chatHeaderRef}
           titleTextRef={titleTextRef}
@@ -3276,11 +2915,12 @@ function App() {
           beginRenameConversation={beginRenameConversation}
           onThemeToggle={(nextMode) => updateSetting('themeMode', nextMode)}
         />
-
+      }
+      summaryElement={
         <ChatSummaryBar ref={chatSummaryBarRef} summary={chatSummarySnapshot} numberFormatter={numberFormatter} />
-
-        {notice ? <NoticeBanner notice={notice} /> : null}
-
+      }
+      noticeElement={notice ? <NoticeBanner notice={notice} /> : null}
+      contentElement={
         <>
           <main
             key={activeConversationId}
@@ -3303,305 +2943,41 @@ function App() {
                   <ChatScrollPlaceholder heightPx={activeChatScrollInsets.top} position="top" />
                 ) : null}
 
-                {isActiveConversationLoadError ? (
-                  <section className="empty-state">
-                    <h2>历史对话加载失败</h2>
-                    <p className="empty-state-line">
-                      {activeConversation?.storageLoadError ?? chatStateLoadError ?? '未知错误'}
-                    </p>
-                    <button
-                      type="button"
-                      className="tiny-button"
-                      onClick={() => {
-                        if (!activeConversation) {
-                          return
-                        }
-                        conv.hydrateConversationById(activeConversation.id)
-                      }}
-                    >
-                      重试加载
-                    </button>
-                  </section>
-                ) : isActiveConversationLoading ? (
-                  <section className="empty-state">
-                    <h2>{displayConversationTitle}</h2>
-                    <p className="empty-state-line">正在载入这段历史对话…</p>
-                  </section>
-                ) : activeMessages.length === 0 ? (
-                  showCloudAuthOnHomepage ? (
-                    <CloudAuthForm
-                      initialMode={isCloudAuthRegisterMode ? 'register' : 'login'}
-                      onAuthSuccess={() => {
-                        setCloudAuthMode('none')
-                        setAuthVersion(v => v + 1)
-                      }}
-                    />
-                  ) : (
-                    <NewConversationShowcase
-                      rootRef={homepageShowcaseRef}
-                      cover={resolvedDailyCover}
-                      highlightStats={homepageHighlightStats}
-                      responseModeLabel={getResponseModeLabel(activeConversationResponseMode)}
-                    />
-                  )
-                ) : null}
+                <HomepageView
+                  isActiveConversationLoadError={isActiveConversationLoadError}
+                  isActiveConversationLoading={isActiveConversationLoading}
+                  activeMessagesLength={activeMessages.length}
+                  activeConversation={activeConversation}
+                  chatStateLoadError={chatStateLoadError ?? null}
+                  hydrateConversationById={conv.hydrateConversationById}
+                  displayConversationTitle={displayConversationTitle}
+                  showCloudAuthOnHomepage={showCloudAuthOnHomepage}
+                  isCloudAuthRegisterMode={isCloudAuthRegisterMode}
+                  setCloudAuthMode={setCloudAuthMode}
+                  setAuthVersion={setAuthVersion}
+                  homepageShowcaseRef={homepageShowcaseRef}
+                  resolvedDailyCover={resolvedDailyCover}
+                  homepageHighlightStats={homepageHighlightStats}
+                  getResponseModeLabel={getResponseModeLabel}
+                  activeConversationResponseMode={activeConversationResponseMode}
+                />
 
-                {!isActiveConversationLoadError && !isActiveConversationLoading ? activeMessages.map((message) => {
-          const editing = editingMessageId === message.id
-          const textValue = message.text.trim()
-          const hasReasoning = Boolean(message.reasoning?.trim())
-          const assistantFlow = message.role === 'assistant' ? message.assistantFlow ?? [] : []
-          const hasAssistantFlow = assistantFlow.length > 0
-          const isAssistantLoading =
-            message.role === 'assistant' && !message.error && !textValue && !hasAssistantFlow
-          const displayText = textValue
-          const displayTextSanitized =
-            message.role === 'assistant' ? stripSkillParsingHintLines(displayText) : displayText
-          const shouldRenderText =
-            displayTextSanitized.length > 0 || (message.role === 'user' && !(message.images?.length ?? 0))
-          const isMessageTrulyEmpty =
-            message.role === 'assistant' &&
-            !isAssistantLoading &&
-            !textValue &&
-            !hasReasoning &&
-            !hasAssistantFlow &&
-            !message.error
-
-          const resolveEmptyResponseProvider = (): { isActiNet: boolean; providerName: string } => {
-            const modelId = message.model
-            if (modelId) {
-              const actiNetModels = getEffectiveActiNetModels()
-              if (actiNetModels.some((m) => m.id === modelId)) {
-                return { isActiNet: true, providerName: ACTINET_PROVIDER_NAME }
-              }
-              for (const provider of settings.providers) {
-                if (provider.models.some((m) => m.id === modelId)) {
-                  return { isActiNet: false, providerName: provider.name }
-                }
-              }
-            }
-            return { isActiNet: true, providerName: ACTINET_PROVIDER_NAME }
-          }
-          const renderSkillStepEntry = (step: AssistantFlowSkillNode, key: string) => {
-            const hasResult = Boolean(step.result?.trim())
-            const resultOpen = openSkillResultByStep[step.id] === true
-            const targetLabel = formatSkillStepTarget(step)
-
-            return (
-              <div key={key} className="skill-step-entry">
-                <div className={`skill-step-card is-${step.status}`}>
-                  <div className="skill-step-meta">
-                    <span className="skill-step-target" title={targetLabel}>
-                      {targetLabel}
-                    </span>
-                    <span className="skill-step-status">{formatSkillStepStatus(step.status)}</span>
-                  </div>
-                  {step.explanation ? (
-                    <div className="markdown-content skill-step-content">
-                      <MarkdownMessage text={step.explanation} />
-                    </div>
-                  ) : null}
-                  {hasResult ? (
-                    <section className={`skill-step-result-panel ${resultOpen ? 'is-open' : ''}`}>
-                      <button
-                        type="button"
-                        className="skill-step-result-toggle"
-                        onClick={() => toggleSkillResult(step.id)}
-                      >
-                        <span>返回信息</span>
-                        <span className={`arrow ${resultOpen ? 'open' : ''}`}>▾</span>
-                      </button>
-                      <div className="skill-step-result-body">
-                        <div className="markdown-content skill-step-result-content">
-                          <MarkdownMessage text={step.result ?? ''} />
-                        </div>
-                      </div>
-                    </section>
-                  ) : null}
-                  {step.error ? <p className="message-error skill-step-error">{step.error}</p> : null}
-                </div>
-              </div>
-            )
-          }
-
-          return (
-            <article key={message.id} className={`message-card ${message.role}`}>
-              <div className="message-meta">
-                {message.role === 'user' ? (
-                  <span>YOU</span>
-                ) : (
-                  <span className="message-model">
-                    Assistant · {message.model ?? '未标记模型'}
-                  </span>
-                )}
-              </div>
-
-              {!editing && (message.images?.some((image) => image.dataUrl.trim().length > 0) ?? false) ? (
-                <div className="image-grid">
-                  {message.images
-                    ?.filter((image) => image.dataUrl.trim().length > 0)
-                    .map((image) => (
-                      <figure key={image.id} className="image-item">
-                        <button
-                          type="button"
-                          className="image-item-button"
-                          onClick={() => openImageViewer(buildMessageImageViewerKey(message.id, image.id), image)}
-                          aria-label={`查看图片 ${image.name}`}
-                        >
-                          <img src={image.dataUrl} alt={image.name} />
-                        </button>
-                      </figure>
-                    ))}
-                </div>
-              ) : null}
-
-              {editing ? (
-                <div className="editor">
-                  <ChatInputBox
-                    className="chat-input-box composer-input editor-message-input"
-                    radiusMode="card"
-                    value={editingText}
-                    onChange={(event) => setEditingText(event.target.value)}
-                    maxHeight={260}
+                {!isActiveConversationLoadError && !isActiveConversationLoading ? (
+                  <ChatView
+                    activeMessages={activeMessages}
+                    settings={settings}
+                    providers={settings.providers}
+                    toggleReasoning={toggleReasoning}
+                    toggleSkillResult={toggleSkillResult}
+                    copyMessageText={copyMessageText}
+                    beginEdit={beginEdit}
+                    saveAssistantEdit={saveAssistantEdit}
+                    saveUserEdit={saveUserEdit}
+                    cancelEdit={cancelEdit}
+                    regenerate={regenerate}
+                    openImageViewer={openImageViewer}
                   />
-                  <div className="editor-actions">
-                    {message.role === 'assistant' ? (
-                      <>
-                        <button type="button" className="tiny-button" onClick={saveAssistantEdit}>
-                          保存
-                        </button>
-                        <button type="button" className="tiny-button ghost-button" onClick={cancelEdit}>
-                          取消
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button type="button" className="tiny-button" onClick={() => void saveUserEdit(false)}>
-                          仅修改
-                        </button>
-                        <button type="button" className="tiny-button" onClick={() => void saveUserEdit(true)}>
-                          修改并重发
-                        </button>
-                        <button type="button" className="tiny-button ghost-button" onClick={cancelEdit}>
-                          取消
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {settings.showReasoning && hasReasoning ? (
-                    <section
-                      className={`reasoning-panel ${openReasoningByMessage[message.id] ? 'is-open' : ''}`}
-                    >
-                      <button
-                        type="button"
-                        className="reasoning-toggle"
-                        onClick={() => toggleReasoning(message.id)}
-                      >
-                        <span>思考过程</span>
-                        <span className={`arrow ${openReasoningByMessage[message.id] ? 'open' : ''}`}>
-                          ▾
-                        </span>
-                      </button>
-                      <div className="reasoning-body">
-                        <div className="markdown-content reasoning-content">
-                          <MarkdownMessage text={message.reasoning ?? ''} />
-                        </div>
-                      </div>
-                    </section>
-                  ) : null}
-
-                  {isAssistantLoading ? <ThinkingPhrase createdAt={message.createdAt} /> : null}
-
-                  {message.role === 'assistant' && hasAssistantFlow ? (
-                    <div className="assistant-inline-flow">
-                      {assistantFlow.map((node, index) => {
-                        if (node.kind === 'divider') {
-                          return <div key={node.id} className="assistant-round-divider" aria-hidden="true" />
-                        }
-
-                        if (node.kind === 'text') {
-                          const segmentText = stripSkillParsingHintLines(node.text)
-                          if (!segmentText.trim()) {
-                            return null
-                          }
-                          return (
-                            <div key={node.id} className="markdown-content">
-                              <MarkdownMessage text={segmentText} />
-                            </div>
-                          )
-                        }
-
-                        return renderSkillStepEntry(node, `inline-step-${message.id}-${node.id}-${index}`)
-                      })}
-                    </div>
-                  ) : shouldRenderText ? (
-                    <div className="markdown-content">
-                      <MarkdownMessage text={displayTextSanitized} />
-                    </div>
-                  ) : isMessageTrulyEmpty ? (() => {
-                    const pi = resolveEmptyResponseProvider()
-                    return (
-                      <div className="empty-response-notice">
-                        {pi.isActiNet ? (
-                          <>似乎......没有任何响应<br />稍安勿躁，ActiNet服务将很快恢复，如有不便敬请谅解！</>
-                        ) : (
-                          <>似乎......没有任何响应<br />请检查{pi.providerName}服务商提供的服务是否正常。</>
-                        )}
-                      </div>
-                    )
-                  })() : null}
-
-                  {message.error ? <p className="message-error">{message.error}</p> : null}
-
-                  {message.role === 'assistant' && message.usage ? (
-                    <div className="metric-row">
-                      {message.usageEstimated ? <span className="metric-tag">估算值</span> : null}
-                      <span className="metric-tag">输入Token {message.usage.promptTokens}</span>
-                      <span className="metric-tag">输出Token {message.usage.completionTokens}</span>
-                      <span className="metric-tag">总Token {message.usage.totalTokens}</span>
-                      {message.usage.reasoningTokens !== undefined ? (
-                        <span className="metric-tag">思考Token {message.usage.reasoningTokens}</span>
-                      ) : null}
-                      <span className="metric-tag">
-                        首Token延迟 {formatMs(message.firstTokenLatencyMs)}
-                      </span>
-                      <span className="metric-tag">总耗时 {formatMs(message.totalTimeMs)}</span>
-                    </div>
-                  ) : null}
-
-                  <div className="message-actions">
-                    <button
-                      type="button"
-                      className="message-action-button"
-                      onClick={() => void copyMessageText(message.text)}
-                    >
-                      复制
-                    </button>
-                    <button
-                      type="button"
-                      className="message-action-button"
-                      onClick={() => beginEdit(message)}
-                    >
-                      编辑
-                    </button>
-                    {message.role === 'assistant' ? (
-                      <button
-                        type="button"
-                        className="message-action-button"
-                        onClick={() => void regenerate(message.id)}
-                      >
-                        重试
-                      </button>
-                    ) : null}
-                  </div>
-                </>
-              )}
-            </article>
-          )
-              }) : null}
+                ) : null}
 
                 {hasActiveMessages ? (
                   <ChatScrollPlaceholder heightPx={activeChatScrollInsets.bottom} position="bottom" />
@@ -3609,9 +2985,55 @@ function App() {
               </div>
               </div>
             </main>
-
-          {renderComposerFooter()}
-
+        </>
+      }
+      composerElement={
+        <ComposerView
+          draft={draft}
+          activeConversation={activeConversation}
+          activeConversationResponseMode={activeConversationResponseMode}
+          activeConversationModeLocked={activeConversationModeLocked}
+          isComposerLocked={conv.isComposerLocked}
+          canSend={conv.canSend}
+          canAppendWhileSending={conv.canAppendWhileSending}
+          pendingImages={pendingImages}
+          enabledModelOptions={enabledModelOptions}
+          enabledModelsByProvider={enabledModelsByProvider}
+          scrollToBottomButtonMounted={scrollToBottomButtonMounted}
+          scrollToBottomButtonVisible={scrollToBottomButtonVisible}
+          isSending={isSending}
+          model={{
+            openModelMenu,
+            closeModelMenu,
+            selectCurrentModel,
+            updateSetting,
+            openSettings,
+            navigateSettingsView,
+            updateConversationResponseMode: conv.updateConversationResponseMode,
+          }}
+          actions={{
+            handleSend,
+            handleAppend,
+            stopGeneration: assistant.stopGeneration,
+            handleImageSelect,
+            handleScrollToBottomButtonClick,
+            pushNotice,
+            removePendingImage: conv.removePendingImage,
+            updatePendingImageCompression: conv.updatePendingImageCompression,
+            updateConversationDraft: conv.updateConversationDraft,
+            openImageViewer,
+          }}
+          refs={{
+            modelMenuRef,
+            composerFooterRef,
+            composerInputRef,
+            fileInputRef,
+            cameraInputRef,
+          }}
+        />
+      }
+      fileInputElements={
+        <>
           <input
             ref={fileInputRef}
             type="file"
@@ -3643,121 +3065,126 @@ function App() {
             onChange={(event) => void handleRuntimeArchiveSelect(event)}
           />
         </>
-      </div>
-
-            <AppDrawer
-        conversationListRef={conversationListRef}
-        conversationGroupElementRefs={conversationGroupElementRefs}
-        drawerScrollTopRef={drawerScrollTopRef}
-        conversationGroups={conversationGroups}
-        closeDrawer={closeDrawer}
-        toggleConversationGroup={toggleConversationGroup}
-        handleConversationPointerDown={handleConversationPointerDown}
-        handleConversationPointerMove={handleConversationPointerMove}
-        handleConversationPointerUp={handleConversationPointerUp}
-        handleConversationPointerCancel={handleConversationPointerCancel}
-        handleConversationClick={handleConversationClick}
-        requestDeleteConversation={requestDeleteConversation}
-        openSettingsFromDrawer={openSettingsFromDrawer}
-        createNewConversation={createNewConversation}
-      />
-
-      {imageViewerMounted && imageViewer ? (
-        <ImageViewer
-          items={imageViewer.items}
-          initialIndex={imageViewer.initialIndex}
-          visible={imageViewerVisible}
-          onClose={closeImageViewer}
+      }
+      drawerElement={
+        <AppDrawer
+          conversationListRef={conversationListRef}
+          conversationGroupElementRefs={conversationGroupElementRefs}
+          drawerScrollTopRef={drawerScrollTopRef}
+          conversationGroups={conversationGroups}
+          closeDrawer={closeDrawer}
+          toggleConversationGroup={toggleConversationGroup}
+          handleConversationPointerDown={handleConversationPointerDown}
+          handleConversationPointerMove={handleConversationPointerMove}
+          handleConversationPointerUp={handleConversationPointerUp}
+          handleConversationPointerCancel={handleConversationPointerCancel}
+          handleConversationClick={handleConversationClick}
+          requestDeleteConversation={requestDeleteConversation}
+          openSettingsFromDrawer={openSettingsFromDrawer}
+          createNewConversation={createNewConversation}
         />
-      ) : null}
-
-      <DeleteConfirmationLayer
-        confirmDeleteConversation={confirmDeleteConversation}
-        confirmDeleteProvider={confirmDeleteProvider}
-        confirmDeleteSkill={confirmDeleteSkill}
-        confirmDeleteRuntime={confirmDeleteRuntime}
-      />
-
-      {updates.showUpdateDialog && updates.pendingUpdate && !updates.updatingNow ? (
-        <UpdateDialog
-          update={updates.pendingUpdate}
-          onCancel={() => updates.dismissUpdateDialog()}
-          onInstall={updates.handleInstallUpdate}
-        />
-      ) : null}
-
-      {settingsMounted ? (
-        <div className={`settings-screen ${settingsVisible ? 'is-open' : 'is-closing'}`}>
-          <SettingsPage
-            resolvedDailyCover={resolvedDailyCover}
-            cloudLoggedIn={cloudLoggedIn}
-            setCloudAuthMode={setCloudAuthMode}
-            navigation={{
-              navigateSettingsView,
-              handleSettingsBack,
-              closeSettingsPanel,
-              openProviderDetail,
-            }}
-            updateSetting={updateSetting}
-            updateDailyCoverSetting={updateDailyCoverSetting}
-            resetPromptToDefault={resetPromptToDefault}
-            handleNumericSettingChange={handleNumericSettingChange}
-            finalizeNumericSettingDraft={finalizeNumericSettingDraft}
-            handleProviderNumericSettingChange={handleProviderNumericSettingChange}
-            finalizeProviderNumericSettingDraft={finalizeProviderNumericSettingDraft}
-            addProvider={addProvider}
-            deleteProvider={deleteProvider}
-            requestDeleteProvider={requestDeleteProvider}
-            updateProviderField={updateProviderField}
-            setProviderModelEnabled={setProviderModelEnabled}
-            addManualProviderModel={addManualProviderModel}
-            selectCurrentModel={selectCurrentModel}
-            resetProviderDetailState={resetProviderDetailState}
-            fetchProviderModels={fetchProviderModels}
-            testProviderModel={testProviderModel}
-            updateProviderPromptOverride={updateProviderPromptOverride}
-            clearProviderPromptOverride={clearProviderPromptOverride}
-            updateProviderInfoPromptOverride={updateProviderInfoPromptOverride}
-            clearProviderInfoPromptOverride={clearProviderInfoPromptOverride}
-            updateProviderById={updateProviderById}
-            skillRecords={skillRecords}
-            runtimeRecords={runtimeRecords}
-            isLoadingExtensions={isLoadingExtensions}
-            isInstallingSkillArchive={isInstallingSkillArchive}
-            isInstallingRuntimeArchive={isInstallingRuntimeArchive}
-            skillConfigTargetId={skillConfigTargetId}
-            skillConfigDraft={skillConfigDraft}
-            skillConfigValue={skillConfigValue}
-            skillConfigRawError={skillConfigRawError}
-            isLoadingSkillConfig={isLoadingSkillConfig}
-            isSavingSkillConfig={isSavingSkillConfig}
-            skillConfigTarget={skillConfigTarget}
-            handleSkillArchiveSelect={handleSkillArchiveSelect}
-            handleRuntimeArchiveSelect={handleRuntimeArchiveSelect}
-            handleSetSkillEnabled={handleSetSkillEnabled}
-            handleSetRuntimeEnabled={handleSetRuntimeEnabled}
-            handleSetDefaultRuntime={handleSetDefaultRuntime}
-            handleTestRuntime={handleTestRuntime}
-            handleSkillConfigDraftChange={handleSkillConfigDraftChange}
-            applySkillConfigValue={applySkillConfigValue}
-            formatSkillConfigDraft={formatSkillConfigDraft}
-            openSkillConfigEditor={openSkillConfigEditor}
-            saveSkillConfig={saveSkillConfig}
-            requestDeleteSkill={requestDeleteSkill}
-            requestDeleteRuntime={requestDeleteRuntime}
-            refreshExtensions={refreshExtensions}
-            requestingPermissionByKey={perms.requestingPermissionByKey}
-            handlePermissionToggle={perms.handlePermissionToggle}
-            handleManualUpdateCheck={updates.handleManualUpdateCheck}
-            pushNotice={pushNotice}
-            skillArchiveInputRef={skillArchiveInputRef}
-            runtimeArchiveInputRef={runtimeArchiveInputRef}
-            settingsPageRef={settingsPageRef}
-            onSettingsScroll={onSettingsScroll}
+      }
+      imageViewerElement={
+        imageViewerMounted && imageViewer ? (
+          <ImageViewer
+            items={imageViewer.items}
+            initialIndex={imageViewer.initialIndex}
+            visible={imageViewerVisible}
+            onClose={closeImageViewer}
           />
-        </div>
-      ) : null}
-    </div>
+        ) : null
+      }
+      deleteConfirmationElement={
+        <DeleteConfirmationLayer
+          confirmDeleteConversation={confirmDeleteConversation}
+          confirmDeleteProvider={confirmDeleteProvider}
+          confirmDeleteSkill={confirmDeleteSkill}
+          confirmDeleteRuntime={confirmDeleteRuntime}
+        />
+      }
+      updateDialogElement={
+        updates.showUpdateDialog && updates.pendingUpdate && !updates.updatingNow ? (
+          <UpdateDialog
+            update={updates.pendingUpdate}
+            onCancel={() => updates.dismissUpdateDialog()}
+            onInstall={updates.handleInstallUpdate}
+          />
+        ) : null
+      }
+      settingsElement={
+        settingsMounted ? (
+          <div className={`settings-screen ${settingsVisible ? 'is-open' : 'is-closing'}`}>
+            <SettingsPage
+              resolvedDailyCover={resolvedDailyCover}
+              cloudLoggedIn={cloudLoggedIn}
+              setCloudAuthMode={setCloudAuthMode}
+              navigation={{
+                navigateSettingsView,
+                handleSettingsBack,
+                closeSettingsPanel,
+                openProviderDetail,
+              }}
+              updateSetting={updateSetting}
+              updateDailyCoverSetting={updateDailyCoverSetting}
+              resetPromptToDefault={resetPromptToDefault}
+              handleNumericSettingChange={handleNumericSettingChange}
+              finalizeNumericSettingDraft={finalizeNumericSettingDraft}
+              handleProviderNumericSettingChange={handleProviderNumericSettingChange}
+              finalizeProviderNumericSettingDraft={finalizeProviderNumericSettingDraft}
+              addProvider={addProvider}
+              deleteProvider={deleteProvider}
+              requestDeleteProvider={requestDeleteProvider}
+              updateProviderField={updateProviderField}
+              setProviderModelEnabled={setProviderModelEnabled}
+              addManualProviderModel={addManualProviderModel}
+              selectCurrentModel={selectCurrentModel}
+              resetProviderDetailState={resetProviderDetailState}
+              fetchProviderModels={fetchProviderModels}
+              testProviderModel={testProviderModel}
+              updateProviderPromptOverride={updateProviderPromptOverride}
+              clearProviderPromptOverride={clearProviderPromptOverride}
+              updateProviderInfoPromptOverride={updateProviderInfoPromptOverride}
+              clearProviderInfoPromptOverride={clearProviderInfoPromptOverride}
+              updateProviderById={updateProviderById}
+              skillRecords={skillRecords}
+              runtimeRecords={runtimeRecords}
+              isLoadingExtensions={isLoadingExtensions}
+              isInstallingSkillArchive={isInstallingSkillArchive}
+              isInstallingRuntimeArchive={isInstallingRuntimeArchive}
+              skillConfigTargetId={skillConfigTargetId}
+              skillConfigDraft={skillConfigDraft}
+              skillConfigValue={skillConfigValue}
+              skillConfigRawError={skillConfigRawError}
+              isLoadingSkillConfig={isLoadingSkillConfig}
+              isSavingSkillConfig={isSavingSkillConfig}
+              skillConfigTarget={skillConfigTarget}
+              handleSkillArchiveSelect={handleSkillArchiveSelect}
+              handleRuntimeArchiveSelect={handleRuntimeArchiveSelect}
+              handleSetSkillEnabled={handleSetSkillEnabled}
+              handleSetRuntimeEnabled={handleSetRuntimeEnabled}
+              handleSetDefaultRuntime={handleSetDefaultRuntime}
+              handleTestRuntime={handleTestRuntime}
+              handleSkillConfigDraftChange={handleSkillConfigDraftChange}
+              applySkillConfigValue={applySkillConfigValue}
+              formatSkillConfigDraft={formatSkillConfigDraft}
+              openSkillConfigEditor={openSkillConfigEditor}
+              saveSkillConfig={saveSkillConfig}
+              requestDeleteSkill={requestDeleteSkill}
+              requestDeleteRuntime={requestDeleteRuntime}
+              refreshExtensions={refreshExtensions}
+              requestingPermissionByKey={perms.requestingPermissionByKey}
+              handlePermissionToggle={perms.handlePermissionToggle}
+              handleManualUpdateCheck={updates.handleManualUpdateCheck}
+              pushNotice={pushNotice}
+              skillArchiveInputRef={skillArchiveInputRef}
+              runtimeArchiveInputRef={runtimeArchiveInputRef}
+              settingsPageRef={settingsPageRef}
+              onSettingsScroll={onSettingsScroll}
+            />
+          </div>
+        ) : null
+      }
+    />
   )
 }
 
