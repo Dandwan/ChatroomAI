@@ -1,14 +1,13 @@
 import {
+  useCallback,
   type CSSProperties,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from 'react'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
-import type { ApiMessage } from './services/chat-api'
 import {
   isTranscriptConversationWorkspacePlaceholder,
   projectConversationMessages,
@@ -52,15 +51,11 @@ import {
   type HomepageHighlightStat,
 } from './services/homepage-highlights'
 import {
-  createAssistantTextFlow,
-} from './utils/assistant-flow'
-import {
   buildHistoryStatsFromSummaries,
 } from './services/chat-storage'
 import type {
   AppSettings,
   ChatSummarySnapshot,
-  CompletionResult,
   ChatMessage,
   Conversation,
   ConversationDrafts,
@@ -68,7 +63,6 @@ import type {
   LoadedChatState,
   Notice,
   SettingsView,
-  TurnExecutionJob,
 } from './state/types'
 import {
   HOMEPAGE_SEND_TRANSITION_DURATION_MS,
@@ -102,7 +96,6 @@ import {
   createConversation,
   createInitialChatState,
   createProviderNumericSettingDrafts,
-  extractThinkBlocks,
   getEnabledModelOptions,
   isPersistedConversationSummary,
   loadSettings,
@@ -113,7 +106,6 @@ import {
   createNumericSettingDrafts,
   resolveConversationResponseMode,
   toConversationSummary,
-  withConversationRecordTranscript,
 } from './utils/app-module'
 function App() {
   const initialSettingsRef = useRef<AppSettings | null>(null)
@@ -147,10 +139,6 @@ function App() {
 
   // ── Settings store ──
   const settings = useSettingsStore((s) => s.settings)
-  const numericSettingDrafts = useSettingsStore((s) => s.numericSettingDrafts)
-  void numericSettingDrafts; // E1
-  const providerNumericSettingDrafts = useSettingsStore((s) => s.providerNumericSettingDrafts)
-  void providerNumericSettingDrafts; // E1
 
   // ── Chat store ──
   const conversations = useChatStore((s) => s.conversations)
@@ -179,24 +167,18 @@ function App() {
     copyTextToClipboard,
     openDeleteDialog,
   } = useChatUI({ modelMenuRef })
-  void copyTextToClipboard;
 
   // ── UI store: settings navigation ──
   const settingsView = useUIStore((s) => s.settingsView)
   const providerDetailTargetId = useUIStore((s) => s.providerDetailTargetId)
   const manualModelDraft = useUIStore((s) => s.manualModelDraft)
-  void manualModelDraft; // E1
   const providerModelSearch = useUIStore((s) => s.providerModelSearch)
   const isFetchingModelsByProviderId = useUIStore((s) => s.isFetchingModelsByProviderId)
-  void isFetchingModelsByProviderId; // E1
   const setIsFetchingModelsByProviderId = useUIStore((s) => s.setIsFetchingModelsByProviderId)
-  void setIsFetchingModelsByProviderId;
 
   // ── UI store: prompt editors ──
   const openPromptEditors = useUIStore((s) => s.openPromptEditors)
-  void openPromptEditors; // E1
   const openProviderPromptEditors = useUIStore((s) => s.openProviderPromptEditors)
-  void openProviderPromptEditors; // E1
 
   // ── UI store: delete / edit / notice / sending ──
   const setDeleteModeEnabled = useUIStore((s) => s.setDeleteModeEnabled)
@@ -216,9 +198,7 @@ function App() {
   const setNotice = useUIStore((s) => s.setNotice)
   const isSending = useUIStore((s) => s.isSending)
   const setIsSending = useUIStore((s) => s.setIsSending)
-  void setIsSending;
   const setActiveRequestConversationId = useUIStore((s) => s.setActiveRequestConversationId)
-  void setActiveRequestConversationId;
 
   // ── UI store: drawer ──
   const setCollapsedConversationGroups = useUIStore((s) => s.setCollapsedConversationGroups)
@@ -296,7 +276,6 @@ function App() {
     longPressTimerId: number | null
   } | null>(null)
   const processingTurnQueueRef = useRef(false)
-  void processingTurnQueueRef;
 
   const activeConversation = useMemo(
     () =>
@@ -337,7 +316,6 @@ function App() {
   }, [draftsByConversation])
 
   const nativeRuntimeAvailable = isNativeRuntimeAvailable()
-  void nativeRuntimeAvailable; // E1
 
   const projectedMessagesByConversationId = useMemo(
     () =>
@@ -499,7 +477,6 @@ function App() {
 
     return provider.models.filter((model) => model.id.toLowerCase().includes(keyword))
   }, [providerDetailTarget, providerModelSearch])
-  void filteredProviderModels; // E1
 
   const tokenSummary = useMemo(() => {
     let promptTokens = 0
@@ -661,7 +638,6 @@ function App() {
     refreshExtensions,
     setModelHealth,
   } = useExtensions(pushNotice, openDeleteDialog)
-  void skillConfigTargetId; void setModelHealth; void modelHealth; // E1
   const {
     applySettingsUpdate,
     handleNumericSettingChange,
@@ -776,93 +752,6 @@ function App() {
     deleteConfirmBypassUntilRef,
   })
 
-  const ensureReadyToRequest = (): boolean => {
-    if (!activeProviderRequestSettings) {
-      pushNotice('请先选择已启用模型。', 'error')
-      if (enabledModelOptions.length === 0) {
-        openSettings()
-        settingsNav.navigateSettingsView('providers')
-      } else {
-        openModelMenu()
-      }
-      closeDrawer()
-      return false
-    }
-
-    if (
-      !activeProviderRequestSettings.apiBaseUrl.trim() ||
-      !activeProviderRequestSettings.apiKey.trim()
-    ) {
-      pushNotice('请先在服务商设置中填写 URL 和 API Key。', 'error')
-      openSettings()
-      settingsNav.openProviderDetail(activeProviderRequestSettings.providerId)
-      closeDrawer()
-      return false
-    }
-    return true
-  }
-  void ensureReadyToRequest;
-
-  const applyAssistantResult = (
-    conversationId: string,
-    assistantId: string,
-    result: CompletionResult,
-    _promptMessages: ApiMessage[],
-    options?: {
-      resolvedText?: string
-      preserveRawText?: boolean
-      storedRawText?: string
-    },
-  ): void => {
-    assistantStream.flushQueuedAssistantStreamDelta()
-    const preserveRawText = options?.preserveRawText === true
-    const extracted = preserveRawText ? { cleanedText: '', reasoning: '' } : extractThinkBlocks(result.text)
-    const finalText =
-      options?.resolvedText !== undefined
-        ? options.resolvedText.trim()
-        : extracted.cleanedText || result.text.trim()
-    const finalReasoning = preserveRawText
-      ? result.reasoning.trim()
-      : [result.reasoning, extracted.reasoning].filter(Boolean).join('\n\n').trim()
-    const usage = result.usage ?? { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
-    const usageEstimated = result.usage === undefined
-
-    setConversationsState((previous) =>
-      previous.map((conversation) => {
-        if (conversation.id !== conversationId) {
-          return conversation
-        }
-        const nextTranscript = conversation.transcript.map((event) => {
-          if (event.kind !== 'assistant_message' || event.id !== assistantId) {
-            return event
-          }
-          const nextFlow =
-            (event.assistantFlow?.length ?? 0) === 0
-              ? createAssistantTextFlow(finalText, { createId })
-              : event.assistantFlow
-          const normalizedFlow = nextFlow && nextFlow.length > 0 ? nextFlow : undefined
-          const nextEvent = normalizedFlow === event.assistantFlow ? event : { ...event, assistantFlow: normalizedFlow }
-          return {
-            ...nextEvent,
-            rawText: options?.storedRawText ?? result.text,
-            reasoning: finalReasoning || undefined,
-            usage,
-            usageEstimated,
-            firstTokenLatencyMs: result.firstTokenLatencyMs,
-            totalTimeMs: result.totalTimeMs,
-            error: undefined,
-          }
-        })
-        return withConversationRecordTranscript(
-          conversation,
-          nextTranscript,
-          draftsByConversationRef.current[conversation.id] ?? '',
-        )
-      }),
-    )
-  }
-  void applyAssistantResult;
-
   // ── Delegated to useAssistant hook ──
   const {
     executeAssistantTurn,
@@ -873,7 +762,6 @@ function App() {
     regenerate,
     copyMessageText,
   } = assistant
-  void executeAssistantTurn;
 
   // ── Message editing ──
   const beginEdit = useCallback((message: ChatMessage): void => {
@@ -1178,155 +1066,6 @@ function App() {
     closeModelMenu()
   }, [activeConversationId, closeModelMenu, titleHook.stopRenameConversationImmediately])
 
-  useEffect(() => {
-    if (drawerMounted) {
-      return
-    }
-
-    const gesture = conversationSwipeStartRef.current
-    const longPressTimerId = gesture?.longPressTimerId ?? null
-    if (longPressTimerId !== null) {
-      window.clearTimeout(longPressTimerId)
-    }
-    conversationSwipeStartRef.current = null
-    setSwipingConversationId(null)
-    setSwipeOffsetX(0)
-    setDeleteModeEnabled(false)
-    deleteConfirm.closeDeleteDialog()
-  }, [drawerMounted])
-
-  useEffect(() => {
-    setCollapsedConversationGroups((previous) => {
-      let changed = false
-      const next: Record<string, boolean> = {}
-
-      for (const group of conversationGroups) {
-        if (Object.prototype.hasOwnProperty.call(previous, group.id)) {
-          next[group.id] = previous[group.id]
-          continue
-        }
-        next[group.id] = false
-        changed = true
-      }
-
-      const previousKeys = Object.keys(previous)
-      const nextKeys = Object.keys(next)
-      if (!changed && previousKeys.length === nextKeys.length) {
-        let same = true
-        for (const key of nextKeys) {
-          if (previous[key] !== next[key]) {
-            same = false
-            break
-          }
-        }
-        if (same) {
-          return previous
-        }
-      }
-
-      return next
-    })
-  }, [conversationGroups])
-
-  useEffect(() => {
-    hasAutoCollapsedConversationGroupsRef.current = false
-  }, [settings.autoCollapseConversations])
-
-  useLayoutEffect(() => {
-    if (!settingsVisible) {
-      return
-    }
-
-    const settingsPage = settingsPageRef.current
-    if (!settingsPage) {
-      return
-    }
-
-    const nextScrollTop = settingsScrollByViewRef.current[settingsView] ?? 0
-    const frameId = window.requestAnimationFrame(() => {
-      if (settingsPageRef.current === settingsPage) {
-        settingsPage.scrollTop = nextScrollTop
-      }
-    })
-    return () => window.cancelAnimationFrame(frameId)
-  }, [settingsView, settingsVisible])
-
-  useLayoutEffect(() => {
-    if (!drawerVisible) {
-      return
-    }
-
-    const conversationList = conversationListRef.current
-    if (!conversationList) {
-      return
-    }
-
-    const frameId = window.requestAnimationFrame(() => {
-      if (conversationListRef.current === conversationList) {
-        conversationList.scrollTop = drawerScrollTopRef.current
-      }
-    })
-    return () => window.cancelAnimationFrame(frameId)
-  }, [drawerVisible])
-
-  useEffect(() => {
-    if (!drawerVisible || !settings.autoCollapseConversations || hasAutoCollapsedConversationGroupsRef.current) {
-      return
-    }
-
-    const conversationList = conversationListRef.current
-    if (!conversationList) {
-      return
-    }
-
-    let secondFrameId = 0
-    const firstFrameId = window.requestAnimationFrame(() => {
-      secondFrameId = window.requestAnimationFrame(() => {
-        const listRect = conversationList.getBoundingClientRect()
-        const nextCollapsedByGroup: Record<string, boolean> = {}
-
-        for (const group of conversationGroups) {
-          const groupElement = conversationGroupElementRefs.current[group.id]
-          if (!groupElement) {
-            nextCollapsedByGroup[group.id] = false
-            continue
-          }
-
-          const itemElements = Array.from(
-            groupElement.querySelectorAll<HTMLElement>('[data-conversation-item="true"]'),
-          )
-          const hasFullyVisibleItem = itemElements.some((itemElement) => {
-            const itemRect = itemElement.getBoundingClientRect()
-            return itemRect.top >= listRect.top && itemRect.bottom <= listRect.bottom
-          })
-          nextCollapsedByGroup[group.id] = !hasFullyVisibleItem
-        }
-
-        hasAutoCollapsedConversationGroupsRef.current = true
-        setCollapsedConversationGroups((previous) => {
-          let changed = false
-          const next: Record<string, boolean> = {}
-
-          for (const group of conversationGroups) {
-            const nextValue = nextCollapsedByGroup[group.id] ?? false
-            next[group.id] = nextValue
-            if (previous[group.id] !== nextValue) {
-              changed = true
-            }
-          }
-
-          return changed ? next : previous
-        })
-      })
-    })
-
-    return () => {
-      window.cancelAnimationFrame(firstFrameId)
-      if (secondFrameId !== 0) {
-        window.cancelAnimationFrame(secondFrameId)
-      }
-    }
-  }, [conversationGroups, drawerVisible, settings.autoCollapseConversations])
   // ── Composer rendering extracted to views/ComposerView.tsx (Phase E3) ──
   // ── Settings rendering extracted to views/SettingsPage.tsx (Phase E1) ──
 
