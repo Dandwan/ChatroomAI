@@ -2,7 +2,7 @@
  * Chat UI 交互处理 hook
  * 从 src/App.tsx 提取 - 处理抽屉、菜单、图片查看器、滚动、标题编辑等 UI 交互
  */
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   DeleteDialogState,
   ImageAttachment,
@@ -60,7 +60,8 @@ interface UseChatUIReturn {
   saveRenameConversation: () => void
 }
 
-export function useChatUI(): UseChatUIReturn {
+export function useChatUI(params?: { modelMenuRef?: React.MutableRefObject<HTMLDivElement | null> }): UseChatUIReturn {
+  const modelMenuRef = params?.modelMenuRef
   // ── Store selectors ──
   const drawerMounted = useUIStore((s) => s.drawerMounted)
   const drawerVisible = useUIStore((s) => s.drawerVisible)
@@ -121,6 +122,20 @@ export function useChatUI(): UseChatUIReturn {
     }
     useUIStore.getState().setModelMenuVisibility(true, false)
   }, [])
+
+  // ── Model menu outside-click close ──
+  useEffect(() => {
+    if (!modelMenuRef) return
+    const handler = (event: MouseEvent): void => {
+      if (!modelMenuRef.current) return
+      const target = event.target as Node
+      if (!modelMenuRef.current.contains(target)) {
+        closeModelMenu()
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [closeModelMenu, modelMenuRef])
 
   // ── Settings ──
   const openSettings = useCallback((): void => {

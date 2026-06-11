@@ -64,7 +64,9 @@ See `20-run-and-skill-runtime.md` for full architecture.
 
 ## App.tsx 模块化重构（2026-06-11）
 
-**当前状态**：E1-E5 + F 全部完成。App.tsx 从 7,576 降至 3,191 行（−4,385 行，−57.9%），tsc 零错误
+**当前状态**：Phase 1（E1-E5+F）已完成 + Phase 2 步骤 1-3+7 完成。App.tsx 从 7,576 降至 2,684 行（−4,892 行，−64.6%），tsc 零错误。
+3 个新 hooks 已创建：useAssistantStream（422 行）、useTitleTransition（261 行）、useMessageListScroll（498 行）。useChatUI 已扩展（模型菜单外部点击关闭）。
+**待完成**：步骤 4-6（剩余 3 个 hooks）、步骤 8（与 useConversation 去重）、步骤 9（完整死代码清理，旧代码标记 void 待移除）。
 
 **已完成全部阶段**：
 - **阶段 A** 导入清理 + 死代码移除（−348 行）

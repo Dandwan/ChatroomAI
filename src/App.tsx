@@ -58,12 +58,7 @@ import {
   type HomepageHighlightStat,
 } from './services/homepage-highlights'
 import {
-  appendAssistantFlowContent,
-  appendAssistantFlowDivider,
-  assistantFlowToPlainText,
-  clearAssistantFlowRound,
   createAssistantTextFlow,
-  type AssistantFlowNode,
 } from './utils/assistant-flow'
 import {
   buildHistoryStatsFromSummaries,
@@ -80,11 +75,9 @@ import type {
   LoadedChatState,
   MessageListScrollMetrics,
   Notice,
-  PendingTitleTransition,
   PromptEditorKey,
   SettingsView,
   TagPromptEditorKey,
-  TitleTransitionState,
   TurnExecutionJob,
 } from './state/types'
 import {
@@ -101,18 +94,15 @@ import { useUIStore } from './state/ui-store'
 import { useExtensionsStore } from './state/extensions-store'
 import { useAssistant } from './hooks/useAssistant'
 import { createStaticAssistantEvent, buildUserTranscriptContent } from './hooks/useAssistant'
+import { useAssistantStream } from './hooks/useAssistantStream'
+import { useTitleTransition } from './hooks/useTitleTransition'
+import { useMessageListScroll } from './hooks/useMessageListScroll'
 import { useChatUI } from './hooks/useChatUI'
 import { useChatStore } from './state/chat-store'
 import { useSettingsStore } from './state/settings-store'
 import './App.css'
 import './styles/app-editorial-redesign.css'
 
-import {
-  DEBUG_SKILL_ROUND_LOG_STORAGE_KEY,
-  DEBUG_OBJECT_FLOW_LOG_STORAGE_KEY,
-  truncateDebugLogText,
-  appendDebugLogEntry,
-} from './utils/app-debug'
 import {
   numberFormatter,
   createId,
@@ -127,7 +117,6 @@ import {
   createProviderNumericSettingDrafts,
   extractThinkBlocks,
   getEnabledModelOptions,
-  getTravelOffset,
   isPersistedConversationSummary,
   loadSettings,
   ACTINET_PROVIDER_ID,
@@ -140,9 +129,6 @@ import {
   createNumericSettingDrafts,
   resolveConversationResponseMode,
   resolveMessageListSmoothScrollStep,
-  shiftRect,
-  snapshotRect,
-  TITLE_EDIT_TRANSITION_MS,
   toConversationSummary,
   vibrateInteraction,
   withConversationRecordTranscript,
@@ -199,6 +185,8 @@ function App() {
   const setPendingImages = useChatStore((s) => s.setPendingImages)
   const pendingImageCompressionTaskIdRef = useRef<Record<string, number>>({})
 
+  const modelMenuRef = useRef<HTMLDivElement | null>(null)
+
   // ── Chat UI (delegated to useChatUI hook) ──
   const {
     openDrawer, closeDrawer, drawerMounted, drawerVisible,
@@ -209,7 +197,7 @@ function App() {
     scrollToBottomButtonMounted, scrollToBottomButtonVisible,
     copyTextToClipboard,
     openDeleteDialog,
-  } = useChatUI()
+  } = useChatUI({ modelMenuRef })
   void copyTextToClipboard;
 
   // ── UI store: settings navigation ──
@@ -245,12 +233,6 @@ function App() {
   const editingText = useUIStore((s) => s.editingText)
   const setEditingText = useUIStore((s) => s.setEditingText)
   const imageViewer = useUIStore((s) => s.imageViewer)
-  const isEditingTitle = useUIStore((s) => s.isEditingTitle)
-  const titleDraft = useUIStore((s) => s.titleDraft)
-  const titleTransition = useUIStore((s) => s.titleTransition)
-  const setTitleTransition = useUIStore((s) => s.setTitleTransition)
-  const setTitleDraft = useUIStore((s) => s.setTitleDraft)
-  const setIsEditingTitle = useUIStore((s) => s.setIsEditingTitle)
   const setImageViewer = useUIStore((s) => s.setImageViewer)
   const setHomepageSendTransition = useUIStore((s) => s.setHomepageSendTransition)
   const notice = useUIStore((s) => s.notice)
@@ -272,7 +254,7 @@ function App() {
   const setIsAutoFollowEnabled = useUIStore((s) => s.setIsAutoFollowEnabled)
   const messageListScrollMetrics = useUIStore((s) => s.messageListScrollMetrics)
   const setMessageListScrollMetrics = useUIStore((s) => s.setMessageListScrollMetrics)
-  const activeChatScrollInsets = useUIStore((s) => s.activeChatScrollInsets)
+  const activeChatScrollInsets = useUIStore((s) => s.activeChatScrollInsets); void activeChatScrollInsets
   const setActiveChatScrollInsets = useUIStore((s) => s.setActiveChatScrollInsets)
 
   // ── UI store: transitions ──
@@ -311,7 +293,6 @@ function App() {
   const composerFooterRef = useRef<HTMLElement | null>(null)
   const settingsPageRef = useRef<HTMLElement | null>(null)
   const conversationListRef = useRef<HTMLDivElement | null>(null)
-  const modelMenuRef = useRef<HTMLDivElement | null>(null)
   const storageWarningShownRef = useRef(false)
   const activeConversationIdRef = useRef(initialStateRef.current.activeConversationId)
   const draftsByConversationRef = useRef<ConversationDrafts>(initialStateRef.current.draftsByConversation)
@@ -330,9 +311,6 @@ function App() {
     'daily-cover': 0,
   })
   const drawerScrollTopRef = useRef(0)
-  const titleTransitionPrepRef = useRef<PendingTitleTransition | null>(null)
-  const titleTransitionAnimationFrameRef = useRef<number | null>(null)
-  const titleTransitionTimerRef = useRef<number | null>(null)
   const messageListInteractionTimerRef = useRef<number | null>(null)
   const messageListUserInteractingRef = useRef(false)
   const messageListProgrammaticScrollRef = useRef(false)
@@ -354,56 +332,9 @@ function App() {
   } | null>(null)
   const ignoreNextConversationClickRef = useRef<string | null>(null)
   const openSettingsAfterDrawerTimerRef = useRef<number | null>(null)
-  const queuedAssistantStreamDeltaRef = useRef<{
-    conversationId: string
-    assistantId: string
-    content: string
-    reasoning: string
-    roundId?: string
-  } | null>(null)
-  const queuedAssistantStreamDeltaAnimationFrameRef = useRef<number | null>(null)
-  const lastSkillRoundLogKeyRef = useRef<string>('')
-  const lastObjectFlowLogKeyRef = useRef<string>('')
   const queuedTurnExecutionsRef = useRef<TurnExecutionJob[]>([])
   const processingTurnQueueRef = useRef(false)
   void processingTurnQueueRef;
-
-  const appendSkillRoundLog = useCallback(
-    (payload: Record<string, unknown>, dedupeKey?: string): void => {
-      if (dedupeKey && lastSkillRoundLogKeyRef.current === dedupeKey) {
-        return
-      }
-      if (dedupeKey) {
-        lastSkillRoundLogKeyRef.current = dedupeKey
-      }
-      const entry = {
-        timestamp: new Date().toISOString(),
-        ...payload,
-      }
-      appendDebugLogEntry(DEBUG_SKILL_ROUND_LOG_STORAGE_KEY, entry)
-      console.info(`[debug][skill-round] ${JSON.stringify(entry)}`)
-    },
-    [],
-  )
-  void appendSkillRoundLog;
-
-  const appendObjectFlowLog = useCallback(
-    (payload: Record<string, unknown>, dedupeKey?: string): void => {
-      if (dedupeKey && lastObjectFlowLogKeyRef.current === dedupeKey) {
-        return
-      }
-      if (dedupeKey) {
-        lastObjectFlowLogKeyRef.current = dedupeKey
-      }
-      const entry = {
-        timestamp: new Date().toISOString(),
-        ...payload,
-      }
-      appendDebugLogEntry(DEBUG_OBJECT_FLOW_LOG_STORAGE_KEY, entry)
-      console.info(`[debug][object-flow] ${JSON.stringify(entry)}`)
-    },
-    [],
-  )
 
   const activeConversation = useMemo(
     () =>
@@ -1076,287 +1007,7 @@ function App() {
     [setConversationsState],
   )
 
-  const applyAssistantFlowState = useCallback(
-    (
-      event: AssistantMessageTranscriptEvent,
-      nextFlow: AssistantFlowNode[] | undefined,
-    ): AssistantMessageTranscriptEvent => {
-      const normalizedFlow = nextFlow && nextFlow.length > 0 ? nextFlow : undefined
-      if (normalizedFlow === event.assistantFlow) {
-        return event
-      }
-      return {
-        ...event,
-        assistantFlow: normalizedFlow,
-      }
-    },
-    [],
-  )
-
-  const updateAssistantFlow = useCallback(
-    (
-      conversationId: string,
-      assistantId: string,
-      updater: (
-        flow: AssistantFlowNode[] | undefined,
-        event: AssistantMessageTranscriptEvent,
-      ) => AssistantFlowNode[] | undefined,
-    ): void => {
-      updateAssistantEvent(conversationId, assistantId, (event) => {
-        const nextFlow = updater(event.assistantFlow, event)
-        if (nextFlow === event.assistantFlow) {
-          return event
-        }
-        return applyAssistantFlowState(event, nextFlow)
-      })
-    },
-    [applyAssistantFlowState, updateAssistantEvent],
-  )
-
-  const appendAssistantFlowRoundDivider = (
-    conversationId: string,
-    assistantId: string,
-    roundId: string,
-    explanation?: string,
-  ): void => {
-    updateAssistantFlow(conversationId, assistantId, (flow) => {
-      const nextFlow = appendAssistantFlowDivider(flow, { createId, roundId }, explanation)
-      if (nextFlow === flow) {
-        return flow
-      }
-      appendObjectFlowLog(
-        {
-          event: 'assistant_flow_add_divider',
-          conversationId,
-          assistantId,
-          roundId,
-          previousNodeCount: flow?.length ?? 0,
-          explanationPreview: explanation ? truncateDebugLogText(explanation, 160) : undefined,
-        },
-        `flow-divider:${assistantId}:${roundId}:${flow?.length ?? 0}`,
-      )
-      return nextFlow
-    })
-  }
-  void appendAssistantFlowRoundDivider;
-
-  const clearAssistantFlowRoundState = (
-    conversationId: string,
-    assistantId: string,
-    roundId: string,
-  ): void => {
-    updateAssistantFlow(conversationId, assistantId, (flow) => {
-      const nextFlow = clearAssistantFlowRound(flow, roundId)
-      if (nextFlow === flow) {
-        return flow
-      }
-      appendObjectFlowLog(
-        {
-          event: 'assistant_flow_clear_round',
-          conversationId,
-          assistantId,
-          roundId,
-          previousNodeCount: flow?.length ?? 0,
-          nextNodeCount: nextFlow?.length ?? 0,
-        },
-        `flow-clear-round:${assistantId}:${roundId}:${flow?.length ?? 0}->${nextFlow?.length ?? 0}`,
-      )
-      return nextFlow
-    })
-  }
-  void clearAssistantFlowRoundState;
-
-  const applyAssistantStreamDelta = useCallback(
-    (
-      conversationId: string,
-      assistantId: string,
-      delta: {
-        content?: string
-        reasoning?: string
-        roundId?: string
-      },
-    ): void => {
-      const content = delta.content ?? ''
-      const reasoning = delta.reasoning ?? ''
-      if (!content && !reasoning) {
-        return
-      }
-
-      updateAssistantEvent(conversationId, assistantId, (event) => {
-        const previousFlow = event.assistantFlow
-        const appendResult = content
-          ? appendAssistantFlowContent(event.assistantFlow, content, {
-              createId,
-              roundId: delta.roundId,
-            })
-          : {
-              flow: event.assistantFlow,
-              plainTextDelta: '',
-            }
-        const nextFlow = appendResult.flow
-        const currentReasoning = event.reasoning ?? ''
-        const nextReasoning = reasoning ? `${currentReasoning}${reasoning}` : currentReasoning
-        const nextEvent =
-          nextFlow === event.assistantFlow ? event : applyAssistantFlowState(event, nextFlow)
-
-        if (
-          nextEvent === event &&
-          nextReasoning === currentReasoning &&
-          event.error === undefined
-        ) {
-          return event
-        }
-
-        if (appendResult.plainTextDelta) {
-          appendObjectFlowLog(
-            {
-              event: 'assistant_text_append',
-              conversationId,
-              assistantId,
-              roundId: delta.roundId ?? null,
-              appendedLength: appendResult.plainTextDelta.length,
-              appendedPreview: truncateDebugLogText(appendResult.plainTextDelta, 200),
-              nextTextLength: assistantFlowToPlainText(nextFlow).length,
-            },
-            `text-append:${assistantId}:${assistantFlowToPlainText(nextFlow).length}:${appendResult.plainTextDelta.length}`,
-          )
-        }
-
-        if (nextFlow !== previousFlow) {
-          appendObjectFlowLog(
-            {
-              event: 'assistant_flow_update',
-              conversationId,
-              assistantId,
-              roundId: delta.roundId ?? null,
-              previousNodeCount: previousFlow?.length ?? 0,
-              nextNodeCount: nextFlow?.length ?? 0,
-            },
-            `flow-update:${assistantId}:${delta.roundId ?? 'none'}:${previousFlow?.length ?? 0}->${nextFlow?.length ?? 0}`,
-          )
-        }
-
-        return {
-          ...nextEvent,
-          reasoning: nextReasoning || undefined,
-          error: undefined,
-        }
-      })
-    },
-    [appendObjectFlowLog, applyAssistantFlowState, updateAssistantEvent],
-  )
-
-  const flushQueuedAssistantStreamDelta = useCallback((): void => {
-    if (queuedAssistantStreamDeltaAnimationFrameRef.current !== null) {
-      window.cancelAnimationFrame(queuedAssistantStreamDeltaAnimationFrameRef.current)
-      queuedAssistantStreamDeltaAnimationFrameRef.current = null
-    }
-
-    const queuedDelta = queuedAssistantStreamDeltaRef.current
-    if (!queuedDelta) {
-      return
-    }
-
-    queuedAssistantStreamDeltaRef.current = null
-    applyAssistantStreamDelta(queuedDelta.conversationId, queuedDelta.assistantId, {
-      content: queuedDelta.content,
-      reasoning: queuedDelta.reasoning,
-    })
-  }, [applyAssistantStreamDelta])
-
-  useEffect(
-    () => () => {
-      if (queuedAssistantStreamDeltaAnimationFrameRef.current !== null) {
-        window.cancelAnimationFrame(queuedAssistantStreamDeltaAnimationFrameRef.current)
-      }
-      queuedAssistantStreamDeltaAnimationFrameRef.current = null
-      queuedAssistantStreamDeltaRef.current = null
-    },
-    [],
-  )
-
-  const appendAssistantStreamDelta = (
-    conversationId: string,
-    assistantId: string,
-    delta: {
-      content?: string
-      reasoning?: string
-      roundId?: string
-    },
-  ): void => {
-    const content = delta.content ?? ''
-    const reasoning = delta.reasoning ?? ''
-    if (!content && !reasoning) {
-      return
-    }
-
-    const queuedDelta = queuedAssistantStreamDeltaRef.current
-    if (
-      queuedDelta &&
-      (queuedDelta.conversationId !== conversationId ||
-        queuedDelta.assistantId !== assistantId ||
-        queuedDelta.roundId !== delta.roundId)
-    ) {
-      flushQueuedAssistantStreamDelta()
-    }
-
-    const nextQueued = queuedAssistantStreamDeltaRef.current
-    if (!nextQueued) {
-      queuedAssistantStreamDeltaRef.current = {
-        conversationId,
-        assistantId,
-        content,
-        reasoning,
-        roundId: delta.roundId,
-      }
-    } else {
-      nextQueued.content += content
-      nextQueued.reasoning += reasoning
-      nextQueued.roundId = nextQueued.roundId ?? delta.roundId
-    }
-
-    if (queuedAssistantStreamDeltaAnimationFrameRef.current !== null) {
-      return
-    }
-
-    queuedAssistantStreamDeltaAnimationFrameRef.current = window.requestAnimationFrame(() => {
-      queuedAssistantStreamDeltaAnimationFrameRef.current = null
-      const frameQueuedDelta = queuedAssistantStreamDeltaRef.current
-      if (!frameQueuedDelta) {
-        return
-      }
-      queuedAssistantStreamDeltaRef.current = null
-      applyAssistantStreamDelta(frameQueuedDelta.conversationId, frameQueuedDelta.assistantId, {
-        content: frameQueuedDelta.content,
-        reasoning: frameQueuedDelta.reasoning,
-        roundId: frameQueuedDelta.roundId,
-      })
-    })
-  }
-  void appendAssistantStreamDelta;
-
-  const resetAssistantStreamOutput = (conversationId: string, assistantId: string): void => {
-    flushQueuedAssistantStreamDelta()
-    updateAssistantEvent(conversationId, assistantId, (event) => {
-      if (
-        !event.rawText &&
-        !event.reasoning &&
-        (event.assistantFlow?.length ?? 0) === 0 &&
-        event.error === undefined
-      ) {
-        return event
-      }
-
-      return {
-        ...event,
-        rawText: '',
-        assistantFlow: undefined,
-        reasoning: undefined,
-        error: undefined,
-      }
-    })
-  }
-  void resetAssistantStreamOutput;
+  const assistantStream = useAssistantStream({ updateAssistantEvent })
 
   const updateConversationTitle = (
     conversationId: string,
@@ -1378,6 +1029,32 @@ function App() {
       }),
     )
   }
+
+  const titleHook = useTitleTransition({
+    titleTextRef,
+    titleRenameButtonRef,
+    titleInputRef,
+    titleActionsRef,
+    activeConversation,
+    activeConversationId,
+    pushNotice,
+    updateConversationTitle,
+  })
+
+  const messageListScroll = useMessageListScroll({
+    messageListRef,
+    chatContentStackRef,
+    chatHeaderRef,
+    chatSummaryBarRef,
+    composerFooterRef,
+    showScrollToBottomButton,
+    hideScrollToBottomButton,
+    activeConversationId,
+    activeMessages,
+    hasActiveMessages,
+    isSending,
+    pendingImagesLength: pendingImages.length,
+  })
 
   const ensureReadyToRequest = (): boolean => {
     if (!activeProviderRequestSettings) {
@@ -1417,7 +1094,7 @@ function App() {
       storedRawText?: string
     },
   ): void => {
-    flushQueuedAssistantStreamDelta()
+    assistantStream.flushQueuedAssistantStreamDelta()
     const preserveRawText = options?.preserveRawText === true
     const extracted = preserveRawText ? { cleanedText: '', reasoning: '' } : extractThinkBlocks(result.text)
     const finalText =
@@ -1443,7 +1120,8 @@ function App() {
             (event.assistantFlow?.length ?? 0) === 0
               ? createAssistantTextFlow(finalText, { createId })
               : event.assistantFlow
-          const nextEvent = applyAssistantFlowState(event, nextFlow)
+          const normalizedFlow = nextFlow && nextFlow.length > 0 ? nextFlow : undefined
+          const nextEvent = normalizedFlow === event.assistantFlow ? event : { ...event, assistantFlow: normalizedFlow }
           return {
             ...nextEvent,
             rawText: options?.storedRawText ?? result.text,
@@ -1537,38 +1215,6 @@ function App() {
     cancelEdit()
     handleSend()
   }, [editingMessageId, activeConversation, editingText, activeMessages, isSending, cancelEdit, handleSend, pushNotice])
-
-  const clearTitleTransitionTimers = useCallback((): void => {
-    if (titleTransitionAnimationFrameRef.current !== null) {
-      window.cancelAnimationFrame(titleTransitionAnimationFrameRef.current)
-      titleTransitionAnimationFrameRef.current = null
-    }
-    if (titleTransitionTimerRef.current !== null) {
-      window.clearTimeout(titleTransitionTimerRef.current)
-      titleTransitionTimerRef.current = null
-    }
-  }, [])
-
-  const playTitleTransition = useCallback((nextTransition: TitleTransitionState): void => {
-    clearTitleTransitionTimers()
-    setTitleTransition(nextTransition)
-    titleTransitionAnimationFrameRef.current = window.requestAnimationFrame(() => {
-      titleTransitionAnimationFrameRef.current = null
-      setTitleTransition((previous) => (previous ? { ...previous, playing: true } : previous))
-      titleTransitionTimerRef.current = window.setTimeout(() => {
-        setTitleTransition(null)
-        titleTransitionTimerRef.current = null
-      }, TITLE_EDIT_TRANSITION_MS)
-    })
-  }, [clearTitleTransitionTimers])
-
-  const stopRenameConversationImmediately = useCallback((): void => {
-    titleTransitionPrepRef.current = null
-    clearTitleTransitionTimers()
-    setTitleTransition(null)
-    setIsEditingTitle(false)
-    setTitleDraft('')
-  }, [clearTitleTransitionTimers])
 
   const clearMessageListInteractionTimer = useCallback((): void => {
     if (messageListInteractionTimerRef.current !== null) {
@@ -1805,18 +1451,22 @@ function App() {
     },
     [beginMessageListInteraction, scheduleMessageListInteractionEnd, syncMessageListScrollMetrics],
   )
+  void handleMessageListScroll;
 
   const handleMessageListPointerDownCapture = useCallback((): void => {
     beginMessageListInteraction()
   }, [beginMessageListInteraction])
+  void handleMessageListPointerDownCapture;
 
   const handleMessageListPointerUpCapture = useCallback((): void => {
     scheduleMessageListInteractionEnd()
   }, [scheduleMessageListInteractionEnd])
+  void handleMessageListPointerUpCapture;
 
   const handleMessageListPointerCancelCapture = useCallback((): void => {
     scheduleMessageListInteractionEnd()
   }, [scheduleMessageListInteractionEnd])
+  void handleMessageListPointerCancelCapture;
 
   const handleMessageListWheelCapture = useCallback(
     (): void => {
@@ -1825,6 +1475,7 @@ function App() {
     },
     [beginMessageListInteraction, scheduleMessageListInteractionEnd],
   )
+  void handleMessageListWheelCapture;
 
   const handleScrollToBottomButtonClick = useCallback((): void => {
     clearMessageListInteractionTimer()
@@ -1844,7 +1495,7 @@ function App() {
     pendingImageCompressionTaskIdRef.current = {}
     setPendingImages([])
     cancelEdit()
-    stopRenameConversationImmediately()
+    titleHook.stopRenameConversationImmediately()
   }
 
   const clearConversationGestureTimer = (): void => {
@@ -1923,7 +1574,7 @@ function App() {
       pendingImageCompressionTaskIdRef.current = {}
       setPendingImages([])
       cancelEdit()
-      stopRenameConversationImmediately()
+      titleHook.stopRenameConversationImmediately()
     }
     pushNotice('对话已删除。', 'success')
   }
@@ -2138,7 +1789,7 @@ function App() {
     pendingImageCompressionTaskIdRef.current = {}
     setPendingImages([])
     cancelEdit()
-    stopRenameConversationImmediately()
+    titleHook.stopRenameConversationImmediately()
   }
 
   const toggleReasoning = (messageId: string): void => {
@@ -2147,83 +1798,6 @@ function App() {
 
   const toggleSkillResult = (stepId: string): void => {
     useUIStore.getState().toggleSkillResult(stepId)
-  }
-
-  const focusTitleInput = useCallback((): void => {
-    const input = titleInputRef.current
-    if (!input) {
-      return
-    }
-
-    input.focus()
-    const selectionEnd = input.value.length
-    input.setSelectionRange(selectionEnd, selectionEnd)
-  }, [])
-
-  const beginRenameConversation = (): void => {
-    if (!activeConversation || titleTransition || titleTransitionPrepRef.current) {
-      return
-    }
-
-    const sourceTitleRect = snapshotRect(titleTextRef.current)
-    const sourceTriggerRect = snapshotRect(titleRenameButtonRef.current)
-    if (sourceTitleRect && sourceTriggerRect) {
-      titleTransitionPrepRef.current = {
-        phase: 'opening',
-        titleText: activeConversation.title,
-        sourceTitleRect,
-        sourceTriggerRect,
-      }
-    }
-
-    setTitleDraft(activeConversation.title)
-    setIsEditingTitle(true)
-  }
-
-  const cancelRenameConversation = (): void => {
-    if (!isEditingTitle || titleTransition || titleTransitionPrepRef.current) {
-      return
-    }
-
-    const sourceTitleRect = snapshotRect(titleInputRef.current)
-    const sourceTriggerRect = snapshotRect(titleActionsRef.current)
-    if (sourceTitleRect && sourceTriggerRect) {
-      titleTransitionPrepRef.current = {
-        phase: 'closing',
-        titleText: activeConversation?.title ?? titleDraft,
-        sourceTitleRect,
-        sourceTriggerRect,
-      }
-    }
-
-    setIsEditingTitle(false)
-    setTitleDraft('')
-  }
-
-  const saveRenameConversation = (): void => {
-    if (!activeConversation || titleTransition || titleTransitionPrepRef.current) {
-      return
-    }
-    const nextTitle = titleDraft.trim()
-    if (!nextTitle) {
-      pushNotice('对话标题不能为空。', 'error')
-      return
-    }
-
-    const sourceTitleRect = snapshotRect(titleInputRef.current)
-    const sourceTriggerRect = snapshotRect(titleActionsRef.current)
-    if (sourceTitleRect && sourceTriggerRect) {
-      titleTransitionPrepRef.current = {
-        phase: 'closing',
-        titleText: nextTitle,
-        sourceTitleRect,
-        sourceTriggerRect,
-      }
-    }
-
-    updateConversationTitle(activeConversation.id, nextTitle, true)
-    setIsEditingTitle(false)
-    setTitleDraft('')
   }
 
   useEffect(() => {
@@ -2417,73 +1991,6 @@ function App() {
     settingsMounted,
   ])
 
-  useLayoutEffect(() => {
-    const prepared = titleTransitionPrepRef.current
-    if (!prepared) {
-      return
-    }
-
-    if (prepared.phase === 'opening') {
-      const titleEndRect = snapshotRect(titleInputRef.current)
-      const actionsEndRect = snapshotRect(titleActionsRef.current)
-
-      if (!titleEndRect || !actionsEndRect) {
-        titleTransitionPrepRef.current = null
-        return
-      }
-
-      const offset = getTravelOffset(prepared.sourceTriggerRect, actionsEndRect)
-      playTitleTransition({
-        phase: 'opening',
-        titleText: prepared.titleText,
-        titleStartRect: prepared.sourceTitleRect,
-        titleEndRect,
-        penStartRect: prepared.sourceTriggerRect,
-        penEndRect: shiftRect(prepared.sourceTriggerRect, offset.x, offset.y),
-        actionsStartRect: shiftRect(actionsEndRect, -offset.x, -offset.y),
-        actionsEndRect,
-        playing: false,
-      })
-      titleTransitionPrepRef.current = null
-      return
-    }
-
-    const titleEndRect = snapshotRect(titleTextRef.current)
-    const penEndRect = snapshotRect(titleRenameButtonRef.current)
-    if (!titleEndRect || !penEndRect) {
-      titleTransitionPrepRef.current = null
-      return
-    }
-
-    const offset = getTravelOffset(penEndRect, prepared.sourceTriggerRect)
-    playTitleTransition({
-      phase: 'closing',
-      titleText: prepared.titleText,
-      titleStartRect: prepared.sourceTitleRect,
-      titleEndRect,
-      penStartRect: shiftRect(penEndRect, offset.x, offset.y),
-      penEndRect,
-      actionsStartRect: prepared.sourceTriggerRect,
-      actionsEndRect: shiftRect(prepared.sourceTriggerRect, -offset.x, -offset.y),
-      playing: false,
-    })
-    titleTransitionPrepRef.current = null
-  }, [isEditingTitle, activeConversation?.id, activeConversation?.title, playTitleTransition])
-
-  useEffect(() => {
-    if (!isEditingTitle || titleTransition || titleTransitionPrepRef.current) {
-      return
-    }
-    focusTitleInput()
-  }, [focusTitleInput, isEditingTitle, titleTransition, activeConversationId])
-
-  useEffect(
-    () => () => {
-      clearTitleTransitionTimers()
-    },
-    [clearTitleTransitionTimers],
-  )
-
   useEffect(
     () => () => {
       clearMessageListInteractionTimer()
@@ -2544,8 +2051,8 @@ function App() {
 
     scrollMessageListToBottom()
   }, [
-    activeChatScrollInsets.bottom,
-    activeChatScrollInsets.top,
+    messageListScroll.activeChatScrollInsets.bottom,
+    messageListScroll.activeChatScrollInsets.top,
     activeConversationId,
     activeMessages,
     isAutoFollowEnabled,
@@ -2593,7 +2100,7 @@ function App() {
       const visibleContentHeight = Math.max(0, Math.round(messageList.clientHeight - bottomInset))
       const contentHeightWithoutInsets = Math.max(
         0,
-        Math.round(chatContentStack.scrollHeight - activeChatScrollInsets.top - activeChatScrollInsets.bottom),
+        Math.round(chatContentStack.scrollHeight - messageListScroll.activeChatScrollInsets.top - messageListScroll.activeChatScrollInsets.bottom),
       )
       const shouldReserveBottomInset = contentHeightWithoutInsets + topInset > visibleContentHeight + 1
       const nextTop = topInset
@@ -2638,8 +2145,8 @@ function App() {
       }
     }
   }, [
-    activeChatScrollInsets.bottom,
-    activeChatScrollInsets.top,
+    messageListScroll.activeChatScrollInsets.bottom,
+    messageListScroll.activeChatScrollInsets.top,
     activeConversationId,
     activeMessages,
     hasActiveMessages,
@@ -2702,9 +2209,9 @@ function App() {
     pendingImageCompressionTaskIdRef.current = {}
     setPendingImages([])
     cancelEdit()
-    stopRenameConversationImmediately()
+    titleHook.stopRenameConversationImmediately()
     closeModelMenu()
-  }, [activeConversationId, closeModelMenu, stopRenameConversationImmediately])
+  }, [activeConversationId, closeModelMenu, titleHook.stopRenameConversationImmediately])
 
   useEffect(() => {
     if (drawerMounted) {
@@ -2722,20 +2229,6 @@ function App() {
     setDeleteModeEnabled(false)
     closeDeleteDialog()
   }, [drawerMounted])
-
-  useEffect(() => {
-    const handler = (event: MouseEvent): void => {
-      if (!modelMenuRef.current) {
-        return
-      }
-      const target = event.target as Node
-      if (!modelMenuRef.current.contains(target)) {
-        closeModelMenu()
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [closeModelMenu])
 
   useEffect(() => {
     setCollapsedConversationGroups((previous) => {
@@ -2891,7 +2384,7 @@ function App() {
               onAnimationEnd={() => setHomepageSendTransition(null)}
             />
           ) : null}
-          {titleTransition ? <TitleTransition transition={titleTransition} /> : null}
+          {titleHook.titleTransition ? <TitleTransition transition={titleHook.titleTransition} /> : null}
         </>
       }
       headerElement={
@@ -2901,18 +2394,18 @@ function App() {
           titleRenameButtonRef={titleRenameButtonRef}
           titleInputRef={titleInputRef}
           titleActionsRef={titleActionsRef}
-          isEditingTitle={isEditingTitle}
-          titleDraft={titleDraft}
-          titleTransition={titleTransition}
+          isEditingTitle={titleHook.isEditingTitle}
+          titleDraft={titleHook.titleDraft}
+          titleTransition={titleHook.titleTransition}
           activeConversation={activeConversation}
           displayConversationTitle={displayConversationTitle}
           shouldShowTitleRenameButton={shouldShowTitleRenameButton}
           themeMode={settings.themeMode}
           openDrawer={openDrawer}
-          setTitleDraft={setTitleDraft}
-          saveRenameConversation={saveRenameConversation}
-          cancelRenameConversation={cancelRenameConversation}
-          beginRenameConversation={beginRenameConversation}
+          setTitleDraft={titleHook.setTitleDraft}
+          saveRenameConversation={titleHook.saveRenameConversation}
+          cancelRenameConversation={titleHook.cancelRenameConversation}
+          beginRenameConversation={titleHook.beginRenameConversation}
           onThemeToggle={(nextMode) => updateSetting('themeMode', nextMode)}
         />
       }
@@ -2926,11 +2419,11 @@ function App() {
             key={activeConversationId}
             ref={messageListRef}
             className="message-list page-transition"
-            onScroll={handleMessageListScroll}
-            onPointerDownCapture={handleMessageListPointerDownCapture}
-            onPointerUpCapture={handleMessageListPointerUpCapture}
-            onPointerCancelCapture={handleMessageListPointerCancelCapture}
-            onWheelCapture={handleMessageListWheelCapture}
+            onScroll={messageListScroll.onScroll}
+            onPointerDownCapture={messageListScroll.onPointerDownCapture}
+            onPointerUpCapture={messageListScroll.onPointerUpCapture}
+            onPointerCancelCapture={messageListScroll.onPointerCancelCapture}
+            onWheelCapture={messageListScroll.onWheelCapture}
           >
             <div
               className={`chat-content-frame ${isHomepageEmptyState ? 'is-homepage-empty' : 'has-active-messages'}`}
@@ -2940,7 +2433,7 @@ function App() {
                 className={`chat-content-stack ${isHomepageEmptyState ? 'is-homepage-empty' : 'has-active-messages'}`}
               >
                 {hasActiveMessages ? (
-                  <ChatScrollPlaceholder heightPx={activeChatScrollInsets.top} position="top" />
+                  <ChatScrollPlaceholder heightPx={messageListScroll.activeChatScrollInsets.top} position="top" />
                 ) : null}
 
                 <HomepageView
@@ -2980,7 +2473,7 @@ function App() {
                 ) : null}
 
                 {hasActiveMessages ? (
-                  <ChatScrollPlaceholder heightPx={activeChatScrollInsets.bottom} position="bottom" />
+                  <ChatScrollPlaceholder heightPx={messageListScroll.activeChatScrollInsets.bottom} position="bottom" />
                 ) : null}
               </div>
               </div>
