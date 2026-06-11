@@ -2,7 +2,6 @@ import {
   startTransition,
   useCallback,
   type CSSProperties,
-  type ChangeEvent,
   type KeyboardEvent,
   type PointerEvent,
   type ReactNode,
@@ -20,34 +19,15 @@ import {
   isTranscriptConversationWorkspacePlaceholder,
   projectConversationMessages,
   type AssistantMessageTranscriptEvent,
+  type TranscriptContentPart,
   type TranscriptEvent,
+  type UserMessageTranscriptEvent,
 } from './services/chat-transcript'
-import {
-  deleteSkill,
-  initializeSkillHost,
-  installSkillPackage,
-  listSkills,
-  readSkillConfig,
-  setSkillEnabled,
-  writeSkillConfig,
-} from './services/skills/host'
-import { isNativeRuntimeAvailable } from './services/skills/native-runtime'
 import {
   INFO_PROMPT_DEFINITIONS,
   type InfoPromptDefinition,
 } from './services/skills/info-system-prompts'
-import {
-  deleteRuntime,
-  ensureBundledRuntimesInstalled,
-  installRuntimePackage,
-  listRuntimes,
-  setDefaultRuntime,
-  setRuntimeEnabled,
-  testRuntime,
-} from './services/skills/runtime'
-import type {
-  RuntimeRecord,
-} from './services/skills/types'
+import { isNativeRuntimeAvailable } from './services/skills/native-runtime'
 import ChatInputBox from './components/ChatInputBox'
 import MarkdownMessage from './components/MarkdownMessage'
 import ChatScrollPlaceholder from './components/ChatScrollPlaceholder'
@@ -85,7 +65,6 @@ import TitleTransition from './components/TitleTransition'
 import PromptEditorPanel from './components/PromptEditorPanel'
 import SettingsScreen from './components/SettingsScreen'
 import SettingsPopoverSelect from './components/SettingsPopoverSelect'
-import { type JsonObjectValue } from './components/SkillConfigJsonEditor'
 import {
   getLocalDateKey,
   resolveBundledDailyCover,
@@ -111,11 +90,6 @@ import {
 import {
   buildHistoryStatsFromSummaries,
   deleteConversationStorage,
-  getChatStatePersistenceSignature,
-  loadChatIndex,
-  loadConversationState,
-  loadStoredAttachmentDataUrl,
-  persistChatState,
 } from './services/chat-storage'
 import { createProviderModelKey, modelHealthLabel } from './utils/model-utils'
 import { stripSkillParsingHintLines } from './utils/text-utils'
@@ -124,29 +98,22 @@ import type {
   AppSettings,
   ChatSummarySnapshot,
   CompletionResult,
+  ChatMessage,
   Conversation,
   ConversationDrafts,
   ConversationGroup,
   ConversationResponseMode,
-  GlobalPromptSettingKey,
   LoadedChatState,
   MessageListScrollMetrics,
-  ModelHealth,
   Notice,
-  NumericSettingKey,
   PendingTitleTransition,
   PromptEditorKey,
-  ProviderBooleanSettingKey,
-  ProviderConfig,
-  ProviderNumericSettingKey,
-  ProviderPromptSettingKey,
   SettingsView,
   TagPromptEditorKey,
   TitleTransitionState,
   TurnExecutionJob,
 } from './state/types'
 import {
-  CHAT_STATE_PERSIST_DEBOUNCE_MS,
   HOMEPAGE_SEND_TRANSITION_DURATION_MS,
   PERMISSION_LABELS,
   SETTINGS_STORAGE_KEY,
@@ -162,6 +129,7 @@ import {
 import { useUIStore } from './state/ui-store'
 import { useExtensionsStore } from './state/extensions-store'
 import { useAssistant } from './hooks/useAssistant'
+import { createStaticAssistantEvent, buildUserTranscriptContent } from './hooks/useAssistant'
 import { useChatUI } from './hooks/useChatUI'
 import { useChatStore } from './state/chat-store'
 import { useSettingsStore } from './state/settings-store'
@@ -171,7 +139,6 @@ import './styles/app-editorial-redesign.css'
 import {
   buildMessageImageViewerKey,
   buildPendingImageViewerKey,
-  applyAssignedImageStorageKeys,
 } from './utils/app-images'
 
 import {
@@ -183,9 +150,6 @@ import {
 import {
   numberFormatter,
   createId,
-  isJsonObjectRecord,
-  formatJsonObject,
-  parseSkillConfigDraft,
   clamp,
   formatCompactCount,
   getResponseModeLabel,
@@ -195,12 +159,8 @@ import {
 import {
   createConversation,
   createInitialChatState,
-  createProviderConfig,
-  createProviderNameCandidate,
   createProviderNumericSettingDrafts,
-  createSummaryConversation,
   DEFAULT_SETTINGS,
-  ensureValidCurrentModelSelection,
   extractThinkBlocks,
   getEnabledModelOptions,
   getTravelOffset,
@@ -214,24 +174,17 @@ import {
   MESSAGE_LIST_BOTTOM_THRESHOLD_PX,
   MESSAGE_LIST_INTERACTION_IDLE_MS,
   MESSAGE_LIST_SCROLL_BUTTON_DISTANCE_FACTOR,
-  buildPersistChatState,
   createNumericSettingDrafts,
-  normalizeNumericSettingDraft,
-  NUMERIC_SETTING_DEFAULTS,
-  PROVIDER_NUMERIC_LIMITS,
   PROMPT_DEFAULTS,
   resolveConversationResponseMode,
   resolveMessageListSmoothScrollStep,
-  resolveProviderRequestSettings,
   shiftRect,
   snapshotRect,
   TITLE_EDIT_TRANSITION_MS,
   toConversationSummary,
-  toHydratedConversation,
   vibrateInteraction,
   withConversationRecordResponseMode,
   withConversationRecordTranscript,
-  normalizeProviderPromptOverride,
 } from './utils/app-module'
 function App() {
   const initialSettingsRef = useRef<AppSettings | null>(null)
@@ -265,9 +218,7 @@ function App() {
 
   // ── Settings store ──
   const settings = useSettingsStore((s) => s.settings)
-  const setSettings = useSettingsStore((s) => s.setSettings)
   const numericSettingDrafts = useSettingsStore((s) => s.numericSettingDrafts)
-  const setNumericSettingDrafts = useSettingsStore((s) => s.setNumericSettingDrafts)
   const providerNumericSettingDrafts = useSettingsStore((s) => s.providerNumericSettingDrafts)
   const setProviderNumericSettingDrafts = useSettingsStore((s) => s.setProviderNumericSettingDrafts)
 
@@ -279,11 +230,8 @@ function App() {
   const draftsByConversation = useChatStore((s) => s.draftsByConversation)
   const setDraftsByConversation = useChatStore((s) => s.setDraftsByConversation)
   const historyStats = useChatStore((s) => s.historyStats)
-  const setHistoryStats = useChatStore((s) => s.setHistoryStats)
   const chatStateLoadError = useChatStore((s) => s.chatStateLoadError)
-  const setChatStateLoadError = useChatStore((s) => s.setChatStateLoadError)
   const chatStateLoaded = useChatStore((s) => s.chatStateLoaded)
-  const setChatStateLoaded = useChatStore((s) => s.setChatStateLoaded)
   const pendingImages = useChatStore((s) => s.pendingImages)
   const setPendingImages = useChatStore((s) => s.setPendingImages)
   const pendingImageCompressionTaskIdRef = useRef<Record<string, number>>({})
@@ -401,11 +349,8 @@ function App() {
   const conversationListRef = useRef<HTMLDivElement | null>(null)
   const modelMenuRef = useRef<HTMLDivElement | null>(null)
   const storageWarningShownRef = useRef(false)
-  const conversationPersistTaskIdRef = useRef(0)
-  const chatStateSignatureRef = useRef('')
   const activeConversationIdRef = useRef(initialStateRef.current.activeConversationId)
   const draftsByConversationRef = useRef<ConversationDrafts>(initialStateRef.current.draftsByConversation)
-  const hydratingImageKeysRef = useRef<Set<string>>(new Set())
   const settingsScrollByViewRef = useRef<Record<SettingsView, number>>({
     main: 0,
     'tag-prompts': 0,
@@ -839,7 +784,8 @@ function App() {
   }, [])
 
   // ── Permissions (delegated to usePermissions hook) ──
-  const conv = useConversation(initialStateRef)
+  const perms = usePermissions(pushNotice)
+  const conv = useConversation(initialStateRef, pushNotice)
   const {
     skillRecords,
     runtimeRecords,
@@ -872,6 +818,7 @@ function App() {
     refreshExtensions,
     setModelHealth,
   } = useExtensions(pushNotice, openDeleteDialog)
+  void skillConfigTargetId; void setModelHealth;
   const {
     applySettingsUpdate,
     handleNumericSettingChange,
@@ -886,14 +833,19 @@ function App() {
     clearProviderInfoPromptOverride,
     addProvider,
     deleteProvider,
+    requestDeleteProvider,
     setProviderModelEnabled,
     addManualProviderModel,
     selectCurrentModel,
     resetProviderDetailState,
     updateSetting,
     updateDailyCoverSetting,
+    resetPromptToDefault,
+    fetchProviderModels,
+    testProviderModel,
     activeProviderRequestSettings,
   } = useSettings(pushNotice, openDeleteDialog)
+  void applySettingsUpdate; void updateProviderById;
 
   // ── Relay ActiNetSettings custom events as pushNotice ──
   useEffect(() => {
@@ -905,9 +857,6 @@ function App() {
     return () => window.removeEventListener('actinet-notice', handler)
   }, [pushNotice])
 
-
-
-
   const togglePromptEditor = useCallback((key: TagPromptEditorKey): void => {
     useUIStore.getState().togglePromptEditor(key)
   }, [])
@@ -916,14 +865,13 @@ function App() {
     useUIStore.getState().toggleProviderPromptEditor(key)
   }, [])
 
-
   const openSettingsHome = useCallback((): void => {
     navigateSettingsView('main')
     resetProviderDetailState()
-    setSkillConfigTargetId(null)
-    setSkillConfigDraft('')
-    setSkillConfigValue({})
-    setSkillConfigRawError(null)
+    useExtensionsStore.getState().setSkillConfigTargetId(null)
+    useExtensionsStore.getState().setSkillConfigDraft('')
+    useExtensionsStore.getState().setSkillConfigValue({})
+    useExtensionsStore.getState().setSkillConfigRawError(null)
     openSettings()
   }, [openSettings, resetProviderDetailState])
 
@@ -991,10 +939,10 @@ function App() {
     rememberSettingsScrollPosition()
     navigateSettingsView('main')
     resetProviderDetailState()
-    setSkillConfigTargetId(null)
-    setSkillConfigDraft('')
-    setSkillConfigValue({})
-    setSkillConfigRawError(null)
+    useExtensionsStore.getState().setSkillConfigTargetId(null)
+    useExtensionsStore.getState().setSkillConfigDraft('')
+    useExtensionsStore.getState().setSkillConfigValue({})
+    useExtensionsStore.getState().setSkillConfigRawError(null)
     closeSettings()
   }, [closeSettings, rememberSettingsScrollPosition, resetProviderDetailState])
 
@@ -1002,10 +950,10 @@ function App() {
     if (settingsView === 'skill-config') {
       rememberSettingsScrollPosition()
       navigateSettingsView('skills')
-      setSkillConfigTargetId(null)
-      setSkillConfigDraft('')
-      setSkillConfigValue({})
-      setSkillConfigRawError(null)
+      useExtensionsStore.getState().setSkillConfigTargetId(null)
+      useExtensionsStore.getState().setSkillConfigDraft('')
+      useExtensionsStore.getState().setSkillConfigValue({})
+      useExtensionsStore.getState().setSkillConfigRawError(null)
       return
     }
     if (settingsView === 'provider-detail') {
@@ -1038,25 +986,6 @@ function App() {
     },
     [settingsView],
   )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
   const updateConversationDraft = useCallback((conversationId: string, nextDraft: string): void => {
     setDraftsByConversation((previous) => {
@@ -1612,6 +1541,66 @@ function App() {
   } = assistant
   void executeAssistantTurn;
 
+  // ── Message editing ──
+  const beginEdit = useCallback((message: ChatMessage): void => {
+    setEditingMessageId(message.id)
+    setEditingText(message.text)
+  }, [setEditingMessageId, setEditingText])
+
+  const saveAssistantEdit = useCallback((): void => {
+    if (!editingMessageId || !activeConversation) return
+    const nextText = editingText.trim()
+    if (!nextText) { pushNotice('内容不能为空。', 'error'); return }
+    const target = activeMessages.find((m) => m.id === editingMessageId && m.role === 'assistant')
+    if (!target) { cancelEdit(); return }
+    let inserted = false
+    const replacement = createStaticAssistantEvent(
+      target.turnId, nextText,
+      activeProviderRequestSettings?.currentModel,
+    )
+    const nextTranscript = activeConversation.transcript.flatMap((event) => {
+      if (event.turnId !== target.turnId) return [event]
+      if (event.kind === 'user_message') { inserted = true; return [event, replacement] }
+      return []
+    })
+    if (!inserted) { cancelEdit(); return }
+    conv.updateConversationTranscript(activeConversation.id, nextTranscript)
+    cancelEdit()
+  }, [editingMessageId, activeConversation, editingText, activeMessages, activeProviderRequestSettings, cancelEdit, pushNotice])
+
+  const saveUserEdit = useCallback(async (resend: boolean): Promise<void> => {
+    if (!editingMessageId || !activeConversation) return
+    const nextText = editingText.trim()
+    if (!nextText) { pushNotice('内容不能为空。', 'error'); return }
+    const target = activeMessages.find((m) => m.id === editingMessageId && m.role === 'user')
+    if (!target) { cancelEdit(); return }
+    const userEvent = activeConversation.transcript.find(
+      (e): e is UserMessageTranscriptEvent => e.kind === 'user_message' && e.id === editingMessageId,
+    )
+    if (!userEvent) { cancelEdit(); return }
+    const existingImages = userEvent.content
+      .filter((part): part is Extract<TranscriptContentPart, { type: 'image' }> => part.type === 'image')
+      .map((part) => part.image)
+    const updatedUserEvent: UserMessageTranscriptEvent = {
+      ...userEvent,
+      content: buildUserTranscriptContent(nextText, existingImages),
+    }
+    if (!resend) {
+      const nextTranscript = activeConversation.transcript.map((event) =>
+        event.kind === 'user_message' && event.id === editingMessageId ? updatedUserEvent : event,
+      )
+      conv.updateConversationTranscript(activeConversation.id, nextTranscript)
+      cancelEdit()
+      return
+    }
+    if (isSending) { pushNotice('请先停止当前生成。', 'error'); return }
+    const nextTranscript = activeConversation.transcript.map((event) =>
+      event.kind === 'user_message' && event.id === editingMessageId ? updatedUserEvent : event,
+    )
+    conv.updateConversationTranscript(activeConversation.id, nextTranscript)
+    cancelEdit()
+    handleSend()
+  }, [editingMessageId, activeConversation, editingText, activeMessages, isSending, cancelEdit, handleSend, pushNotice])
 
   const clearTitleTransitionTimers = useCallback((): void => {
     if (titleTransitionAnimationFrameRef.current !== null) {
@@ -1911,7 +1900,7 @@ function App() {
 
   const switchConversation = (conversationId: string): void => {
     setActiveConversationId(conversationId)
-    hydrateConversationById(conversationId)
+    conv.hydrateConversationById(conversationId)
     closeDrawer()
     closeModelMenu()
     setDeleteModeEnabled(false)
@@ -2355,313 +2344,7 @@ function App() {
     return () => window.clearTimeout(timer)
   }, [settings])
 
-  useEffect(() => {
-    let cancelled = false
-
-    void (async () => {
-      try {
-        const loaded = await loadChatIndex()
-        if (cancelled) {
-          return
-        }
-
-        const existingConversationIds = new Set(useChatStore.getState().conversations.map((conversation) => conversation.id))
-        const nextConversations = [
-          ...useChatStore.getState().conversations,
-          ...loaded.conversations
-            .filter((conversation) => !existingConversationIds.has(conversation.id))
-            .map((conversation) => createSummaryConversation(conversation)),
-        ]
-        const nextDrafts = draftsByConversationRef.current
-        const nextActiveConversationId =
-          activeConversationIdRef.current ||
-          nextConversations[0]?.id ||
-          ''
-        const nextPersistState = buildPersistChatState(
-          nextConversations,
-          nextDrafts,
-          nextActiveConversationId,
-        )
-        chatStateSignatureRef.current = getChatStatePersistenceSignature(nextPersistState)
-        startTransition(() => {
-          setConversationsState(nextConversations)
-          setHistoryStats(loaded.historyStats)
-          setChatStateLoadError(null)
-          setChatStateLoaded(true)
-        })
-      } catch (error) {
-        if (cancelled) {
-          return
-        }
-        const message = error instanceof Error ? error.message : '未知错误'
-        setChatStateLoadError(`聊天记录加载失败：${message}`)
-        setNotice({ text: '历史对话索引加载失败，已暂停自动保存以避免覆盖现有记录。', type: 'error' })
-        console.warn('Failed to load chat state', error)
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [setConversationsState])
-
-  const hydrateConversationById = useCallback(
-    (conversationId: string): void => {
-      if (!chatStateLoaded) {
-        return
-      }
-
-      const targetConversation =
-        useChatStore.getState().conversations.find((conversation) => conversation.id === conversationId) ?? null
-      if (
-        !targetConversation ||
-        (targetConversation.storageLoadState !== 'summary' &&
-          targetConversation.storageLoadState !== 'error')
-      ) {
-        return
-      }
-
-      setConversationsState((previous) =>
-        previous.map((conversation) =>
-          conversation.id === conversationId
-            ? {
-                ...conversation,
-                storageLoadState: 'hydrating',
-                storageLoadError: undefined,
-              }
-            : conversation,
-        ),
-      )
-
-      void (async () => {
-        try {
-          const loaded = await loadConversationState(conversationId)
-          if (!loaded) {
-            throw new Error('未找到该历史对话')
-          }
-          if (!useChatStore.getState().conversations.some((conversation) => conversation.id === conversationId)) {
-            return
-          }
-
-          startTransition(() => {
-            setConversationsState((previous) =>
-              previous.map((conversation) =>
-                conversation.id === conversationId
-                  ? toHydratedConversation(loaded.conversation, loaded.draftText)
-                  : conversation,
-              ),
-            )
-            setDraftsByConversation((previous) => {
-              const nextDraft = loaded.draftText
-              if (!nextDraft.trim()) {
-                if (!Object.prototype.hasOwnProperty.call(previous, conversationId)) {
-                  return previous
-                }
-                const next = { ...previous }
-                delete next[conversationId]
-                return next
-              }
-              if (previous[conversationId] === nextDraft) {
-                return previous
-              }
-              return {
-                ...previous,
-                [conversationId]: nextDraft,
-              }
-            })
-          })
-        } catch (error) {
-          const message = error instanceof Error ? error.message : '未知错误'
-          startTransition(() => {
-            setConversationsState((previous) =>
-              previous.map((conversation) =>
-                conversation.id === conversationId
-                  ? {
-                      ...conversation,
-                      storageLoadState: 'error',
-                      storageLoadError: message,
-                    }
-                  : conversation,
-              ),
-            )
-          })
-          console.warn('Failed to hydrate conversation', error)
-        }
-      })()
-    },
-    [chatStateLoaded, setConversationsState],
-  )
-
-  useEffect(() => {
-    if (!chatStateLoaded) {
-      return
-    }
-
-    const pendingLoads: Array<{
-      conversationId: string
-      messageId: string
-      imageId: string
-      storageKey: string
-      mimeType: string
-    }> = []
-
-    for (const conversation of conversations) {
-      for (const event of conversation.transcript) {
-        if (event.kind !== 'user_message') {
-          continue
-        }
-        for (const part of event.content) {
-          if (part.type !== 'image') {
-            continue
-          }
-          const image = part.image
-          if (!image.storageKey || image.dataUrl.trim().length > 0) {
-            continue
-          }
-          if (hydratingImageKeysRef.current.has(image.storageKey)) {
-            continue
-          }
-          pendingLoads.push({
-            conversationId: conversation.id,
-            messageId: event.id,
-            imageId: image.id,
-            storageKey: image.storageKey,
-            mimeType: image.mimeType,
-          })
-        }
-      }
-    }
-
-    if (pendingLoads.length === 0) {
-      return
-    }
-
-    let cancelled = false
-    for (const item of pendingLoads) {
-      hydratingImageKeysRef.current.add(item.storageKey)
-    }
-
-    void (async () => {
-      try {
-        const hydrated = await Promise.all(
-          pendingLoads.map(async (item) => ({
-            ...item,
-            dataUrl: await loadStoredAttachmentDataUrl(item.storageKey, item.mimeType),
-          })),
-        )
-        if (cancelled) {
-          return
-        }
-        const resolved = hydrated.filter(
-          (item): item is typeof item & { dataUrl: string } => typeof item.dataUrl === 'string' && item.dataUrl.length > 0,
-        )
-        if (resolved.length === 0) {
-          return
-        }
-        startTransition(() => {
-          setConversationsState((previous) =>
-            previous.map((conversation) => {
-              const nextTranscript = conversation.transcript.map((event) => {
-                if (event.kind !== 'user_message') {
-                  return event
-                }
-                const matchedImages = resolved.filter(
-                  (item) => item.conversationId === conversation.id && item.messageId === event.id,
-                )
-                if (matchedImages.length === 0) {
-                  return event
-                }
-                return {
-                  ...event,
-                  content: event.content.map((part) => {
-                    if (part.type !== 'image') {
-                      return part
-                    }
-                    const matched = matchedImages.find((item) => item.imageId === part.image.id)
-                    return matched
-                      ? {
-                          type: 'image' as const,
-                          image: {
-                            ...part.image,
-                            dataUrl: matched.dataUrl,
-                          },
-                        }
-                      : part
-                  }),
-                }
-              })
-              return {
-                ...conversation,
-                transcript: nextTranscript,
-              }
-            }),
-          )
-        })
-      } finally {
-        for (const item of pendingLoads) {
-          hydratingImageKeysRef.current.delete(item.storageKey)
-        }
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [chatStateLoaded, conversations, setConversationsState])
-
-  useEffect(() => {
-    if (!chatStateLoaded) {
-      return
-    }
-
-    const nextState = buildPersistChatState(
-      conversations,
-      draftsByConversation,
-      activeConversationId,
-    )
-    const nextSignature = getChatStatePersistenceSignature(nextState)
-    if (nextSignature === chatStateSignatureRef.current) {
-      return
-    }
-
-    const taskId = conversationPersistTaskIdRef.current + 1
-    conversationPersistTaskIdRef.current = taskId
-    const timer = window.setTimeout(() => {
-      void (async () => {
-        try {
-          const persisted = await persistChatState(nextState)
-          if (conversationPersistTaskIdRef.current !== taskId) {
-            return
-          }
-          const nextConversationsWithStorageKeys = applyAssignedImageStorageKeys(
-            conversations,
-            persisted.assignedImageStorageKeys,
-          )
-          const normalizedState = buildPersistChatState(
-            nextConversationsWithStorageKeys,
-            draftsByConversation,
-            activeConversationId,
-          )
-
-          chatStateSignatureRef.current = getChatStatePersistenceSignature(normalizedState)
-
-          if (nextConversationsWithStorageKeys !== conversations) {
-            startTransition(() => {
-              setConversationsState(nextConversationsWithStorageKeys)
-            })
-          }
-        } catch (error) {
-          if (!storageWarningShownRef.current) {
-            storageWarningShownRef.current = true
-            setNotice({ text: '聊天记录持久化失败，请稍后重试。', type: 'error' })
-          }
-          console.warn('Failed to persist conversations', error)
-        }
-      })()
-    }, CHAT_STATE_PERSIST_DEBOUNCE_MS)
-
-    return () => window.clearTimeout(timer)
-  }, [chatStateLoaded, conversations, draftsByConversation, activeConversationId, setConversationsState])
+  // conversation effects (image hydration, persist) now handled by useConversation hook
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) {
@@ -3489,7 +3172,7 @@ function App() {
                 <button
                   type="button"
                   className="pending-image-remove-button"
-                  onClick={() => removePendingImage(image.id)}
+                  onClick={() => conv.removePendingImage(image.id)}
                   aria-label={`移除图片 ${image.name}`}
                 >
                   ×
@@ -3502,7 +3185,7 @@ function App() {
                     step={1}
                     value={image.compressionRate}
                     onChange={(event) =>
-                      updatePendingImageCompression(image.id, Number(event.target.value))
+                      conv.updatePendingImageCompression(image.id, Number(event.target.value))
                     }
                     aria-label={`压缩率 ${image.name}`}
                   />
@@ -3538,7 +3221,7 @@ function App() {
               <button
                 type="button"
                 className="composer-send-button danger-button"
-                onClick={stopGeneration}
+                onClick={assistant.stopGeneration}
               >
                 停止
               </button>
@@ -5034,7 +4717,7 @@ function App() {
                         if (!activeConversation) {
                           return
                         }
-                        hydrateConversationById(activeConversation.id)
+                        conv.hydrateConversationById(activeConversation.id)
                       }}
                     >
                       重试加载

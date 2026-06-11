@@ -5,18 +5,13 @@
 import { useCallback, useRef, useState } from 'react'
 import type {
   DeleteDialogState,
-  ImageViewerItem,
-  ImageViewerState,
-  PendingImageAttachment,
+  ImageAttachment,
   RectSnapshot,
 } from '../state/types'
 import { useUIStore } from '../state/ui-store'
-import {
-  TITLE_EDIT_TRANSITION_MS,
-  TITLE_EDIT_TRANSITION_TRAVEL_FACTOR,
-  TITLE_EDIT_TRANSITION_TRAVEL_MIN_PX,
-  TITLE_EDIT_TRANSITION_TRAVEL_MAX_PX,
-} from '../utils/app-module'
+import { useChatStore } from '../state/chat-store'
+import { projectConversationMessages } from '../services/chat-transcript'
+import { toImageViewerItem, collectConversationImageViewerItems } from '../utils/app-images'
 
 interface UseChatUIReturn {
   // ── Drawer state ──
@@ -40,12 +35,7 @@ interface UseChatUIReturn {
   // ── Image viewer state ──
   imageViewerMounted: boolean
   imageViewerVisible: boolean
-  openImageViewer: (
-    currentKey: string,
-    currentImage: PendingImageAttachment | null,
-    items: ImageViewerItem[],
-    initialIndex: number,
-  ) => void
+  openImageViewer: (viewerKey: string, image: Pick<ImageAttachment, 'name' | 'dataUrl'>) => void
   closeImageViewer: () => void
 
   // ── Scroll to bottom ──
@@ -151,17 +141,31 @@ export function useChatUI(): UseChatUIReturn {
   }, [])
 
   const openImageViewer = useCallback(
-    (
-      _currentKey: string,
-      _currentImage: PendingImageAttachment | null,
-      items: ImageViewerItem[],
-      initialIndex: number,
-    ): void => {
-      const viewer: ImageViewerState = {
-        items,
-        initialIndex: Math.max(0, Math.min(initialIndex, items.length - 1)),
+    (viewerKey: string, image: Pick<ImageAttachment, 'name' | 'dataUrl'>): void => {
+      const fallbackItem = toImageViewerItem(viewerKey, image)
+      if (!fallbackItem) {
+        return
       }
-      useUIStore.getState().setImageViewer(viewer)
+
+      const chatState = useChatStore.getState()
+      const conversations = chatState.conversations
+      const activeConversationId = chatState.activeConversationId
+      const pendingImages = chatState.pendingImages
+
+      const activeConversation =
+        conversations.find((c) => c.id === activeConversationId) ?? null
+      const activeMessages = activeConversation
+        ? projectConversationMessages(activeConversation)
+        : []
+      const viewerItems = collectConversationImageViewerItems(activeMessages, pendingImages)
+
+      const items = viewerItems.length > 0 ? viewerItems : [fallbackItem]
+      const initialIndex = items.findIndex((item) => item.key === viewerKey)
+
+      useUIStore.getState().setImageViewer({
+        items,
+        initialIndex: initialIndex >= 0 ? initialIndex : 0,
+      })
       showImageViewerOverlay()
     },
     [showImageViewerOverlay],
@@ -169,9 +173,6 @@ export function useChatUI(): UseChatUIReturn {
 
   const closeImageViewer = useCallback((): void => {
     hideImageViewerOverlay()
-    window.setTimeout(() => {
-      useUIStore.getState().setImageViewer(null)
-    }, 300)
   }, [hideImageViewerOverlay])
 
   // ── Scroll to bottom ──
@@ -185,31 +186,12 @@ export function useChatUI(): UseChatUIReturn {
 
   // ── Clipboard ──
   const copyTextToClipboard = useCallback(async (text: string): Promise<boolean> => {
-    if (typeof navigator !== 'undefined' && typeof navigator.clipboard?.writeText === 'function') {
-      try {
-        await navigator.clipboard.writeText(text)
-        return true
-      } catch {
-        // Fall through
-      }
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      return false
     }
-    if (typeof document !== 'undefined') {
-      const textarea = document.createElement('textarea')
-      textarea.value = text
-      textarea.style.position = 'fixed'
-      textarea.style.opacity = '0'
-      document.body.appendChild(textarea)
-      textarea.select()
-      try {
-        document.execCommand('copy')
-        return true
-      } catch {
-        // Ignore
-      } finally {
-        document.body.removeChild(textarea)
-      }
-    }
-    return false
   }, [])
 
   // ── Delete dialog ──

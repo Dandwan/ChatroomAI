@@ -47,6 +47,7 @@ import {
   persistChatState,
 } from '../services/chat-storage'
 import { applyAssignedImageStorageKeys } from '../utils/app-images'
+import { compressImageDataUrl } from '../utils/images'
 import { numberFormatter, formatCompactCount } from '../utils/app-formatting'
 import {
   selectHomepageHighlights,
@@ -68,6 +69,7 @@ import {
 
 export function useConversation(
   initialStateRef: React.MutableRefObject<LoadedChatState | null>,
+  pushNotice: (text: string, type?: 'info' | 'success' | 'error') => void,
 ) {
   // ── Chat store ──
   const conversations = useChatStore((s) => s.conversations)
@@ -644,6 +646,47 @@ export function useConversation(
 
   const displayConversationTitle = activeConversation?.title ?? '新对话'
   const shouldShowTitleRenameButton = activeConversation !== null && !isHomepageEmptyState
+  // ── Image management ──
+  const removePendingImage = useCallback((imageId: string): void => {
+    delete pendingImageCompressionTaskIdRef.current[imageId]
+    setPendingImages((previous) => previous.filter((image) => image.id !== imageId))
+  }, [setPendingImages])
+
+  const updatePendingImageCompression = useCallback((imageId: string, compressionRate: number): void => {
+    const normalizedRate = Math.max(0, Math.min(100, Math.round(compressionRate)))
+    const currentPending = useChatStore.getState().pendingImages
+    const target = currentPending.find((image) => image.id === imageId)
+    if (!target) return
+
+    setPendingImages((previous) =>
+      previous.map((image) =>
+        image.id === imageId ? { ...image, compressionRate: normalizedRate } : image,
+      ),
+    )
+
+    const taskId = (pendingImageCompressionTaskIdRef.current[imageId] ?? 0) + 1
+    pendingImageCompressionTaskIdRef.current[imageId] = taskId
+    void (async () => {
+      const compressed = await compressImageDataUrl({
+        dataUrl: target.originalDataUrl,
+        mimeType: target.originalMimeType,
+        compressionRate: normalizedRate,
+      })
+      if (pendingImageCompressionTaskIdRef.current[imageId] !== taskId) return
+      setPendingImages((previous) =>
+        previous.map((image) =>
+          image.id === imageId
+            ? { ...image, dataUrl: compressed.dataUrl, mimeType: compressed.mimeType, size: compressed.size }
+            : image,
+        ),
+      )
+    })().catch((error) => {
+      if (pendingImageCompressionTaskIdRef.current[imageId] !== taskId) return
+      const message = error instanceof Error ? error.message : '图片压缩失败'
+      pushNotice(message, 'error')
+    })
+  }, [setPendingImages, pushNotice])
+
 
   return {
     conversations, activeConversationId, activeConversation, activeConversationResponseMode,
@@ -656,6 +699,7 @@ export function useConversation(
     chatSummarySnapshot, tokenSummary, rounds, emptyStateStats, homepageHighlightStats,
     effectiveHistoryStats, isRunningInActiveConversation, historyStats,
     setConversationsState,
+    hydrateConversationById: hydrateConversationByIdImpl,
     updateConversationDraft, updateConversationTranscript, updateConversationResponseMode,
     appendConversationTranscriptEvents, updateAssistantEvent, updateConversationTitle,
     createNewConversation, switchConversation, deleteConversation: deleteConversation_,
@@ -665,6 +709,8 @@ export function useConversation(
     beginRenameConversation, cancelRenameConversation, saveRenameConversation,
     stopRenameConversationImmediately,
     conversationListRef, conversationGroupElementRefs,
+    removePendingImage,
+    updatePendingImageCompression,
     pendingImageCompressionTaskIdRef,
   }
 }

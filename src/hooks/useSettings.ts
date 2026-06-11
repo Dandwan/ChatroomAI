@@ -5,16 +5,20 @@
  * 使用 Zustand stores 直接访问状态，导航通过 UI store。
  */
 import { useCallback, useMemo } from 'react'
-import type { AppSettings, NumericSettingKey, ProviderNumericSettingKey } from '../state/types'
+import type { AppSettings, GlobalPromptSettingKey, NumericSettingKey, ProviderNumericSettingKey } from '../state/types'
 import { useSettingsStore } from '../state/settings-store'
+import { useExtensionsStore } from '../state/extensions-store'
 import { useUIStore } from '../state/ui-store'
-import { clamp } from '../utils/app-formatting'
+import { clamp, isRecord } from '../utils/app-formatting'
+import { createProviderModelKey } from '../utils/model-utils'
+import { buildApiUrl, authHeaders, readErrorMessage } from '../services/chat-api'
 import {
   ensureValidCurrentModelSelection,
   createProviderConfig,
   createProviderNameCandidate,
   createProviderNumericSettingDrafts,
   resolveProviderRequestSettings,
+  PROMPT_DEFAULTS,
 } from '../utils/app-module'
 
 export interface UseSettingsReturn {
@@ -51,6 +55,13 @@ export interface UseSettingsReturn {
   setProviderModelEnabled: (providerId: string, modelId: string, enabled: boolean) => void
   addManualProviderModel: () => void
 
+  // Provider model operations
+  fetchProviderModels: (providerId: string) => Promise<void>
+  testProviderModel: (providerId: string, modelId: string) => Promise<void>
+
+  // Prompt operations
+  resetPromptToDefault: (key: GlobalPromptSettingKey) => void
+
   // Computed values
   activeProviderRequestSettings: ReturnType<typeof resolveProviderRequestSettings>
   providerDetailTarget: any
@@ -82,6 +93,7 @@ export function useSettings(
   const setManualModelDraft = useUIStore((s) => s.setManualModelDraft)
   const providerModelSearch = useUIStore((s) => s.providerModelSearch)
   const setProviderModelSearch = useUIStore((s) => s.setProviderModelSearch)
+  const setIsFetchingModelsByProviderId = useUIStore((s) => s.setIsFetchingModelsByProviderId)
 
   // Computed
   const activeProviderRequestSettings = useMemo(
@@ -290,6 +302,105 @@ export function useSettings(
     setManualModelDraft('')
   }, [manualModelDraft, providerDetailTargetId, updateProviderById])
 
+  const resetProviderDetailState = useCallback((): void => {
+    setProviderDetailTargetId(null)
+    setManualModelDraft('')
+    setProviderModelSearch('')
+    setIsFetchingModelsByProviderId({})
+  }, [setProviderDetailTargetId, setManualModelDraft, setProviderModelSearch, setIsFetchingModelsByProviderId])
+
+  // ── Prompt operations ──
+  const resetPromptToDefault = useCallback((key: GlobalPromptSettingKey): void => {
+    updateSetting(key, PROMPT_DEFAULTS[key] as AppSettings[typeof key])
+    pushNotice('已重置为默认提示词。', 'success')
+  }, [updateSetting, pushNotice])
+
+  // ── Provider model operations ──
+  const fetchProviderModels = useCallback(async (providerId: string): Promise<void> => {
+    const provider = useSettingsStore.getState().settings.providers.find((item) => item.id === providerId)
+    if (!provider) return
+    if (!provider.apiBaseUrl.trim() || !provider.apiKey.trim()) {
+      pushNotice('请先填写该服务商的 URL 和 API Key。', 'error')
+      return
+    }
+
+    setIsFetchingModelsByProviderId((previous) => ({ ...previous, [providerId]: true }))
+    try {
+      const response = await fetch(buildApiUrl(provider.apiBaseUrl, '/models'), {
+        headers: authHeaders(provider.apiKey),
+      })
+      if (!response.ok) throw new Error(await readErrorMessage(response))
+      const payload = (await response.json()) as unknown
+      const modelData = isRecord(payload) && Array.isArray(payload.data) ? payload.data : []
+      const incoming = modelData
+        .map((item) => (isRecord(item) && typeof item.id === 'string' ? item.id.trim() : ''))
+        .filter((id) => id.length > 0)
+
+      if (incoming.length === 0) {
+        pushNotice('接口返回了空模型列表。', 'info')
+        return
+      }
+
+      updateProviderById(providerId, (currentProvider) => {
+        const existing = new Map(currentProvider.models.map((model: any) => [model.id, model]))
+        for (const modelId of incoming) {
+          if (!existing.has(modelId)) existing.set(modelId, { id: modelId, enabled: false })
+        }
+        return { ...currentProvider, models: Array.from(existing.values()) }
+      })
+
+      const setModelHealth = useExtensionsStore.getState().setModelHealth
+      setModelHealth((previous) => {
+        const updated = { ...previous }
+        for (const modelId of incoming) {
+          const key = createProviderModelKey(providerId, modelId)
+          if (!updated[key]) updated[key] = 'untested'
+        }
+        return updated
+      })
+
+      pushNotice(`已为 ${provider.name || '当前服务商'} 加载 ${incoming.length} 个模型。`, 'success')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '模型加载失败'
+      pushNotice(`模型加载失败：${message}`, 'error')
+    } finally {
+      setIsFetchingModelsByProviderId((previous) => ({ ...previous, [providerId]: false }))
+    }
+  }, [pushNotice, setIsFetchingModelsByProviderId, updateProviderById])
+
+  const testProviderModel = useCallback(async (providerId: string, modelId: string): Promise<void> => {
+    const provider = useSettingsStore.getState().settings.providers.find((item) => item.id === providerId)
+    if (!provider) return
+    if (!provider.apiBaseUrl.trim() || !provider.apiKey.trim()) {
+      pushNotice('请先填写该服务商的 URL 和 API Key。', 'error')
+      return
+    }
+
+    const healthKey = createProviderModelKey(providerId, modelId)
+    const setModelHealth = useExtensionsStore.getState().setModelHealth
+    setModelHealth((previous) => ({ ...previous, [healthKey]: 'testing' as const }))
+    try {
+      const response = await fetch(buildApiUrl(provider.apiBaseUrl, '/chat/completions'), {
+        method: 'POST',
+        headers: authHeaders(provider.apiKey),
+        body: JSON.stringify({
+          model: modelId,
+          messages: [{ role: 'user', content: 'ping' }],
+          max_tokens: 4,
+          temperature: 0,
+          stream: false,
+        }),
+      })
+      if (!response.ok) throw new Error(await readErrorMessage(response))
+      setModelHealth((previous) => ({ ...previous, [healthKey]: 'ok' as const }))
+      pushNotice(`模型 ${modelId} 检测成功。`, 'success')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '检测失败'
+      setModelHealth((previous) => ({ ...previous, [healthKey]: 'error' as const }))
+      pushNotice(`模型 ${modelId} 检测失败：${message}`, 'error')
+    }
+  }, [pushNotice])
+
   return {
     settings,
     numericSettingDrafts,
@@ -314,6 +425,9 @@ export function useSettings(
     selectCurrentModel,
     setProviderModelEnabled,
     addManualProviderModel,
+    fetchProviderModels,
+    testProviderModel,
+    resetPromptToDefault,
     activeProviderRequestSettings,
     providerDetailTarget,
     settingsView,

@@ -1,78 +1,78 @@
-// Auto-extracted from App.tsx module-level code
-// See docs/development-status/handoff-updates/070-app-modular-refactor-completion-plan.md
+import { Haptics, ImpactStyle } from '@capacitor/haptics'
+import { Geolocation } from '@capacitor/geolocation'
+import { Capacitor } from '@capacitor/core'
 
 import {
-  createConversationFromTranscript,
   normalizeConversationResponseMode,
+  createConversationFromTranscript,
   withConversationResponseMode,
   withConversationTranscript,
+  type TranscriptEvent,
 } from '../services/chat-transcript'
+
 import {
-  DEFAULT_EDIT_SYSTEM_PROMPT,
+  DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT,
   DEFAULT_GENERAL_TAG_SYSTEM_PROMPT,
   DEFAULT_READ_SYSTEM_PROMPT,
   DEFAULT_RUN_SYSTEM_PROMPT,
-  DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT,
+  DEFAULT_EDIT_SYSTEM_PROMPT,
   migrateLegacyTagSystemPrompts,
   migratePromptVersions,
 } from '../services/skills/default-system-prompts'
+
 import {
   DEFAULT_INFO_PROMPT_SETTINGS,
-  INFO_PROMPT_DEFINITIONS,
   normalizeInfoPromptOverride,
-  type InfoPromptDefinition,
-  type InfoPromptSettingKey,
 } from '../services/skills/info-system-prompts'
+
+import { buildConversationSummary } from '../services/chat-storage'
+
+import { isCloudLoggedIn, getStoredCloudAuth, getCloudServerUrl } from '../services/cloud-auth'
+
+import { getEffectiveActiNetModels } from '../services/actinet-models'
+
+import { DEFAULT_DAILY_COVER_SETTINGS } from '../services/daily-cover'
+
 import {
-  DEFAULT_DAILY_COVER_SETTINGS,
-  type DailyCoverSettings,
-} from '../services/daily-cover'
-import {
-  buildConversationSummary,
-  loadChatIndex,
-  type ChatStoragePersistState,
-} from '../services/chat-storage'
-import { createProviderModelKey, modelHealthLabel } from '../utils/model-utils'
-import { formatMs } from '../utils/time-utils'
-import { createId, toFiniteNumber, clamp, isRecord, isJsonObjectRecord, formatJsonObject, numberFormatter } from '../utils/app-formatting'
-import { Haptics, ImpactStyle } from '@capacitor/haptics'
+  createId,
+  isRecord,
+  clamp,
+  toFiniteNumber,
+} from './app-formatting'
+
 import type {
-  ActiveProviderRequestSettings,
-  AppSettings,
-  ChatStorageConversationSummary,
-  ChatSummarySnapshot,
-  CompletionResult,
   Conversation,
-  ConversationDrafts,
   ConversationData,
-  ConversationGroup,
   ConversationResponseMode,
-  EnabledModelOption,
-  GlobalPromptSettingKey,
-  ImageAttachment,
-  LoadedChatState,
-  ModelHealth,
-  NumericSettingDrafts,
-  NumericSettingKey,
-  ProviderBooleanSettingKey,
+  AppSettings,
   ProviderConfig,
   ProviderModel,
-  ProviderNumericSettingDrafts,
-  ProviderNumericSettingKey,
-  ProviderPromptSettingKey,
-  PromptEditorKey,
-  SettingsView,
-  TagPromptEditorKey,
-  TagPromptSettingKey,
-  ThemeMode,
-  TitleTransitionState,
-  TurnExecutionJob,
-  PendingTitleTransition,
-  DeleteDialogState,
-  MessageListScrollMetrics,
-  Notice,
-  RectSnapshot,
   PermissionToggles,
+  ThemeMode,
+  DailyCoverSettings,
+  NumericSettingKey,
+  NumericSettingDrafts,
+  ProviderNumericSettingKey,
+  ProviderNumericSettingDrafts,
+  TagPromptSettingKey,
+  InfoPromptSettingKey,
+  GlobalPromptSettingKey,
+  EnabledModelOption,
+  ActiveProviderRequestSettings,
+  LoadedChatState,
+  RectSnapshot,
+  ChatStorageConversationSummary,
+} from '../state/types'
+
+import {
+  SETTINGS_STORAGE_KEY,
+  DEFAULT_RESPONSE_MODE,
+  DEFAULT_DELETE_CONFIRM_GRACE_SECONDS,
+  DEFAULT_CONVERSATION_GROUP_GAP_MINUTES,
+  DEFAULT_CHAT_BLUR_PX,
+  DEFAULT_EMPTY_STATE_STATS_MIN_CONVERSATIONS,
+  DEFAULT_AUTO_COLLAPSE_CONVERSATIONS,
+  EMPTY_HISTORY_STATS,
 } from '../state/types'
 
 export const MAX_EMPTY_STATE_STATS_MIN_CONVERSATIONS = 9999
@@ -108,7 +108,7 @@ export const applyMessageListSmoothScrollAccelerationBoost = (normalizedDistance
     return normalizedDistance
   }
 
-  export const boostProgress =
+  const boostProgress =
     (normalizedDistance - MESSAGE_LIST_SMOOTH_SCROLL_ACCELERATION_BOOST_START) /
     (1 - MESSAGE_LIST_SMOOTH_SCROLL_ACCELERATION_BOOST_START)
 
@@ -130,14 +130,14 @@ export const resolveMessageListSmoothScrollStep = ({
   deltaMs: number
   viewportHeight: number
 }): number => {
-  export const maxStep = MESSAGE_LIST_SMOOTH_SCROLL_MAX_SPEED_PX_PER_MS * deltaMs
-  export const easeDistance = Math.max(
+  const maxStep = MESSAGE_LIST_SMOOTH_SCROLL_MAX_SPEED_PX_PER_MS * deltaMs
+  const easeDistance = Math.max(
     viewportHeight * MESSAGE_LIST_SMOOTH_SCROLL_EASE_DISTANCE_FACTOR,
     MESSAGE_LIST_SMOOTH_SCROLL_MIN_STEP_PX,
   )
-  export const normalizedDistance = Math.min(1, remainingDistance / easeDistance)
-  export const acceleratedDistance = applyMessageListSmoothScrollAccelerationBoost(normalizedDistance)
-  export const easedStep = maxStep * easeOutCubic(acceleratedDistance)
+  const normalizedDistance = Math.min(1, remainingDistance / easeDistance)
+  const acceleratedDistance = applyMessageListSmoothScrollAccelerationBoost(normalizedDistance)
+  const easedStep = maxStep * easeOutCubic(acceleratedDistance)
 
   return Math.min(
     remainingDistance,
@@ -228,19 +228,19 @@ export const buildDeprecatedPromptBlockText = ({ id, title, content }: Deprecate
   ].join('\n')
 
 export const upsertDeprecatedPromptBlock = (raw: string, block: DeprecatedPromptBlock): string => {
-  export const normalizedContent = block.content.trim()
+  const normalizedContent = block.content.trim()
   if (!normalizedContent) {
     return raw
   }
 
-  export const normalizedRaw = raw.trim()
-  export const startMarker = `===== ${block.title} | ${block.id} =====`
-  export const endMarker = `===== END ${block.id} =====`
+  const normalizedRaw = raw.trim()
+  const startMarker = `===== ${block.title} | ${block.id} =====`
+  const endMarker = `===== END ${block.id} =====`
   if (normalizedRaw.includes(startMarker) || normalizedRaw.includes(endMarker)) {
     return raw
   }
 
-  export const nextBlock = buildDeprecatedPromptBlockText({
+  const nextBlock = buildDeprecatedPromptBlockText({
     ...block,
     content: normalizedContent,
   })
@@ -314,10 +314,10 @@ export const createProviderNumericSettingDrafts = (
 
 
 export const createProviderNameCandidate = (providers: ProviderConfig[]): string => {
-  export const usedNames = new Set(providers.map((provider) => provider.name.trim()).filter(Boolean))
-  export let index = 1
+  const usedNames = new Set(providers.map((provider) => provider.name.trim()).filter(Boolean))
+  let index = 1
   while (true) {
-    export const candidate = `服务商 ${index}`
+    const candidate = `服务商 ${index}`
     if (!usedNames.has(candidate)) {
       return candidate
     }
@@ -344,19 +344,19 @@ export const normalizeProviderNumericOverride = (
   key: ProviderNumericSettingKey,
   value: unknown,
 ): number | undefined => {
-  export const parsed = toFiniteNumber(value)
+  const parsed = toFiniteNumber(value)
   if (parsed === undefined) {
     return undefined
   }
 
-  export const limits = PROVIDER_NUMERIC_LIMITS[key]
-  export const clamped = clamp(parsed, limits.minimum, limits.maximum)
+  const limits = PROVIDER_NUMERIC_LIMITS[key]
+  const clamped = clamp(parsed, limits.minimum, limits.maximum)
   return limits.integer ? Math.round(clamped) : clamped
 }
 
 export const normalizeProviderModel = (value: unknown): ProviderModel | undefined => {
   if (typeof value === 'string') {
-    export const id = value.trim()
+    const id = value.trim()
     return id ? { id, enabled: false } : undefined
   }
 
@@ -364,7 +364,7 @@ export const normalizeProviderModel = (value: unknown): ProviderModel | undefine
     return undefined
   }
 
-  export const id = value.id.trim()
+  const id = value.id.trim()
   if (!id) {
     return undefined
   }
@@ -389,10 +389,10 @@ export const normalizeProviderModels = (value: unknown): ProviderModel[] => {
     return []
   }
 
-  export const models: ProviderModel[] = []
-  export const seen = new Set<string>()
+  const models: ProviderModel[] = []
+  const seen = new Set<string>()
   for (const item of value) {
-    export const normalized = normalizeProviderModel(item)
+    const normalized = normalizeProviderModel(item)
     if (!normalized || seen.has(normalized.id)) {
       continue
     }
@@ -445,7 +445,7 @@ export const resolveProviderTagPromptOverrides = (
   value: Record<string, unknown>,
   migrateLegacyPrompts: boolean,
 ): Pick<ProviderConfig, TagPromptSettingKey> => {
-  export const hasAnyTagPromptOverride =
+  const hasAnyTagPromptOverride =
     typeof value.topLevelTagSystemPrompt === 'string' ||
     typeof value.generalTagSystemPrompt === 'string' ||
     typeof value.readSystemPrompt === 'string' ||
@@ -472,7 +472,7 @@ export const resolveProviderTagPromptOverrides = (
     }
   }
 
-  export const migrated = migrateLegacyTagSystemPrompts(value)
+  const migrated = migrateLegacyTagSystemPrompts(value)
   return {
     topLevelTagSystemPrompt: normalizeProviderPromptOverride(value.topLevelTagSystemPrompt),
     generalTagSystemPrompt: normalizeProviderPromptOverride(migrated.generalTagSystemPrompt),
@@ -497,10 +497,10 @@ export const normalizeProviderConfig = (
     return undefined
   }
 
-  export const id = typeof value.id === 'string' && value.id.trim() ? value.id.trim() : createId()
-  export const name = typeof value.name === 'string' && value.name.trim() ? value.name.trim() : '未命名服务商'
-  export const tagPromptOverrides = resolveProviderTagPromptOverrides(value, migrateLegacyPrompts)
-  export const infoPromptOverrides = resolveProviderInfoPromptOverrides(value)
+  const id = typeof value.id === 'string' && value.id.trim() ? value.id.trim() : createId()
+  const name = typeof value.name === 'string' && value.name.trim() ? value.name.trim() : '未命名服务商'
+  const tagPromptOverrides = resolveProviderTagPromptOverrides(value, migrateLegacyPrompts)
+  const infoPromptOverrides = resolveProviderInfoPromptOverrides(value)
 
   return {
     id,
@@ -536,7 +536,7 @@ export const getEnabledModelOptions = (
   isActiNetLoggedIn: boolean,
   otherProvidersEnabled: boolean,
 ): EnabledModelOption[] => {
-  export const providerOptions = otherProvidersEnabled
+  const providerOptions = otherProvidersEnabled
     ? providers.flatMap((provider) =>
         provider.models
           .filter((model) => model.enabled)
@@ -549,8 +549,8 @@ export const getEnabledModelOptions = (
     : []
 
   if (isActiNetLoggedIn) {
-    export const activeModels = getEffectiveActiNetModels()
-    export const actiNetOptions = activeModels
+    const activeModels = getEffectiveActiNetModels()
+    const actiNetOptions = activeModels
       .filter((model) => model.enabled)
       .map((model) => ({
         providerId: ACTINET_PROVIDER_ID,
@@ -566,13 +566,13 @@ export const getEnabledModelOptions = (
 export const ensureValidCurrentModelSelection = (settings: AppSettings): AppSettings => {
   // Check ActiNet selection first
   if (settings.currentProviderId === ACTINET_PROVIDER_ID) {
-    export const effective = getEffectiveActiNetModels()
-    export const hasActiNetSelection = effective.some(
+    const effective = getEffectiveActiNetModels()
+    const hasActiNetSelection = effective.some(
       (model) => model.id === settings.currentModel && model.enabled,
     )
     if (hasActiNetSelection) return settings
   } else if (settings.otherProvidersEnabled) {
-    export const hasCurrentSelection = settings.providers.some(
+    const hasCurrentSelection = settings.providers.some(
       (provider) =>
         provider.id === settings.currentProviderId &&
         provider.models.some((model) => model.id === settings.currentModel && model.enabled),
@@ -580,7 +580,7 @@ export const ensureValidCurrentModelSelection = (settings: AppSettings): AppSett
     if (hasCurrentSelection) return settings
   }
 
-  export const fallback = getEnabledModelOptions(settings.providers, isCloudLoggedIn(), settings.otherProvidersEnabled)[0]
+  const fallback = getEnabledModelOptions(settings.providers, isCloudLoggedIn(), settings.otherProvidersEnabled)[0]
   return {
     ...settings,
     currentProviderId: fallback?.providerId ?? '',
@@ -591,11 +591,11 @@ export const ensureValidCurrentModelSelection = (settings: AppSettings): AppSett
 export const resolveProviderRequestSettings = (settings: AppSettings): ActiveProviderRequestSettings | null => {
   // Handle ActiNet virtual provider
   if (settings.currentProviderId === ACTINET_PROVIDER_ID) {
-    export const cloudAuth = getStoredCloudAuth()
+    const cloudAuth = getStoredCloudAuth()
     if (!cloudAuth || !cloudAuth.apiKey) return null
 
-    export const effective = getEffectiveActiNetModels()
-    export const model = effective.find((m) => m.id === settings.currentModel && m.enabled)
+    const effective = getEffectiveActiNetModels()
+    const model = effective.find((m) => m.id === settings.currentModel && m.enabled)
     if (!model) return null
 
     return {
@@ -621,12 +621,12 @@ export const resolveProviderRequestSettings = (settings: AppSettings): ActivePro
     }
   }
 
-  export const provider = settings.providers.find((item) => item.id === settings.currentProviderId)
+  const provider = settings.providers.find((item) => item.id === settings.currentProviderId)
   if (!provider) {
     return null
   }
 
-  export const model = provider.models.find((item) => item.id === settings.currentModel && item.enabled)
+  const model = provider.models.find((item) => item.id === settings.currentModel && item.enabled)
   if (!model) {
     return null
   }
@@ -661,7 +661,7 @@ export const snapshotRect = (element: Element | null): RectSnapshot | null => {
     return null
   }
 
-  export const { left, top, width, height } = element.getBoundingClientRect()
+  const { left, top, width, height } = element.getBoundingClientRect()
   return { left, top, width, height }
 }
 
@@ -676,19 +676,19 @@ export const getTravelOffset = (
   fromRect: RectSnapshot,
   toRect: RectSnapshot,
 ): { x: number; y: number } => {
-  export const fromCenterX = fromRect.left + fromRect.width / 2
-  export const fromCenterY = fromRect.top + fromRect.height / 2
-  export const toCenterX = toRect.left + toRect.width / 2
-  export const toCenterY = toRect.top + toRect.height / 2
-  export const deltaX = toCenterX - fromCenterX
-  export const deltaY = toCenterY - fromCenterY
-  export const distance = Math.hypot(deltaX, deltaY)
+  const fromCenterX = fromRect.left + fromRect.width / 2
+  const fromCenterY = fromRect.top + fromRect.height / 2
+  const toCenterX = toRect.left + toRect.width / 2
+  const toCenterY = toRect.top + toRect.height / 2
+  const deltaX = toCenterX - fromCenterX
+  const deltaY = toCenterY - fromCenterY
+  const distance = Math.hypot(deltaX, deltaY)
 
   if (distance < 0.001) {
     return { x: 0, y: 0 }
   }
 
-  export const travel = clamp(
+  const travel = clamp(
     distance * TITLE_EDIT_TRANSITION_TRAVEL_FACTOR,
     TITLE_EDIT_TRANSITION_TRAVEL_MIN_PX,
     TITLE_EDIT_TRANSITION_TRAVEL_MAX_PX,
@@ -701,9 +701,9 @@ export const getTravelOffset = (
 }
 
 export const extractThinkBlocks = (text: string): { cleanedText: string; reasoning: string } => {
-  export const reasoningChunks: string[] = []
-  export const cleaned = text.replace(/<think>([\s\S]*?)<\/think>/gi, (_, captured: string) => {
-    export const value = captured.trim()
+  const reasoningChunks: string[] = []
+  const cleaned = text.replace(/<think>([\s\S]*?)<\/think>/gi, (_, captured: string) => {
+    const value = captured.trim()
     if (value.length > 0) {
       reasoningChunks.push(value)
     }
@@ -715,7 +715,6 @@ export const extractThinkBlocks = (text: string): { cleanedText: string; reasoni
   }
 }
 
-
 export const vibrateInteraction = (): void => {
   void Haptics.vibrate({ duration: 10 }).catch(() => {
     void Haptics.impact({ style: ImpactStyle.Heavy }).catch(() => {
@@ -725,9 +724,6 @@ export const vibrateInteraction = (): void => {
     })
   })
 }
-
-
-
 
 export const toHydratedConversation = (
   conversation: ConversationData,
@@ -839,7 +835,7 @@ export const queryPermissionState = async (name: string): Promise<PermissionStat
     return null
   }
   try {
-    export const status = await navigator.permissions.query({
+    const status = await navigator.permissions.query({
       name: name as PermissionName,
     })
     return status.state
@@ -851,11 +847,11 @@ export const queryPermissionState = async (name: string): Promise<PermissionStat
 export const requestLocationPermission = async (): Promise<boolean> => {
   if (Capacitor.isNativePlatform()) {
     try {
-      export const status = await Geolocation.checkPermissions()
+      const status = await Geolocation.checkPermissions()
       if (status.location === 'granted' || status.coarseLocation === 'granted') {
         return true
       }
-      export const requested = await Geolocation.requestPermissions()
+      const requested = await Geolocation.requestPermissions()
       return requested.location !== 'denied' || requested.coarseLocation !== 'denied'
     } catch {
       return false
@@ -864,11 +860,11 @@ export const requestLocationPermission = async (): Promise<boolean> => {
   if (typeof navigator === 'undefined' || !navigator.geolocation) {
     return false
   }
-  export const stateBefore = await queryPermissionState('geolocation')
+  const stateBefore = await queryPermissionState('geolocation')
   if (stateBefore === 'granted') {
     return true
   }
-  export const requestResult = await new Promise<'granted' | 'denied' | 'unknown'>((resolve) => {
+  const requestResult = await new Promise<'granted' | 'denied' | 'unknown'>((resolve) => {
     navigator.geolocation.getCurrentPosition(
       () => resolve('granted'),
       (error) => resolve(error.code === 1 ? 'denied' : 'unknown'),
@@ -888,19 +884,19 @@ export const requestMediaPermission = async (kind: 'camera' | 'microphone'): Pro
   if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
     return false
   }
-  export const stateBefore = await queryPermissionState(kind)
+  const stateBefore = await queryPermissionState(kind)
   if (stateBefore === 'granted') {
     return true
   }
   try {
-    export const constraints: MediaStreamConstraints = kind === 'camera' ? { video: true } : { audio: true }
-    export const stream = await navigator.mediaDevices.getUserMedia(constraints)
+    const constraints: MediaStreamConstraints = kind === 'camera' ? { video: true } : { audio: true }
+    const stream = await navigator.mediaDevices.getUserMedia(constraints)
     for (const track of stream.getTracks()) {
       track.stop()
     }
     return true
   } catch {
-    export const stateAfter = await queryPermissionState(kind)
+    const stateAfter = await queryPermissionState(kind)
     return stateAfter === 'granted'
   }
 }
@@ -916,13 +912,12 @@ export const requestNotificationPermission = async (): Promise<boolean> => {
     return false
   }
   try {
-    export const result = await Notification.requestPermission()
+    const result = await Notification.requestPermission()
     return result === 'granted'
   } catch {
     return false
   }
 }
-
 
 export const loadSettings = (): AppSettings => {
   try {
@@ -930,61 +925,61 @@ export const loadSettings = (): AppSettings => {
       return createDefaultSettings()
     }
 
-    export const raw = localStorage.getItem(SETTINGS_STORAGE_KEY)
+    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY)
     if (!raw) {
       return createDefaultSettings()
     }
 
-    export const parsed = JSON.parse(raw) as unknown
+    const parsed = JSON.parse(raw) as unknown
     if (!isRecord(parsed)) {
       return createDefaultSettings()
     }
 
-    export const shouldMigrateLegacyTagPrompts = typeof parsed.generalTagSystemPrompt !== 'string'
-    export const parsedProviders = Array.isArray(parsed.providers)
+    const shouldMigrateLegacyTagPrompts = typeof parsed.generalTagSystemPrompt !== 'string'
+    const parsedProviders = Array.isArray(parsed.providers)
       ? parsed.providers
           .map((item) => normalizeProviderConfig(item, shouldMigrateLegacyTagPrompts))
           .filter((item): item is ProviderConfig => Boolean(item))
       : []
-    export const providers = parsedProviders
+    const providers = parsedProviders
 
-    export const rawTemperature = toFiniteNumber(parsed.temperature)
-    export const rawTopP = toFiniteNumber(parsed.topP)
-    export const rawMaxTokens = toFiniteNumber(parsed.maxTokens)
-    export const rawPresencePenalty = toFiniteNumber(parsed.presencePenalty)
-    export const rawFrequencyPenalty = toFiniteNumber(parsed.frequencyPenalty)
-    export const rawDeleteConfirmGraceSeconds = toFiniteNumber(parsed.deleteConfirmGraceSeconds)
-    export const rawConversationGroupGapMinutes = toFiniteNumber(parsed.conversationGroupGapMinutes)
-    export const rawChatBlurPx = toFiniteNumber(parsed.chatBlurPx)
-    export const rawEmptyStateStatsMinConversations = toFiniteNumber(parsed.emptyStateStatsMinConversations)
-    export const rawMaxModelRetryCount = toFiniteNumber(parsed.maxModelRetryCount)
-    export const defaultResponseMode =
+    const rawTemperature = toFiniteNumber(parsed.temperature)
+    const rawTopP = toFiniteNumber(parsed.topP)
+    const rawMaxTokens = toFiniteNumber(parsed.maxTokens)
+    const rawPresencePenalty = toFiniteNumber(parsed.presencePenalty)
+    const rawFrequencyPenalty = toFiniteNumber(parsed.frequencyPenalty)
+    const rawDeleteConfirmGraceSeconds = toFiniteNumber(parsed.deleteConfirmGraceSeconds)
+    const rawConversationGroupGapMinutes = toFiniteNumber(parsed.conversationGroupGapMinutes)
+    const rawChatBlurPx = toFiniteNumber(parsed.chatBlurPx)
+    const rawEmptyStateStatsMinConversations = toFiniteNumber(parsed.emptyStateStatsMinConversations)
+    const rawMaxModelRetryCount = toFiniteNumber(parsed.maxModelRetryCount)
+    const defaultResponseMode =
       normalizeConversationResponseMode(parsed.defaultResponseMode) ??
       (typeof parsed.skillModeEnabled === 'boolean'
         ? parsed.skillModeEnabled
           ? 'tool'
           : 'text'
         : DEFAULT_SETTINGS.defaultResponseMode)
-    export const currentProviderId =
+    const currentProviderId =
       typeof parsed.currentProviderId === 'string' && parsed.currentProviderId.trim()
         ? parsed.currentProviderId
         : DEFAULT_SETTINGS.currentProviderId
-    export const currentModel =
+    const currentModel =
       typeof parsed.currentModel === 'string' && parsed.currentModel.trim()
         ? parsed.currentModel
         : DEFAULT_SETTINGS.currentModel
-    export const storedTagSystemPrompts = migrateLegacyTagSystemPrompts(parsed, {
+    const storedTagSystemPrompts = migrateLegacyTagSystemPrompts(parsed, {
       legacyGlobalHandling: 'collect-deprecated',
     })
-    export const deprecatedTagPrompts =
+    const deprecatedTagPrompts =
       typeof parsed.deprecatedTagPrompts === 'string' ? parsed.deprecatedTagPrompts : ''
-    export const legacyGlobalTagSystemPrompt =
+    const legacyGlobalTagSystemPrompt =
       storedTagSystemPrompts.legacyGlobalTagSystemPrompt ??
       (typeof parsed.generalTagSystemPrompt === 'string' &&
       parsed.generalTagSystemPrompt.trim() === DEFAULT_RUN_SYSTEM_PROMPT
         ? parsed.generalTagSystemPrompt
         : undefined)
-    export const nextDeprecatedTagPrompts = legacyGlobalTagSystemPrompt
+    const nextDeprecatedTagPrompts = legacyGlobalTagSystemPrompt
       ? upsertDeprecatedPromptBlock(deprecatedTagPrompts, {
           id: LEGACY_GLOBAL_TAG_PROMPT_BLOCK_ID,
           title: LEGACY_GLOBAL_TAG_PROMPT_BLOCK_TITLE,
@@ -992,7 +987,7 @@ export const loadSettings = (): AppSettings => {
         })
       : deprecatedTagPrompts
 
-    export const assembled = ensureValidCurrentModelSelection({
+    const assembled = ensureValidCurrentModelSelection({
       systemPrompt:
         typeof parsed.systemPrompt === 'string' ? parsed.systemPrompt : DEFAULT_SETTINGS.systemPrompt,
       topLevelTagSystemPrompt:
@@ -1091,7 +1086,7 @@ export const loadSettings = (): AppSettings => {
           ? parsed.actiNetAdvancedModelsEnabled
           : false,
     })
-    export const migrated = migratePromptVersions(
+    const migrated = migratePromptVersions(
       assembled as unknown as Record<string, unknown>,
       PROMPT_DEFAULTS,
     )
@@ -1102,7 +1097,7 @@ export const loadSettings = (): AppSettings => {
 }
 
 export const createInitialChatState = (defaultResponseMode: ConversationResponseMode): LoadedChatState => {
-  export const fallbackConversation = createConversation([], defaultResponseMode)
+  const fallbackConversation = createConversation([], defaultResponseMode)
   return {
     conversations: [fallbackConversation],
     activeConversationId: fallbackConversation.id,
@@ -1115,7 +1110,7 @@ export const buildPersistChatState = (
   conversations: Conversation[],
   draftsByConversation: Record<string, string>,
   activeConversationId: string,
-): ChatStoragePersistState => ({
+): import('../services/chat-storage/types').ChatStoragePersistState => ({
   conversations: conversations.map((conversation) =>
     conversation.storageLoadState === 'hydrated'
       ? {

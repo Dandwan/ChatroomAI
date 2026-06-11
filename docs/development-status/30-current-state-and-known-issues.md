@@ -1,6 +1,6 @@
 # Current State And Known Issues
 
-Last updated: 2026-06-10
+Last updated: 2026-06-11
 
 > ⚠️ **2026-06-06 数据丢失事故**：排查代理 bug 时直接操作运行中容器的 SQLite DB 文件，导致 upstream 配置和 8 个 API key 丢失。详见 `handoff-updates/048-proxy-fix-and-data-loss-incident.md`。**教训：永远不要直接写运行中容器的 SQLite DB；部署脚本需增加自动备份。**
 
@@ -60,48 +60,44 @@ See `20-run-and-skill-runtime.md` for full architecture.
 6. **`android/gradlew`**: Tracked with CRLF line endings — requires LF wrapper on Linux.
 7. **Duplicate asset merge**: Repeated debug rebuilds after `cap sync` can intermittently hit duplicate asset merge errors under `public/builtin-skills/union-search/`. Workaround: `clean` → `assembleDebug`.
 8. **Emulator system bar**: White status-bar background visible above WebView — not yet matching prototype appearance.
-9. **预存的 tsc 错误**：8 个 TS2304/TS2552 错误在重构前就存在（removePendingImage, updatePendingImageCompression, stopGeneration, fetchProviderModels, testProviderModel, saveAssistantEdit, saveUserEdit, beginEdit）——这些函数在模块级或组件级代码中被引用但未定义。
+9. **预存的 tsc 错误**：~~8 个 TS2304/TS2552 错误~~ → **已在 076 全部修复** ✅
 
 ## App.tsx 模块化重构（2026-06-11）
 
-**当前状态**：阶段 A/B/D1-D6 全部完成（4 个 hooks 已集成），App.tsx 从 7,576 降至 5,416 行（−2,160 行，−28.5%）
+**当前状态**：D1 集成完成，全部 hooks 已集成，tsc 零错误。App.tsx 从 7,576 降至 5,099 行（−2,477 行，−32.7%）
 
 **已完成**：
 - **阶段 A** 导入清理 + 死代码移除（−348 行）
 - **阶段 B** 模块提取到 `utils/app-module.ts`（−1,007 行）
+- **阶段 D1** useConversation hook 集成 + effects 替换（−333 行）—— 076 完成
 - **阶段 D2** useChatUI 集成（−141 行）
+- **阶段 D3** useSettings hook 创建+集成（−304 行）+ 3 个丢失函数恢复
+- **阶段 D4** useExtensions hook 创建+集成（−266 行）
 - **阶段 D5** useUpdates hook 创建+集成（−45 行）
 - **阶段 D6** usePermissions hook 创建+集成（−54 行）
-- **阶段 D3** useSettings hook 创建+集成（−304 行）—— 解构替换 17 个内联函数
-- **阶段 D4** useExtensions hook 创建+集成（−266 行）—— 解构替换 28 个内联函数
-- **阶段 D1** useConversation hook 创建（470 行）—— 已导入但保留命名空间调用
-- 构建成功，39 测试通过
+- **8 个预存 tsc 错误全部修复** ✅
+- tsc: 0 错误 ✅，测试: 39 passed ✅
 
-**Hook 文件状态**（共 8 个 hooks，~3,400 行）：
-| Hook | 文件 | 行数 | 已集成？ |
-|------|------|------|---------|
-| useAssistant | `src/hooks/useAssistant.ts` | 1,722 | ✅ |
-| useChatUI | `src/hooks/useChatUI.ts` | 260 | ✅ |
-| useCloudAuth | `src/hooks/useCloudAuth.ts` | 94 | ✅ |
-| useSettings | `src/hooks/useSettings.ts` | 319 | ✅ 已集成 |
-| useExtensions | `src/hooks/useExtensions.ts` | 416 | ✅ 已集成 |
-| useUpdates | `src/hooks/useUpdates.ts` | 83 | ✅ 已集成 |
-| usePermissions | `src/hooks/usePermissions.ts` | 94 | ✅ 已集成 |
-| useConversation | `src/hooks/useConversation.ts` | 470 | 🔧 已导入 |
+**Hook 文件状态**（共 8 个 hooks）：
+| Hook | 状态 |
+|------|------|
+| useAssistant | ✅ 已集成 |
+| useChatUI | ✅ 已集成 |
+| useCloudAuth | ✅ 已集成 |
+| useSettings | ✅ 已集成（含 resetPromptToDefault, fetchProviderModels, testProviderModel） |
+| useExtensions | ✅ 已集成 |
+| useUpdates | ✅ 已集成 |
+| usePermissions | ✅ 已集成 |
+| useConversation | ✅ 已集成（含 removePendingImage, updatePendingImageCompression） |
 
 **待完成**：
-- D1b：useConversation 集成到 App.tsx（effects 与 App.tsx 深度交织，需谨慎）
 - E1-E5：渲染函数提取到 views/（~1,500 行）
 - F：最终精简 App.tsx + 更新全部摘要
 
 **目标**：App.tsx ~400 行
-- E1-E5：渲染函数提取到 views/（~1,500 行）
-- F：最终精简 App.tsx + 更新全部摘要
-
-**目标**：App.tsx ~400 行
+**最新交接**：`handoff-updates/076-d1-integration-complete-and-error-fixes.md`
 **钩子报告**：`handoff-updates/073-app-modular-refactor-d1-d6-complete.md`
 **路线图**：`handoff-updates/070-app-modular-refactor-completion-plan.md`
-**阶段报告**：071, 072, 073
 
 ## Cloud Server (`cloud-server/`)
 

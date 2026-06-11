@@ -2,8 +2,8 @@
 
 Last updated: 2026-06-11
 
-> **当前重构**：App.tsx 从 7,576 行减至 5,416 行（−28.5%）。8 个 hooks 已创建，D3/D4/D5/D6 已集成。
-> 详见 handoff-updates/072, 073, 074。
+> **当前重构**：App.tsx 从 7,576 行减至 5,099 行（−32.7%）。8 个 hooks 全部集成，tsc 零错误。阶段 E（views 提取）+ F（最终精简）待完成。
+> 详见 `31-app-modular-refactor-status.md`，handoff-updates/076。
 
 This directory is the repo-tracked handoff state for **ActiChat** (`动话`, formerly `ChatroomAI`). Any agent taking over development in this repository should read these files before changing code and update them after finishing work.
 
