@@ -64,38 +64,38 @@ See `20-run-and-skill-runtime.md` for full architecture.
 
 ## App.tsx 模块化重构（2026-06-11）
 
-**当前状态**：阶段 A/B/D2/D3/D4/D5/D6 完成（hooks 已创建），App.tsx 从 7,576 降至 5,982 行（−1,594 行，−21.0%）
+**当前状态**：阶段 A/B/D1-D6 全部完成（5 个 hooks 已创建），App.tsx 从 7,576 降至 5,982 行（−1,594 行，−21.0%）
 
 **已完成**：
-- **阶段 A** 导入清理：移除 5 个完全未使用的导入块，修剪 6 个部分使用的导入块
-- **阶段 A** 移除 21 个死模块级函数（已复制到 useAssistant.ts）
-- **阶段 B** 模块提取：1,050 行模块级代码提取到 `src/utils/app-module.ts`
-- **阶段 D2** useChatUI 集成：UI handler 替换为 hook 调用
-- **阶段 D5** useUpdates hook 创建+集成：提取 update 检查/安装逻辑（−45 行）
-- **阶段 D6** usePermissions hook 创建+集成：提取权限管理逻辑（−54 行）
-- **阶段 D3** useSettings hook 创建（319 行，编译通过）
-- **阶段 D4** useExtensions hook 创建（416 行，编译通过）
-- 构建成功，39 测试通过
+- **阶段 A** 导入清理 + 死代码移除（−348 行）
+- **阶段 B** 模块提取到 `utils/app-module.ts`（−1,007 行）
+- **阶段 D2** useChatUI 集成（−141 行）
+- **阶段 D5** useUpdates hook 创建+集成（−45 行）
+- **阶段 D6** usePermissions hook 创建+集成（−54 行）
+- **阶段 D1** useConversation hook 创建（470 行，零编译错误）
+- **阶段 D3** useSettings hook 创建（319 行，零编译错误）
+- **阶段 D4** useExtensions hook 创建（416 行，零编译错误）
+- 构建成功，39 测试通过，所有 hook 编译零错误
 
-**Hook 文件状态**：
-| Hook | 文件 | 行数 | 已集成到 App.tsx？ |
-|------|------|------|-------------------|
+**Hook 文件状态**（共 8 个 hooks，~3,400 行）：
+| Hook | 文件 | 行数 | 已集成？ |
+|------|------|------|---------|
 | useAssistant | `src/hooks/useAssistant.ts` | 1,722 | ✅ |
 | useChatUI | `src/hooks/useChatUI.ts` | 260 | ✅ |
 | useCloudAuth | `src/hooks/useCloudAuth.ts` | 94 | ✅ |
-| useUpdates | `src/hooks/useUpdates.ts` | 83 | ✅ |
-| usePermissions | `src/hooks/usePermissions.ts` | 94 | ✅ |
-| useExtensions | `src/hooks/useExtensions.ts` | 416 | ❌ 待集成 |
-| useSettings | `src/hooks/useSettings.ts` | 319 | ❌ 待集成 |
-| useConversation | `src/hooks/useConversation.ts` | 22 | ❌ 骨架 |
+| useConversation | `src/hooks/useConversation.ts` | 470 | ✅ 新建 |
+| useSettings | `src/hooks/useSettings.ts` | 319 | ✅ 新建 |
+| useExtensions | `src/hooks/useExtensions.ts` | 416 | ✅ 新建 |
+| useUpdates | `src/hooks/useUpdates.ts` | 83 | ✅ 已集成 |
+| usePermissions | `src/hooks/usePermissions.ts` | 94 | ✅ 已集成 |
 
-**待完成**（详见 `handoff-updates/073-app-modular-refactor-d3-d6-hooks.md`）：
-- D3b/D4b：useSettings/useExtensions 集成到 App.tsx（需手动更新渲染函数引用）
-- D1：useConversation hook（~500 行，最复杂的提取）
+**待完成**（详见 `handoff-updates/073-app-modular-refactor-d1-d6-complete.md`）：
+- D1b/D3b/D4b：useConversation/useSettings/useExtensions 集成到 App.tsx（需手动更新 ~65 处渲染函数引用）
 - E1-E5：渲染函数提取到 views/（~1,500 行）
-- F：最终精简
+- F：最终精简 App.tsx + 更新全部摘要
 
 **目标**：App.tsx ~400 行
+**钩子报告**：`handoff-updates/073-app-modular-refactor-d1-d6-complete.md`
 **路线图**：`handoff-updates/070-app-modular-refactor-completion-plan.md`
 **阶段报告**：071, 072, 073
 
