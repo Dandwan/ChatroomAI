@@ -1,7 +1,7 @@
 # App.tsx 模块化重构 — 现状、进度与剩余方案
 
 **日期**：2026-06-11  
-**来源**：handoff updates 069–076
+**来源**：handoff updates 069–077
 
 ---
 
@@ -15,15 +15,15 @@
 
 | 维度 | 数值 |
 |------|------|
-| **App.tsx 行数** | 5,099（−2,477 行，−32.7%） |
+| **App.tsx 行数** | 3,764（−3,812 行，−50.3%） |
 | **tsc 错误** | **0** ✅ |
 | **测试** | **39 passed** ✅（1 个 E2E 文件预存失败） |
 | **构建（npm run build）** | ❌ 预存问题（`builtin-skills/runtime-shell/` 目录缺失） |
-| **Git 提交** | `09cd231` feat: D1 集成完成 + 全部编译错误修复 (076) |
+| **Git 提交** | 待提交（E1 完成） |
 
 ---
 
-## 三、已完成工作（阶段 A/B/D1-D6）
+## 三、已完成工作（阶段 A/B/D1-D6/E1）
 
 | 阶段 | 内容 | 效果 | 备注 |
 |------|------|------|------|
@@ -36,8 +36,9 @@
 | **D5** | useUpdates hook 创建+集成 | −45 行 | APK 更新检查/安装 |
 | **D6** | usePermissions hook 创建+集成 | −54 行 | 原生权限请求 |
 | **076** | 全部编译错误修复 | tsc: 10→0 | 恢复 8 个丢失函数 + 类型修复 |
+| **E1** | SettingsPage.tsx 提取 | −1,335 行 | 16 个渲染函数 → views/SettingsPage.tsx；tsc 0 |
 
-### 8 个 hooks 全部就位
+### 8 个 hooks 全部就位 + 1 个 view 组件
 
 | Hook | 文件 | 已集成？ | 076 新增函数 |
 |------|------|---------|-------------|
@@ -54,26 +55,27 @@
 
 ## 四、待完成工作
 
-### 阶段 E：Views 提取（估计 2–3 小时）
+### 阶段 E2–E5：剩余 Views 提取（估计 4–6 小时）
 
-从 App.tsx 提取内联渲染函数到独立组件：
+从 App.tsx 提取剩余内联渲染函数到独立组件：
 
-| 组件 | 内容 | 估计行数 | 状态访问策略 |
-|------|------|---------|-------------|
-| **E1** `SettingsPage.tsx` | 16 个设置渲染函数 | ~1,300 | 直接访问 Zustand stores |
-| **E2** `ChatView.tsx` | 消息列表渲染、空/加载/错误态 | ~200 | props + stores |
-| **E3** `ComposerView.tsx` | 输入框、工具按钮、图片预览 | ~100 | props + stores |
-| **E4** `HomepageView.tsx` | 主页空白态、统计数据展示 | ~50 | props + stores |
-| **E5** `AppShell.tsx` | 顶层布局、Drawer/Modals 组装 | ~100 | children + stores |
+| 组件 | 内容 | 估计行数 | 状态 | 复杂度 |
+|------|------|---------|------|--------|
+| **E1** `SettingsPage.tsx` | 16 个设置渲染函数 | ~1,300 | ✅ 已完成（077） | 高 — 35+ props，store 直访 |
+| **E2** `ChatView.tsx` | 消息列表渲染、空/加载/错误态、`renderSkillStepEntry` | ~200 | ❌ | 高 — 消息 map 回调依赖多 |
+| **E3** `ComposerView.tsx` | `renderComposerTools` + `renderComposerFooter` | ~300 | ❌ | 中 — ~20 个 props |
+| **E4** `HomepageView.tsx` | 主页空白态渲染 | ~50 | ❌ | 低 — 简单提取 |
+| **E5** `AppShell.tsx` | 顶层布局（主 JSX return 语句） | ~500 | ❌ | 高 — 几乎所有变量作为 props |
 
-**预期**：App.tsx −1,750 行 → ~3,350 行
+**预期**：E2-E5 完成后 App.tsx ~2,700 行
 
-### 阶段 F：最终精简（估计 1 小时）
+### 阶段 F：最终精简（估计 2–3 小时）
 
-1. 精简 App.tsx 至纯 hooks 调用 + JSX 组装（~400 行）
-2. 更新全部 ~30 个代码摘要文件（`docs/development-status/summaries/`）
-3. 更新架构文档 `20-run-and-skill-runtime.md`
-4. 创建最终 handoff update 077
+1. 将剩余内联 useCallback/useMemo 移入 hooks
+2. 精简 App.tsx JSX 至纯组装（~400 行）
+3. 更新全部 ~30 个代码摘要文件
+4. 更新架构文档 `20-run-and-skill-runtime.md`
+5. 创建 handoff update 078
 
 **预期**：App.tsx ~400 行
 
@@ -84,10 +86,9 @@
 | # | 问题 | 影响 | 状态 |
 |---|------|------|------|
 | 1 | `npm run build` 失败 — `builtin-skills/runtime-shell/` 目录缺失 | 无法构建 Web/APK | 🔴 预存，与重构无关 |
-| 2 | D1 effects 行为等价性 — hook 版缺少 `setNotice` 错误提示 | 部分错误场景用户无感知 | 🟡 需端到端验证 |
+| 2 | E2-E5 渲染函数提取 — 与 App 作用域深度交织 | 需逐个仔细解耦 | 🟡 E1 已验证模式可行 |
 | 3 | `app-module.ts` 类型卫生 — `buildPersistChatState` 使用 `import(...)` 类型引用 | 不够优雅 | 🟢 低优先级 |
-| 4 | 阶段 E views 提取 — 渲染函数与 App 作用域深度交织 | 需要仔细解耦 | 🟡 高风险 |
-| 5 | 代码摘要过时 — 多个 hook 摘要仍标记为"计划"状态 | agent 依赖摘要可能获取错误信息 | 🟡 阶段 F 修复 |
+| 4 | 代码摘要 — 多个 hook 摘要需更新 | agent 依赖摘要可能不准确 | 🟡 部分已更新（App.tsx, SettingsPage.tsx） |
 
 ---
 
@@ -97,20 +98,21 @@
 7,576 行 ────────────────────────────────────────── ~400 行
 
 Phase 1 (069): 工具函数提取      ──→ 7,576 → 7,228 (−348)
-Phase A (071): 导入清理          ──→ 7,228 → 7,228 (includes phase B prep)
+Phase A (071): 导入清理          ──→ 7,228 → 7,228
 Phase B (072): 模块提取          ──→ 7,228 → 6,221 (−1,007)
 Phase D2: useChatUI 集成         ──→ 6,221 → 6,080 (−141)
 Phase D5/D6: useUpdates/Perms    ──→ 6,080 → 5,986 (−94)
 Phase D3: useSettings 集成       ──→ 5,986 → 5,682 (−304)
 Phase D4: useExtensions 集成     ──→ 5,682 → 5,416 (−266)
 Phase D1 (075): useConversation  ──→ 5,416 → 5,083 (−333)
-Phase 076: 错误修复              ──→ 5,083 → 5,099 (+16, tsc: 0)  ← 当前位置
+Phase 076: 错误修复              ──→ 5,083 → 5,099 (+16, tsc: 0)
+Phase E1 (077): SettingsPage     ──→ 5,099 → 3,764 (−1,335)  ← 当前位置
 ────────────────────────────────────────────────────
-Phase E: Views 提取              ──→ 5,099 → ~3,350 (−1,750)
-Phase F: 最终精简 + 摘要更新     ──→ ~3,350 → ~400
+Phase E2-E5: 剩余 Views          ──→ 3,764 → ~2,700 (−1,064)
+Phase F: 最终精简 + 摘要更新     ──→ ~2,700 → ~400
 
-已减: −2,477 行 (−32.7%)
-剩余: ~4,700 行
+已减: −3,812 行 (−50.3%)
+剩余: ~3,364 行
 ```
 
 ---

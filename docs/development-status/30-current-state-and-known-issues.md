@@ -64,40 +64,36 @@ See `20-run-and-skill-runtime.md` for full architecture.
 
 ## App.tsx 模块化重构（2026-06-11）
 
-**当前状态**：D1 集成完成，全部 hooks 已集成，tsc 零错误。App.tsx 从 7,576 降至 5,099 行（−2,477 行，−32.7%）
+**当前状态**：E1 完成（SettingsPage 提取），App.tsx 从 7,576 降至 3,764 行（−3,812 行，−50.3%），tsc 零错误
 
 **已完成**：
 - **阶段 A** 导入清理 + 死代码移除（−348 行）
 - **阶段 B** 模块提取到 `utils/app-module.ts`（−1,007 行）
-- **阶段 D1** useConversation hook 集成 + effects 替换（−333 行）—— 076 完成
+- **阶段 D1** useConversation hook 集成 + effects 替换（−333 行）
 - **阶段 D2** useChatUI 集成（−141 行）
-- **阶段 D3** useSettings hook 创建+集成（−304 行）+ 3 个丢失函数恢复
+- **阶段 D3** useSettings hook 创建+集成（−304 行）
 - **阶段 D4** useExtensions hook 创建+集成（−266 行）
 - **阶段 D5** useUpdates hook 创建+集成（−45 行）
 - **阶段 D6** usePermissions hook 创建+集成（−54 行）
-- **8 个预存 tsc 错误全部修复** ✅
+- **阶段 E1** SettingsPage.tsx 提取（−1,335 行）← 077
 - tsc: 0 错误 ✅，测试: 39 passed ✅
 
-**Hook 文件状态**（共 8 个 hooks）：
-| Hook | 状态 |
+**Views 组件状态**：
+| 组件 | 状态 |
 |------|------|
-| useAssistant | ✅ 已集成 |
-| useChatUI | ✅ 已集成 |
-| useCloudAuth | ✅ 已集成 |
-| useSettings | ✅ 已集成（含 resetPromptToDefault, fetchProviderModels, testProviderModel） |
-| useExtensions | ✅ 已集成 |
-| useUpdates | ✅ 已集成 |
-| usePermissions | ✅ 已集成 |
-| useConversation | ✅ 已集成（含 removePendingImage, updatePendingImageCompression） |
+| SettingsPage.tsx | ✅ 已提取（1 个 view 组件就位） |
+| ChatView.tsx | ❌ 待提取（E2） |
+| ComposerView.tsx | ❌ 待提取（E3） |
+| HomepageView.tsx | ❌ 待提取（E4） |
+| AppShell.tsx | ❌ 待提取（E5） |
 
 **待完成**：
-- E1-E5：渲染函数提取到 views/（~1,500 行）
+- E2-E5：剩余 4 个 views 组件提取（~1,050 行）
 - F：最终精简 App.tsx + 更新全部摘要
 
 **目标**：App.tsx ~400 行
-**最新交接**：`handoff-updates/076-d1-integration-complete-and-error-fixes.md`
-**钩子报告**：`handoff-updates/073-app-modular-refactor-d1-d6-complete.md`
-**路线图**：`handoff-updates/070-app-modular-refactor-completion-plan.md`
+**最新交接**：`handoff-updates/077-app-modular-refactor-e1-complete.md`
+**路线图**：`31-app-modular-refactor-status.md`
 
 ## Cloud Server (`cloud-server/`)
 
