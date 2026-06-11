@@ -1,6 +1,9 @@
 # Development Status Index
 
-Last updated: 2026-06-09
+Last updated: 2026-06-11
+
+> **当前重构**：App.tsx 从 7,576 行减至 5,416 行（−28.5%）。8 个 hooks 已创建，D3/D4/D5/D6 已集成。
+> 详见 handoff-updates/072, 073, 074。
 
 This directory is the repo-tracked handoff state for **ActiChat** (`动话`, formerly `ChatroomAI`). Any agent taking over development in this repository should read these files before changing code and update them after finishing work.
 

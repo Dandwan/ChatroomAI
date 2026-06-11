@@ -71,10 +71,13 @@
 3. **app-module.ts 未集成**：模块代码已提取到文件但 App.tsx 仍保留内联版本——因为某些函数被旧版组件级代码引用
 4. **组件级死代码**：20 个声明通过 `void` 引用抑制，需要后续阶段清理
 
-## 后续建议
+## 后续建议（2026-06-11 更新）
 
-1. **阶段 D（优先级最高）**：创建 useConversation → useSettings → useExtensions → useUpdates → usePermissions hooks
-   - 这些 hook 会自然覆盖并移除组件级死代码
-2. **阶段 E**：提取渲染函数到 views/（SettingsPage, ChatView, ComposerView, HomepageView, AppShell）
-3. **阶段 B（低优先级）**：完成 app-module.ts 集成（需要先解决组件级代码的循环引用）
-4. **修复预存的 tsc 错误**：removePendingImage 等 8 个函数缺失
+> **状态**：D3/D4/D5/D6 hooks 已通过解构替换成功集成。D1 hook 已创建并导入。
+> App.tsx 当前 5,416 行（−28.5%）。剩余方案详见 `074-app-modular-refactor-integration-progress.md`。
+
+1. ~~**阶段 D（优先级最高）**~~ → D3/D4/D5/D6 ✅ 完成
+2. **D1 集成**：useConversation effects 需逐块手动移除内联效果 → 预计 −400 行
+3. **阶段 E**：提取渲染函数到 views/ → 预计 −1,500 行
+4. **阶段 F**：最终精简 + 更新摘要 → 目标 ~400 行
+5. **修复预存的 tsc 错误**：removePendingImage 等 8 个函数缺失
