@@ -64,6 +64,8 @@ import type { UpdateInfo } from './services/app-update'
 import { useCloudAuth } from './hooks/useCloudAuth'
 import { useUpdates } from './hooks/useUpdates'
 import { useConversation } from './hooks/useConversation'
+import { useExtensions } from './hooks/useExtensions'
+import { useSettings } from './hooks/useSettings'
 import { usePermissions } from './hooks/usePermissions'
 import UpdateDialog from './components/UpdateDialog'
 import ThinkingPhrase from './components/ThinkingPhrase'
@@ -708,10 +710,6 @@ function App() {
     },
     [settings.providers, settings.actiNetModels, settings.otherProvidersEnabled, cloudLoggedIn],
   )
-  const activeProviderRequestSettings = useMemo(
-    () => resolveProviderRequestSettings(settings),
-    [settings],
-  )
   const isRunningInActiveConversation =
     activeConversation !== null &&
     activeRequestConversationId !== null &&
@@ -873,9 +871,29 @@ function App() {
 
   // ── Permissions (delegated to usePermissions hook) ──
   const conv = useConversation(initialStateRef)
-  const perms = usePermissions(pushNotice)
   const ext = useExtensions(pushNotice, openDeleteDialog)
-  const set = useSettings(pushNotice, openDeleteDialog)
+  const {
+    applySettingsUpdate,
+    handleNumericSettingChange,
+    finalizeNumericSettingDraft,
+    handleProviderNumericSettingChange,
+    finalizeProviderNumericSettingDraft,
+    updateProviderById,
+    updateProviderField,
+    updateProviderPromptOverride,
+    clearProviderPromptOverride,
+    updateProviderInfoPromptOverride,
+    clearProviderInfoPromptOverride,
+    addProvider,
+    deleteProvider,
+    setProviderModelEnabled,
+    addManualProviderModel,
+    selectCurrentModel,
+    resetProviderDetailState,
+    updateSetting,
+    updateDailyCoverSetting,
+    activeProviderRequestSettings,
+  } = useSettings(pushNotice, openDeleteDialog)
 
   // ── Relay ActiNetSettings custom events as pushNotice ──
   useEffect(() => {
@@ -921,20 +939,6 @@ function App() {
     useUIStore.getState().toggleProviderPromptEditor(key)
   }, [])
 
-  const resetProviderDetailState = useCallback((): void => {
-    setProviderDetailTargetId(null)
-    setManualModelDraft('')
-    setProviderModelSearch('')
-    setProviderNumericSettingDrafts(createProviderNumericSettingDrafts(null))
-    setOpenProviderPromptEditors({
-      systemPrompt: false,
-      topLevelTagSystemPrompt: false,
-      generalTagSystemPrompt: false,
-      readSystemPrompt: false,
-      skillCallSystemPrompt: false,
-      editSystemPrompt: false,
-    })
-  }, [])
 
   const openSettingsHome = useCallback((): void => {
     navigateSettingsView('main')
@@ -1314,319 +1318,11 @@ function App() {
     }
   }, [pushNotice])
 
-  const applySettingsUpdate = useCallback((updater: (previous: AppSettings) => AppSettings): void => {
-    setSettings((previous) => ensureValidCurrentModelSelection(updater(previous)))
-  }, [])
 
-  const updateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]): void => {
-    applySettingsUpdate((previous) => ({
-      ...previous,
-      [key]: value,
-    }))
-  }
 
-  const updateDailyCoverSetting = useCallback(
-    <K extends keyof DailyCoverSettings>(key: K, value: DailyCoverSettings[K]): void => {
-      applySettingsUpdate((previous) => ({
-        ...previous,
-        dailyCover: {
-          ...previous.dailyCover,
-          [key]: value,
-        },
-      }))
-    },
-    [applySettingsUpdate],
-  )
 
-  const resetPromptToDefault = (key: GlobalPromptSettingKey): void => {
-    updateSetting(key, PROMPT_DEFAULTS[key] as AppSettings[typeof key])
-    pushNotice('已重置为默认提示词。', 'success')
-  }
 
-  const handleNumericSettingChange = (
-    key: NumericSettingKey,
-    rawValue: string,
-    minimum: number,
-    maximum: number,
-    integer = false,
-  ): void => {
-    setNumericSettingDrafts((previous) => ({
-      ...previous,
-      [key]: rawValue,
-    }))
 
-    if (rawValue.trim() === '') {
-      updateSetting(key, NUMERIC_SETTING_DEFAULTS[key] as AppSettings[typeof key])
-      return
-    }
-
-    const parsed = Number(rawValue)
-    if (!Number.isFinite(parsed)) {
-      return
-    }
-
-    const nextValue = integer ? Math.round(clamp(parsed, minimum, maximum)) : clamp(parsed, minimum, maximum)
-    updateSetting(key, nextValue as AppSettings[typeof key])
-  }
-
-  const finalizeNumericSettingDraft = (key: NumericSettingKey): void => {
-    setNumericSettingDrafts((previous) => ({
-      ...previous,
-      [key]: normalizeNumericSettingDraft(key, useSettingsStore.getState().settings[key]),
-    }))
-  }
-
-  const updateProviderById = useCallback(
-    (providerId: string, updater: (provider: ProviderConfig) => ProviderConfig): void => {
-      applySettingsUpdate((previous) => ({
-        ...previous,
-        providers: previous.providers.map((provider) =>
-          provider.id === providerId ? updater(provider) : provider,
-        ),
-      }))
-    },
-    [applySettingsUpdate],
-  )
-
-  const selectCurrentModel = useCallback(
-    (providerId: string, modelId: string): void => {
-      applySettingsUpdate((previous) => {
-        // ActiNet 虚拟服务商 — 不在 providers 数组中，需单独处理
-        if (providerId === ACTINET_PROVIDER_ID) {
-          const effective = getEffectiveActiNetModels()
-          const model = effective.find((m) => m.id === modelId && m.enabled)
-          if (!model) return previous
-          return {
-            ...previous,
-            currentProviderId: providerId,
-            currentModel: modelId,
-          }
-        }
-
-        const provider = previous.providers.find((item) => item.id === providerId)
-        if (!provider || !provider.models.some((model) => model.id === modelId && model.enabled)) {
-          return previous
-        }
-        return {
-          ...previous,
-          currentProviderId: providerId,
-          currentModel: modelId,
-        }
-      })
-    },
-    [applySettingsUpdate],
-  )
-
-  const addProvider = useCallback((): void => {
-    rememberSettingsScrollPosition()
-    const provider = createProviderConfig(createProviderNameCandidate(useSettingsStore.getState().settings.providers))
-    setManualModelDraft('')
-    setProviderModelSearch('')
-    setProviderNumericSettingDrafts(createProviderNumericSettingDrafts(provider))
-    setOpenProviderPromptEditors({
-      systemPrompt: false,
-      topLevelTagSystemPrompt: false,
-      generalTagSystemPrompt: false,
-      readSystemPrompt: false,
-      skillCallSystemPrompt: false,
-      editSystemPrompt: false,
-    })
-    setProviderDetailTargetId(provider.id)
-    navigateSettingsView('provider-detail')
-    applySettingsUpdate((previous) => ({
-      ...previous,
-      providers: [...previous.providers, provider],
-    }))
-  }, [applySettingsUpdate, rememberSettingsScrollPosition])
-
-  const deleteProvider = useCallback(
-    (providerId: string): void => {
-      const targetProvider = useSettingsStore.getState().settings.providers.find((provider) => provider.id === providerId)
-      const providerLabel = targetProvider?.name.trim() || '未命名服务商'
-
-      applySettingsUpdate((previous) => ({
-        ...previous,
-        providers: previous.providers.filter((provider) => provider.id !== providerId),
-      }))
-      setModelHealth((previous) => {
-        const next: Record<string, ModelHealth> = {}
-        const prefix = `${providerId}::`
-        for (const [key, value] of Object.entries(previous)) {
-          if (!key.startsWith(prefix)) {
-            next[key] = value
-          }
-        }
-        return next
-      })
-
-      if (providerDetailTargetId === providerId) {
-        resetProviderDetailState()
-        navigateSettingsView('providers')
-      }
-
-      pushNotice(`已删除服务商：${providerLabel}`, 'success')
-    },
-    [applySettingsUpdate, providerDetailTargetId, pushNotice, resetProviderDetailState],
-  )
-
-  const requestDeleteProvider = useCallback((providerId: string): void => {
-    openDeleteDialog({ type: 'provider', targetId: providerId })
-  }, [openDeleteDialog])
-
-  const updateProviderField = useCallback(
-    (providerId: string, key: 'name' | 'apiBaseUrl' | 'apiKey', value: string): void => {
-      updateProviderById(providerId, (provider) => ({
-        ...provider,
-        [key]: value,
-      }))
-    },
-    [updateProviderById],
-  )
-
-  const updateProviderPromptOverride = useCallback(
-    (providerId: string, key: ProviderPromptSettingKey, value: string): void => {
-      const normalizedValue = normalizeProviderPromptOverride(value)
-      updateProviderById(providerId, (provider) => ({
-        ...provider,
-        [key]: normalizedValue,
-      }))
-    },
-    [updateProviderById],
-  )
-
-  const clearProviderPromptOverride = useCallback(
-    (providerId: string, key: ProviderPromptSettingKey): void => {
-      updateProviderById(providerId, (provider) => ({
-        ...provider,
-        [key]: undefined,
-      }))
-      pushNotice('已恢复跟随全局提示词。', 'success')
-    },
-    [pushNotice, updateProviderById],
-  )
-
-  const updateProviderInfoPromptOverride = useCallback(
-    (providerId: string, key: ProviderBooleanSettingKey, enabled: boolean): void => {
-      const globalValue = useSettingsStore.getState().settings[key]
-      updateProviderById(providerId, (provider) => {
-        const nextValue = enabled === globalValue ? undefined : enabled
-        if (provider[key] === nextValue) {
-          return provider
-        }
-        return {
-          ...provider,
-          [key]: nextValue,
-        }
-      })
-    },
-    [updateProviderById],
-  )
-
-  const clearProviderInfoPromptOverride = useCallback(
-    (providerId: string, key: ProviderBooleanSettingKey): void => {
-      updateProviderById(providerId, (provider) => ({
-        ...provider,
-        [key]: undefined,
-      }))
-      pushNotice('已恢复跟随全局信息提示词开关。', 'success')
-    },
-    [pushNotice, updateProviderById],
-  )
-
-  const handleProviderNumericSettingChange = useCallback(
-    (key: ProviderNumericSettingKey, rawValue: string): void => {
-      setProviderNumericSettingDrafts((previous) => ({
-        ...previous,
-        [key]: rawValue,
-      }))
-
-      if (!providerDetailTargetId) {
-        return
-      }
-
-      if (rawValue.trim() === '') {
-        updateProviderById(providerDetailTargetId, (provider) => ({
-          ...provider,
-          [key]: undefined,
-        }))
-        return
-      }
-
-      const parsed = Number(rawValue)
-      if (!Number.isFinite(parsed)) {
-        return
-      }
-
-      const limits = PROVIDER_NUMERIC_LIMITS[key]
-      const nextValue = limits.integer
-        ? Math.round(clamp(parsed, limits.minimum, limits.maximum))
-        : clamp(parsed, limits.minimum, limits.maximum)
-      updateProviderById(providerDetailTargetId, (provider) => ({
-        ...provider,
-        [key]: nextValue,
-      }))
-    },
-    [providerDetailTargetId, updateProviderById],
-  )
-
-  const finalizeProviderNumericSettingDraft = useCallback((key: ProviderNumericSettingKey): void => {
-    if (!providerDetailTargetId) {
-      return
-    }
-
-    const provider =
-      useSettingsStore.getState().settings.providers.find((item) => item.id === providerDetailTargetId) ?? null
-    const nextValue = provider?.[key]
-    setProviderNumericSettingDrafts((previous) => ({
-      ...previous,
-      [key]: nextValue === undefined ? '' : String(nextValue),
-    }))
-  }, [providerDetailTargetId])
-
-  const setProviderModelEnabled = useCallback(
-    (providerId: string, modelId: string, enabled: boolean): void => {
-      updateProviderById(providerId, (provider) => ({
-        ...provider,
-        models: provider.models.map((model) =>
-          model.id === modelId
-            ? {
-                ...model,
-                enabled,
-              }
-            : model,
-        ),
-      }))
-    },
-    [updateProviderById],
-  )
-
-  const addManualProviderModel = useCallback((): void => {
-    if (!providerDetailTargetId) {
-      return
-    }
-
-    const modelId = manualModelDraft.trim()
-    if (!modelId) {
-      return
-    }
-
-    updateProviderById(providerDetailTargetId, (provider) => {
-      if (provider.models.some((model) => model.id === modelId)) {
-        return provider
-      }
-
-      return {
-        ...provider,
-        models: [...provider.models, { id: modelId, enabled: false }],
-      }
-    })
-    setModelHealth((previous) => ({
-      ...previous,
-      [createProviderModelKey(providerDetailTargetId, modelId)]:
-        previous[createProviderModelKey(providerDetailTargetId, modelId)] ?? 'untested',
-    }))
-    setManualModelDraft('')
-  }, [manualModelDraft, providerDetailTargetId, updateProviderById])
 
   const updateConversationDraft = useCallback((conversationId: string, nextDraft: string): void => {
     setDraftsByConversation((previous) => {

@@ -44,6 +44,7 @@ export interface UseSettingsReturn {
   addProvider: () => void
   deleteProvider: (providerId: string) => void
   requestDeleteProvider: (providerId: string) => void
+  resetProviderDetailState: () => void
 
   // Model management
   selectCurrentModel: (providerId: string, modelId: string) => void
@@ -63,7 +64,7 @@ export interface UseSettingsReturn {
 }
 
 export function useSettings(
-  pushNotice: (text: string, type?: string) => void,
+  pushNotice: (text: string, type?: 'info' | 'success' | 'error') => void,
   openDeleteDialog: (dialog: any) => void,
 ): UseSettingsReturn {
   // Settings store
@@ -308,6 +309,7 @@ export function useSettings(
     clearProviderInfoPromptOverride,
     addProvider,
     deleteProvider,
+    resetProviderDetailState,
     requestDeleteProvider,
     selectCurrentModel,
     setProviderModelEnabled,
