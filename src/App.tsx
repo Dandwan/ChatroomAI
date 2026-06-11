@@ -369,30 +369,6 @@ function App() {
   // ── UI store: permissions ──
 
   // ── Extensions store ──
-  const skillRecords = useExtensionsStore((s) => s.skillRecords)
-  const setSkillRecords = useExtensionsStore((s) => s.setSkillRecords)
-  const runtimeRecords = useExtensionsStore((s) => s.runtimeRecords)
-  const setRuntimeRecords = useExtensionsStore((s) => s.setRuntimeRecords)
-  const isLoadingExtensions = useExtensionsStore((s) => s.isLoadingExtensions)
-  const setIsLoadingExtensions = useExtensionsStore((s) => s.setIsLoadingExtensions)
-  const isInstallingSkillArchive = useExtensionsStore((s) => s.isInstallingSkillArchive)
-  const setIsInstallingSkillArchive = useExtensionsStore((s) => s.setIsInstallingSkillArchive)
-  const isInstallingRuntimeArchive = useExtensionsStore((s) => s.isInstallingRuntimeArchive)
-  const setIsInstallingRuntimeArchive = useExtensionsStore((s) => s.setIsInstallingRuntimeArchive)
-  const skillConfigTargetId = useExtensionsStore((s) => s.skillConfigTargetId)
-  const setSkillConfigTargetId = useExtensionsStore((s) => s.setSkillConfigTargetId)
-  const skillConfigDraft = useExtensionsStore((s) => s.skillConfigDraft)
-  const setSkillConfigDraft = useExtensionsStore((s) => s.setSkillConfigDraft)
-  const skillConfigValue = useExtensionsStore((s) => s.skillConfigValue)
-  const setSkillConfigValue = useExtensionsStore((s) => s.setSkillConfigValue)
-  const skillConfigRawError = useExtensionsStore((s) => s.skillConfigRawError)
-  const setSkillConfigRawError = useExtensionsStore((s) => s.setSkillConfigRawError)
-  const isLoadingSkillConfig = useExtensionsStore((s) => s.isLoadingSkillConfig)
-  const setIsLoadingSkillConfig = useExtensionsStore((s) => s.setIsLoadingSkillConfig)
-  const isSavingSkillConfig = useExtensionsStore((s) => s.isSavingSkillConfig)
-  const setIsSavingSkillConfig = useExtensionsStore((s) => s.setIsSavingSkillConfig)
-  const modelHealth = useExtensionsStore((s) => s.modelHealth)
-  const setModelHealth = useExtensionsStore((s) => s.setModelHealth)
 
   const assistant = useAssistant()
   const [resolvedDailyCover, setResolvedDailyCover] = useState<ResolvedDailyCover | null>(() =>
@@ -558,13 +534,6 @@ function App() {
     draftsByConversationRef.current = draftsByConversation
   }, [draftsByConversation])
 
-  const skillConfigTarget = useMemo(
-    () =>
-      skillConfigTargetId
-        ? skillRecords.find((skill) => skill.id === skillConfigTargetId) ?? null
-        : null,
-    [skillConfigTargetId, skillRecords],
-  )
   const nativeRuntimeAvailable = isNativeRuntimeAvailable()
 
   const projectedMessagesByConversationId = useMemo(
@@ -871,7 +840,38 @@ function App() {
 
   // ── Permissions (delegated to usePermissions hook) ──
   const conv = useConversation(initialStateRef)
-  const ext = useExtensions(pushNotice, openDeleteDialog)
+  const {
+    skillRecords,
+    runtimeRecords,
+    isLoadingExtensions,
+    isInstallingSkillArchive,
+    isInstallingRuntimeArchive,
+    skillConfigTargetId,
+    skillConfigDraft,
+    skillConfigValue,
+    skillConfigRawError,
+    isLoadingSkillConfig,
+    isSavingSkillConfig,
+    modelHealth,
+    skillConfigTarget,
+    handleSkillArchiveSelect,
+    handleRuntimeArchiveSelect,
+    handleSetSkillEnabled,
+    handleSetRuntimeEnabled,
+    handleSetDefaultRuntime,
+    handleTestRuntime,
+    handleSkillConfigDraftChange,
+    applySkillConfigValue,
+    formatSkillConfigDraft,
+    openSkillConfigEditor,
+    saveSkillConfig,
+    deleteSkillById,
+    deleteRuntimeById,
+    requestDeleteSkill,
+    requestDeleteRuntime,
+    refreshExtensions,
+    setModelHealth,
+  } = useExtensions(pushNotice, openDeleteDialog)
   const {
     applySettingsUpdate,
     handleNumericSettingChange,
@@ -905,31 +905,8 @@ function App() {
     return () => window.removeEventListener('actinet-notice', handler)
   }, [pushNotice])
 
-  const applySkillConfigValue = useCallback((nextValue: JsonObjectValue): void => {
-    setSkillConfigValue(nextValue)
-    setSkillConfigDraft(formatJsonObject(nextValue))
-    setSkillConfigRawError(null)
-  }, [])
 
-  const handleSkillConfigDraftChange = useCallback((nextDraft: string): void => {
-    setSkillConfigDraft(nextDraft)
-    const parsed = parseSkillConfigDraft(nextDraft)
-    if (parsed.error || !parsed.value) {
-      setSkillConfigRawError(parsed.error ?? '配置必须是合法的 JSON。')
-      return
-    }
-    setSkillConfigValue(parsed.value)
-    setSkillConfigRawError(null)
-  }, [])
 
-  const formatSkillConfigDraft = useCallback((): void => {
-    const parsed = parseSkillConfigDraft(skillConfigDraft)
-    if (parsed.error || !parsed.value) {
-      pushNotice(parsed.error ?? '当前配置不是合法 JSON，无法格式化。', 'error')
-      return
-    }
-    applySkillConfigValue(parsed.value)
-  }, [applySkillConfigValue, pushNotice, skillConfigDraft])
 
   const togglePromptEditor = useCallback((key: TagPromptEditorKey): void => {
     useUIStore.getState().togglePromptEditor(key)
@@ -1062,261 +1039,18 @@ function App() {
     [settingsView],
   )
 
-  const refreshExtensions = useCallback(async (silent = false): Promise<void> => {
-    if (!silent) {
-      setIsLoadingExtensions(true)
-    }
-    const errors: string[] = []
-    try {
-      const initializeResults = await Promise.allSettled([
-        initializeSkillHost(),
-        ensureBundledRuntimesInstalled(),
-      ])
-      for (const result of initializeResults) {
-        if (result.status === 'rejected') {
-          errors.push(result.reason instanceof Error ? result.reason.message : '初始化扩展能力失败')
-        }
-      }
 
-      const [skillsResult, runtimesResult] = await Promise.allSettled([listSkills(), listRuntimes()])
-      if (skillsResult.status === 'fulfilled') {
-        setSkillRecords(skillsResult.value)
-      } else {
-        errors.push(
-          skillsResult.reason instanceof Error ? skillsResult.reason.message : '加载 skills 失败',
-        )
-      }
 
-      if (runtimesResult.status === 'fulfilled') {
-        setRuntimeRecords(runtimesResult.value)
-      } else {
-        errors.push(
-          runtimesResult.reason instanceof Error ? runtimesResult.reason.message : '加载 runtimes 失败',
-        )
-      }
-    } finally {
-      if (errors.length > 0) {
-        setNotice({ text: `加载扩展能力失败：${errors.join('；')}`, type: 'error' })
-      }
-      if (!silent) {
-        setIsLoadingExtensions(false)
-      }
-    }
-  }, [])
 
-  const openSkillConfigEditor = useCallback(async (skillId: string): Promise<void> => {
-    rememberSettingsScrollPosition()
-    navigateSettingsView('skill-config')
-    setSkillConfigTargetId(skillId)
-    setIsLoadingSkillConfig(true)
-    try {
-      const config = await readSkillConfig(skillId)
-      const nextValue = isJsonObjectRecord(config) ? config : {}
-      setSkillConfigValue(nextValue)
-      setSkillConfigDraft(formatJsonObject(nextValue))
-      setSkillConfigRawError(null)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '读取 skill 配置失败'
-      pushNotice(`读取配置失败：${message}`, 'error')
-      navigateSettingsView('skills')
-      setSkillConfigTargetId(null)
-      setSkillConfigDraft('')
-      setSkillConfigValue({})
-      setSkillConfigRawError(null)
-    } finally {
-      setIsLoadingSkillConfig(false)
-    }
-  }, [pushNotice, rememberSettingsScrollPosition])
 
-  const saveSkillConfig = useCallback(async (): Promise<void> => {
-    if (!skillConfigTargetId) {
-      return
-    }
 
-    const parsed = parseSkillConfigDraft(skillConfigDraft)
-    if (parsed.error || !parsed.value) {
-      pushNotice(parsed.error ?? '配置必须是合法的 JSON。', 'error')
-      return
-    }
 
-    setIsSavingSkillConfig(true)
-    try {
-      setSkillConfigValue(parsed.value)
-      setSkillConfigRawError(null)
-      await writeSkillConfig(skillConfigTargetId, parsed.value)
-      await refreshExtensions(true)
-      pushNotice(`已保存 ${skillConfigTargetId} 的配置。`, 'success')
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '保存 skill 配置失败'
-      pushNotice(`保存配置失败：${message}`, 'error')
-    } finally {
-      setIsSavingSkillConfig(false)
-    }
-  }, [pushNotice, refreshExtensions, skillConfigDraft, skillConfigTargetId])
 
-  const handleSkillArchiveSelect = useCallback(
-    async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
-      const file = event.target.files?.[0]
-      if (!file) {
-        return
-      }
 
-      setIsInstallingSkillArchive(true)
-      try {
-        const result = await installSkillPackage(file)
-        await refreshExtensions(true)
-        pushNotice(
-          result.replacedExisting
-            ? `Skill ${result.skill.id} 已更新。`
-            : `Skill ${result.skill.id} 已安装。`,
-          'success',
-        )
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Skill 安装失败'
-        pushNotice(`Skill 安装失败：${message}`, 'error')
-      } finally {
-        event.target.value = ''
-        setIsInstallingSkillArchive(false)
-      }
-    },
-    [pushNotice, refreshExtensions],
-  )
 
-  const handleRuntimeArchiveSelect = useCallback(
-    async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
-      const file = event.target.files?.[0]
-      if (!file) {
-        return
-      }
 
-      setIsInstallingRuntimeArchive(true)
-      try {
-        const result = await installRuntimePackage(file)
-        await refreshExtensions(true)
-        pushNotice(
-          result.replacedExisting
-            ? `运行时 ${result.runtime.id} 已更新。`
-            : `运行时 ${result.runtime.id} 已安装。`,
-          'success',
-        )
-      } catch (error) {
-        const message = error instanceof Error ? error.message : '运行时安装失败'
-        pushNotice(`运行时安装失败：${message}`, 'error')
-      } finally {
-        event.target.value = ''
-        setIsInstallingRuntimeArchive(false)
-      }
-    },
-    [pushNotice, refreshExtensions],
-  )
 
-  const handleSetSkillEnabled = useCallback(async (skillId: string, enabled: boolean): Promise<void> => {
-    try {
-      await setSkillEnabled(skillId, enabled)
-      setSkillRecords((previous) =>
-        previous.map((skill) => (skill.id === skillId ? { ...skill, enabled } : skill)),
-      )
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '更新 skill 状态失败'
-      pushNotice(`更新 skill 状态失败：${message}`, 'error')
-    }
-  }, [pushNotice])
 
-  const deleteSkillById = useCallback(async (skillId: string): Promise<void> => {
-    try {
-      await deleteSkill(skillId)
-      if (skillConfigTargetId === skillId) {
-        navigateSettingsView('skills')
-        setSkillConfigTargetId(null)
-        setSkillConfigDraft('')
-        setSkillConfigValue({})
-        setSkillConfigRawError(null)
-      }
-      await refreshExtensions(true)
-      pushNotice(`已删除 skill：${skillId}`, 'success')
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '删除 skill 失败'
-      pushNotice(`删除 skill 失败：${message}`, 'error')
-    }
-  }, [pushNotice, refreshExtensions, skillConfigTargetId])
-
-  const requestDeleteSkill = useCallback((skillId: string): void => {
-    openDeleteDialog({ type: 'skill', targetId: skillId })
-  }, [openDeleteDialog])
-
-  const handleSetRuntimeEnabled = useCallback(async (runtimeId: string, enabled: boolean): Promise<void> => {
-    try {
-      await setRuntimeEnabled(runtimeId, enabled)
-      setRuntimeRecords((previous) =>
-        previous.map((runtime) => (runtime.id === runtimeId ? { ...runtime, enabled } : runtime)),
-      )
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '更新运行时状态失败'
-      pushNotice(`更新运行时状态失败：${message}`, 'error')
-    }
-  }, [pushNotice])
-
-  const deleteRuntimeById = useCallback(async (runtimeId: string): Promise<void> => {
-    try {
-      await deleteRuntime(runtimeId)
-      await refreshExtensions(true)
-      pushNotice(`已删除运行时：${runtimeId}`, 'success')
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '删除运行时失败'
-      pushNotice(`删除运行时失败：${message}`, 'error')
-    }
-  }, [pushNotice, refreshExtensions])
-
-  const requestDeleteRuntime = useCallback((runtimeId: string): void => {
-    openDeleteDialog({ type: 'runtime', targetId: runtimeId })
-  }, [openDeleteDialog])
-
-  const handleSetDefaultRuntime = useCallback(
-    async (runtime: RuntimeRecord): Promise<void> => {
-      if (runtime.type !== 'python' && runtime.type !== 'node') {
-        return
-      }
-
-      try {
-        await setDefaultRuntime(runtime.type, runtime.id)
-        await refreshExtensions(true)
-        pushNotice(`已将 ${runtime.id} 设为默认 ${runtime.type} 运行时。`, 'success')
-      } catch (error) {
-        const message = error instanceof Error ? error.message : '设置默认运行时失败'
-        pushNotice(`设置默认运行时失败：${message}`, 'error')
-      }
-    },
-    [pushNotice, refreshExtensions],
-  )
-
-  const handleTestRuntime = useCallback(async (runtimeId: string): Promise<void> => {
-    setRuntimeRecords((previous) =>
-      previous.map((runtime) =>
-        runtime.id === runtimeId ? { ...runtime, testStatus: undefined, testMessage: '检测中...' } : runtime,
-      ),
-    )
-
-    try {
-      const nextRuntime = await testRuntime(runtimeId)
-      setRuntimeRecords((previous) =>
-        previous.map((runtime) => (runtime.id === runtimeId ? nextRuntime : runtime)),
-      )
-      pushNotice(
-        nextRuntime.testStatus === 'ok'
-          ? `运行时 ${runtimeId} 检测成功。`
-          : `运行时 ${runtimeId} 检测失败：${nextRuntime.testMessage ?? '未知错误'}`,
-        nextRuntime.testStatus === 'ok' ? 'success' : 'error',
-      )
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '运行时检测失败'
-      setRuntimeRecords((previous) =>
-        previous.map((runtime) =>
-          runtime.id === runtimeId ? { ...runtime, testStatus: 'error', testMessage: message } : runtime,
-        ),
-      )
-      pushNotice(`运行时检测失败：${message}`, 'error')
-    }
-  }, [pushNotice])
 
 
 
@@ -5086,8 +4820,8 @@ function App() {
       runtimeRecords={runtimeRecords}
       onRefresh={() => void refreshExtensions(true)}
       onSetEnabled={handleSetRuntimeEnabled}
-      onTest={handleTestRuntime}
-      onSetDefault={handleSetDefaultRuntime}
+      onTest={(runtime: any) => handleTestRuntime(runtime.id)}
+      onSetDefault={(runtime: any) => handleSetDefaultRuntime(runtime.id)}
       onDelete={requestDeleteRuntime}
     />
   )
