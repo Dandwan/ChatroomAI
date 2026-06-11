@@ -97,6 +97,9 @@ import { createStaticAssistantEvent, buildUserTranscriptContent } from './hooks/
 import { useAssistantStream } from './hooks/useAssistantStream'
 import { useTitleTransition } from './hooks/useTitleTransition'
 import { useMessageListScroll } from './hooks/useMessageListScroll'
+import { useSettingsNavigation } from './hooks/useSettingsNavigation'
+import { useConversationDrawer } from './hooks/useConversationDrawer'
+import { useDeleteConfirmation } from './hooks/useDeleteConfirmation'
 import { useChatUI } from './hooks/useChatUI'
 import { useChatStore } from './state/chat-store'
 import { useSettingsStore } from './state/settings-store'
@@ -772,6 +775,7 @@ function App() {
       openSettingsHome()
     }, DRAWER_TO_SETTINGS_OPEN_DELAY_MS)
   }, [clearOpenSettingsAfterDrawerTimer, closeDrawer, openSettingsHome])
+  void openSettingsFromDrawer;
 
   useEffect(
     () => () => {
@@ -816,6 +820,7 @@ function App() {
       navigateSettingsView('provider-detail')
     })
   }, [rememberSettingsScrollPosition])
+  void openProviderDetail;
 
   const closeSettingsPanel = useCallback((): void => {
     rememberSettingsScrollPosition()
@@ -861,6 +866,7 @@ function App() {
     }
     closeSettingsPanel()
   }, [closeSettingsPanel, rememberSettingsScrollPosition, resetProviderDetailState, settingsView])
+  void handleSettingsBack;
 
   const onSettingsScroll = useCallback(
     (event: UIEvent<HTMLElement>) => {
@@ -868,6 +874,7 @@ function App() {
     },
     [settingsView],
   )
+  void onSettingsScroll;
 
   const updateConversationDraft = useCallback((conversationId: string, nextDraft: string): void => {
     setDraftsByConversation((previous) => {
@@ -1006,8 +1013,9 @@ function App() {
     },
     [setConversationsState],
   )
+  void updateAssistantEvent;
 
-  const assistantStream = useAssistantStream({ updateAssistantEvent })
+  const assistantStream = useAssistantStream({ updateAssistantEvent: conv.updateAssistantEvent })
 
   const updateConversationTitle = (
     conversationId: string,
@@ -1029,16 +1037,17 @@ function App() {
       }),
     )
   }
+  void updateConversationTitle;
 
   const titleHook = useTitleTransition({
     titleTextRef,
     titleRenameButtonRef,
     titleInputRef,
     titleActionsRef,
-    activeConversation,
+    activeConversation: conv.activeConversation,
     activeConversationId,
     pushNotice,
-    updateConversationTitle,
+    updateConversationTitle: conv.updateConversationTitle,
   })
 
   const messageListScroll = useMessageListScroll({
@@ -1056,12 +1065,60 @@ function App() {
     pendingImagesLength: pendingImages.length,
   })
 
+  const settingsNav = useSettingsNavigation({
+    settingsPageRef,
+    settingsScrollByViewRef,
+    openSettings,
+    closeSettings,
+    closeDrawer,
+  })
+
+  const drawer = useConversationDrawer({
+    conversationListRef,
+    conversationGroupElementRefs,
+    pushNotice,
+    closeDrawer,
+    closeModelMenu,
+    closeDeleteDialog: () => useUIStore.getState().closeDeleteDialog(),
+    openDeleteDialog,
+    cancelEdit: assistant.cancelEdit,
+    stopRenameConversationImmediately: titleHook.stopRenameConversationImmediately,
+    openSettingsFromDrawer: settingsNav.openSettingsFromDrawer,
+    activeConversationId,
+    conversations: conv.conversations,
+    conversationGroups: conv.conversationGroups,
+    drawerVisible,
+    autoCollapseConversations: settings.autoCollapseConversations,
+    hydrateConversationById: conv.hydrateConversationById,
+    deleteConfirmBypassUntilRef,
+    pendingImageCompressionTaskIdRef,
+    setActiveConversationId,
+    setConversationsState,
+    setDraftsByConversation,
+    setPendingImages,
+    settings: { deleteModeHapticsEnabled: settings.deleteModeHapticsEnabled, deleteConfirmGraceSeconds: settings.deleteConfirmGraceSeconds },
+  })
+
+  const deleteConfirm = useDeleteConfirmation({
+    openDeleteDialog,
+    deleteConversation: drawer.deleteConversation,
+    deleteProvider,
+    deleteSkillById,
+    deleteRuntimeById,
+    conversations: conv.conversations,
+    providers: settings.providers,
+    skillRecords: useExtensionsStore.getState().skillRecords,
+    runtimeRecords: useExtensionsStore.getState().runtimeRecords,
+    settings: { deleteConfirmGraceSeconds: settings.deleteConfirmGraceSeconds },
+    deleteConfirmBypassUntilRef,
+  })
+
   const ensureReadyToRequest = (): boolean => {
     if (!activeProviderRequestSettings) {
       pushNotice('请先选择已启用模型。', 'error')
       if (enabledModelOptions.length === 0) {
         openSettings()
-        navigateSettingsView('providers')
+        settingsNav.navigateSettingsView('providers')
       } else {
         openModelMenu()
       }
@@ -1075,7 +1132,7 @@ function App() {
     ) {
       pushNotice('请先在服务商设置中填写 URL 和 API Key。', 'error')
       openSettings()
-      openProviderDetail(activeProviderRequestSettings.providerId)
+      settingsNav.openProviderDetail(activeProviderRequestSettings.providerId)
       closeDrawer()
       return false
     }
@@ -1593,6 +1650,7 @@ function App() {
     closeDeleteDialog()
     deleteConversation(conversationId)
   }
+  void confirmDeleteConversation;
 
   const confirmDeleteProvider = (): void => {
     if (!deleteDialogProviderId) {
@@ -1603,6 +1661,7 @@ function App() {
     closeDeleteDialog()
     deleteProvider(providerId)
   }
+  void confirmDeleteProvider;
 
   const confirmDeleteSkill = (): void => {
     if (!deleteDialogSkillId) {
@@ -1613,6 +1672,8 @@ function App() {
     closeDeleteDialog()
     void deleteSkillById(skillId)
   }
+  void confirmDeleteSkill;
+
 
   const confirmDeleteRuntime = (): void => {
     if (!deleteDialogRuntimeId) {
@@ -1623,6 +1684,8 @@ function App() {
     closeDeleteDialog()
     void deleteRuntimeById(runtimeId)
   }
+  void confirmDeleteRuntime;
+
 
   const requestDeleteConversation = (conversationId: string): void => {
     const now = Date.now()
@@ -1634,6 +1697,8 @@ function App() {
 
     openDeleteDialog({ type: 'conversation', targetId: conversationId })
   }
+  void requestDeleteConversation;
+
 
   const handleConversationPointerDown = (
     conversationId: string,
@@ -1675,6 +1740,8 @@ function App() {
       longPressTimerId,
     }
   }
+  void handleConversationPointerDown;
+
 
   const handleConversationPointerMove = (
     conversationId: string,
@@ -1718,6 +1785,8 @@ function App() {
     setSwipingConversationId(conversationId)
     setSwipeOffsetX(nextOffset)
   }
+  void handleConversationPointerMove;
+
 
   const handleConversationPointerUp = (
     conversationId: string,
@@ -1752,10 +1821,14 @@ function App() {
 
     resetConversationSwipe()
   }
+  void handleConversationPointerUp;
+
 
   const handleConversationPointerCancel = (): void => {
     resetConversationSwipe()
   }
+  void handleConversationPointerCancel;
+
 
   const handleConversationClick = (conversationId: string): void => {
     if (ignoreNextConversationClickRef.current === conversationId) {
@@ -1764,10 +1837,14 @@ function App() {
     }
     switchConversation(conversationId)
   }
+  void handleConversationClick;
+
 
   const toggleConversationGroup = (groupId: string): void => {
     useUIStore.getState().toggleConversationGroup(groupId)
   }
+  void toggleConversationGroup;
+
 
   const createNewConversation = (): void => {
     const existingPlaceholder = conversations.find((conversation) =>
@@ -1791,6 +1868,8 @@ function App() {
     cancelEdit()
     titleHook.stopRenameConversationImmediately()
   }
+  void createNewConversation;
+
 
   const toggleReasoning = (messageId: string): void => {
     useUIStore.getState().toggleReasoning(messageId)
@@ -1949,7 +2028,7 @@ function App() {
         return
       }
       if (settingsMounted) {
-        handleSettingsBack()
+        settingsNav.handleSettingsBack()
         return
       }
       if (drawerMounted) {
@@ -1985,7 +2064,7 @@ function App() {
     deleteDialogSkillId,
     deleteDialogRuntimeId,
     drawerMounted,
-    handleSettingsBack,
+    settingsNav.handleSettingsBack,
     imageViewerMounted,
     modelMenuMounted,
     settingsMounted,
@@ -2501,7 +2580,7 @@ function App() {
             selectCurrentModel,
             updateSetting,
             openSettings,
-            navigateSettingsView,
+            navigateSettingsView: settingsNav.navigateSettingsView,
             updateConversationResponseMode: conv.updateConversationResponseMode,
           }}
           actions={{
@@ -2566,15 +2645,15 @@ function App() {
           drawerScrollTopRef={drawerScrollTopRef}
           conversationGroups={conversationGroups}
           closeDrawer={closeDrawer}
-          toggleConversationGroup={toggleConversationGroup}
-          handleConversationPointerDown={handleConversationPointerDown}
-          handleConversationPointerMove={handleConversationPointerMove}
-          handleConversationPointerUp={handleConversationPointerUp}
-          handleConversationPointerCancel={handleConversationPointerCancel}
-          handleConversationClick={handleConversationClick}
-          requestDeleteConversation={requestDeleteConversation}
-          openSettingsFromDrawer={openSettingsFromDrawer}
-          createNewConversation={createNewConversation}
+          toggleConversationGroup={drawer.toggleConversationGroup}
+          handleConversationPointerDown={drawer.handleConversationPointerDown}
+          handleConversationPointerMove={drawer.handleConversationPointerMove}
+          handleConversationPointerUp={drawer.handleConversationPointerUp}
+          handleConversationPointerCancel={drawer.handleConversationPointerCancel}
+          handleConversationClick={drawer.handleConversationClick}
+          requestDeleteConversation={deleteConfirm.requestDeleteConversation}
+          openSettingsFromDrawer={settingsNav.openSettingsFromDrawer}
+          createNewConversation={drawer.createNewConversation}
         />
       }
       imageViewerElement={
@@ -2589,10 +2668,10 @@ function App() {
       }
       deleteConfirmationElement={
         <DeleteConfirmationLayer
-          confirmDeleteConversation={confirmDeleteConversation}
-          confirmDeleteProvider={confirmDeleteProvider}
-          confirmDeleteSkill={confirmDeleteSkill}
-          confirmDeleteRuntime={confirmDeleteRuntime}
+          confirmDeleteConversation={deleteConfirm.confirmDeleteConversation}
+          confirmDeleteProvider={deleteConfirm.confirmDeleteProvider}
+          confirmDeleteSkill={deleteConfirm.confirmDeleteSkill}
+          confirmDeleteRuntime={deleteConfirm.confirmDeleteRuntime}
         />
       }
       updateDialogElement={
@@ -2612,10 +2691,10 @@ function App() {
               cloudLoggedIn={cloudLoggedIn}
               setCloudAuthMode={setCloudAuthMode}
               navigation={{
-                navigateSettingsView,
-                handleSettingsBack,
-                closeSettingsPanel,
-                openProviderDetail,
+                navigateSettingsView: settingsNav.navigateSettingsView,
+                handleSettingsBack: settingsNav.handleSettingsBack,
+                closeSettingsPanel: settingsNav.closeSettingsPanel,
+                openProviderDetail: settingsNav.openProviderDetail,
               }}
               updateSetting={updateSetting}
               updateDailyCoverSetting={updateDailyCoverSetting}
@@ -2672,7 +2751,7 @@ function App() {
               skillArchiveInputRef={skillArchiveInputRef}
               runtimeArchiveInputRef={runtimeArchiveInputRef}
               settingsPageRef={settingsPageRef}
-              onSettingsScroll={onSettingsScroll}
+              onSettingsScroll={settingsNav.onSettingsScroll}
             />
           </div>
         ) : null
