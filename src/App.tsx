@@ -15,17 +15,10 @@ import {
 } from 'react'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
-import { Geolocation } from '@capacitor/geolocation'
-import { Haptics, ImpactStyle } from '@capacitor/haptics'
-// ReactMarkdown, rehypeKatex, remarkGfm, remarkMath moved to src/components/MarkdownMessage.tsx
 import type { ApiMessage } from './services/chat-api'
 import {
-  createConversationFromTranscript,
   isTranscriptConversationWorkspacePlaceholder,
-  normalizeConversationResponseMode,
   projectConversationMessages,
-  withConversationResponseMode,
-  withConversationTranscript,
   type AssistantMessageTranscriptEvent,
   type TranscriptEvent,
 } from './services/chat-transcript'
@@ -40,20 +33,8 @@ import {
 } from './services/skills/host'
 import { isNativeRuntimeAvailable } from './services/skills/native-runtime'
 import {
-  DEFAULT_EDIT_SYSTEM_PROMPT,
-  DEFAULT_GENERAL_TAG_SYSTEM_PROMPT,
-  DEFAULT_READ_SYSTEM_PROMPT,
-  DEFAULT_RUN_SYSTEM_PROMPT,
-  DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT,
-  migrateLegacyTagSystemPrompts,
-  migratePromptVersions,
-} from './services/skills/default-system-prompts'
-import {
-  DEFAULT_INFO_PROMPT_SETTINGS,
   INFO_PROMPT_DEFINITIONS,
-  normalizeInfoPromptOverride,
   type InfoPromptDefinition,
-  type InfoPromptSettingKey,
 } from './services/skills/info-system-prompts'
 import {
   deleteRuntime,
@@ -78,9 +59,11 @@ import ChatHeader from './components/ChatHeader'
 import ImageViewer from './components/ImageViewer'
 import NewConversationShowcase from './components/NewConversationShowcase'
 import CloudAuthForm from './components/CloudAuthForm'
-import { isCloudLoggedIn, getStoredCloudAuth, clearCloudAuth, getCloudServerUrl } from './services/cloud-auth'
+import { isCloudLoggedIn, getStoredCloudAuth, clearCloudAuth } from './services/cloud-auth'
+import type { UpdateInfo } from './services/app-update'
 import { useCloudAuth } from './hooks/useCloudAuth'
-import { checkForUpdate, type UpdateInfo } from './services/app-update'
+import { useUpdates } from './hooks/useUpdates'
+import { usePermissions } from './hooks/usePermissions'
 import UpdateDialog from './components/UpdateDialog'
 import ThinkingPhrase from './components/ThinkingPhrase'
 import { getEffectiveActiNetModels } from './services/actinet-models'
@@ -101,7 +84,6 @@ import SettingsScreen from './components/SettingsScreen'
 import SettingsPopoverSelect from './components/SettingsPopoverSelect'
 import { type JsonObjectValue } from './components/SkillConfigJsonEditor'
 import {
-  DEFAULT_DAILY_COVER_SETTINGS,
   getLocalDateKey,
   resolveBundledDailyCover,
   resolveDailyCover,
@@ -124,7 +106,6 @@ import {
   type AssistantFlowSkillNode,
 } from './utils/assistant-flow'
 import {
-  buildConversationSummary,
   buildHistoryStatsFromSummaries,
   deleteConversationStorage,
   getChatStatePersistenceSignature,
@@ -132,57 +113,37 @@ import {
   loadConversationState,
   loadStoredAttachmentDataUrl,
   persistChatState,
-  type ChatStoragePersistState,
 } from './services/chat-storage'
 import { createProviderModelKey, modelHealthLabel } from './utils/model-utils'
 import { stripSkillParsingHintLines } from './utils/text-utils'
 import { formatMs } from './utils/time-utils'
 import type {
-  ActiveProviderRequestSettings,
   AppSettings,
-  ChatStorageConversationSummary,
   ChatSummarySnapshot,
   CompletionResult,
   Conversation,
   ConversationDrafts,
-  ConversationData,
   ConversationGroup,
   ConversationResponseMode,
-  DeleteDialogState,
-  EnabledModelOption,
   GlobalPromptSettingKey,
-  ImageAttachment,
   LoadedChatState,
   MessageListScrollMetrics,
   ModelHealth,
   Notice,
-  NumericSettingDrafts,
   NumericSettingKey,
   PendingTitleTransition,
   PromptEditorKey,
   ProviderBooleanSettingKey,
   ProviderConfig,
-  ProviderModel,
-  ProviderNumericSettingDrafts,
   ProviderNumericSettingKey,
   ProviderPromptSettingKey,
-  RectSnapshot,
   SettingsView,
   TagPromptEditorKey,
-  TagPromptSettingKey,
-  ThemeMode,
   TitleTransitionState,
   TurnExecutionJob,
 } from './state/types'
 import {
   CHAT_STATE_PERSIST_DEBOUNCE_MS,
-  DEFAULT_DELETE_CONFIRM_GRACE_SECONDS,
-  DEFAULT_CONVERSATION_GROUP_GAP_MINUTES,
-  DEFAULT_AUTO_COLLAPSE_CONVERSATIONS,
-  DEFAULT_CHAT_BLUR_PX,
-  DEFAULT_EMPTY_STATE_STATS_MIN_CONVERSATIONS,
-  DEFAULT_RESPONSE_MODE,
-  EMPTY_HISTORY_STATS,
   HOMEPAGE_SEND_TRANSITION_DURATION_MS,
   PERMISSION_LABELS,
   SETTINGS_STORAGE_KEY,
@@ -194,11 +155,11 @@ import {
   SETTINGS_PERSIST_DEBOUNCE_MS,
   THEME_MODE_OPTIONS,
   type AppPermissionKey,
-  type PermissionToggles,
 } from './state/types'
 import { useUIStore } from './state/ui-store'
 import { useExtensionsStore } from './state/extensions-store'
 import { useAssistant } from './hooks/useAssistant'
+import { useChatUI } from './hooks/useChatUI'
 import { useChatStore } from './state/chat-store'
 import { useSettingsStore } from './state/settings-store'
 import './App.css'
@@ -207,8 +168,6 @@ import './styles/app-editorial-redesign.css'
 import {
   buildMessageImageViewerKey,
   buildPendingImageViewerKey,
-  toImageViewerItem,
-  collectConversationImageViewerItems,
   applyAssignedImageStorageKeys,
 } from './utils/app-images'
 
@@ -221,1068 +180,56 @@ import {
 import {
   numberFormatter,
   createId,
-  isRecord,
   isJsonObjectRecord,
   formatJsonObject,
   parseSkillConfigDraft,
-  toFiniteNumber,
   clamp,
   formatCompactCount,
   getResponseModeLabel,
   buildHomepageModelTriggerLabel,
 } from './utils/app-formatting'
 
-const MAX_EMPTY_STATE_STATS_MIN_CONVERSATIONS = 9999
-const TITLE_EDIT_TRANSITION_MS = 220
-const TITLE_EDIT_TRANSITION_TRAVEL_FACTOR = 0.18
-const TITLE_EDIT_TRANSITION_TRAVEL_MIN_PX = 12
-const TITLE_EDIT_TRANSITION_TRAVEL_MAX_PX = 26
-const MESSAGE_LIST_BOTTOM_THRESHOLD_PX = 28
-const MESSAGE_LIST_INTERACTION_IDLE_MS = 140
-const MESSAGE_LIST_SCROLL_BUTTON_DISTANCE_FACTOR = 1
-const MESSAGE_LIST_AUTO_SCROLL_MAX_MS = 96
-const MESSAGE_LIST_SMOOTH_SCROLL_MAX_SPEED_PX_PER_MS = 13.2
-const MESSAGE_LIST_SMOOTH_SCROLL_EASE_DISTANCE_FACTOR = 2.1
-const MESSAGE_LIST_SMOOTH_SCROLL_ACCELERATION_BOOST_START = 0.44
-const MESSAGE_LIST_SMOOTH_SCROLL_ACCELERATION_BOOST_FACTOR = 0.4
-const MESSAGE_LIST_SMOOTH_SCROLL_MIN_STEP_PX = 10
-
-
-const hasConversationStarted = (
-  conversation: Pick<Conversation, 'transcript'>,
-): boolean => conversation.transcript.some((event) => event.kind === 'user_message')
-
-const resolveConversationResponseMode = (
-  conversation: Pick<Conversation, 'preferences'> | null,
-  defaultResponseMode: ConversationResponseMode,
-): ConversationResponseMode =>
-  normalizeConversationResponseMode(conversation?.preferences?.responseMode) ?? defaultResponseMode
-
-const easeOutCubic = (value: number): number => 1 - (1 - value) ** 3
-
-const applyMessageListSmoothScrollAccelerationBoost = (normalizedDistance: number): number => {
-  if (normalizedDistance <= MESSAGE_LIST_SMOOTH_SCROLL_ACCELERATION_BOOST_START) {
-    return normalizedDistance
-  }
-
-  const boostProgress =
-    (normalizedDistance - MESSAGE_LIST_SMOOTH_SCROLL_ACCELERATION_BOOST_START) /
-    (1 - MESSAGE_LIST_SMOOTH_SCROLL_ACCELERATION_BOOST_START)
-
-  return Math.min(
-    1,
-    normalizedDistance +
-      (1 - normalizedDistance) *
-        boostProgress *
-        MESSAGE_LIST_SMOOTH_SCROLL_ACCELERATION_BOOST_FACTOR,
-  )
-}
-
-const resolveMessageListSmoothScrollStep = ({
-  remainingDistance,
-  deltaMs,
-  viewportHeight,
-}: {
-  remainingDistance: number
-  deltaMs: number
-  viewportHeight: number
-}): number => {
-  const maxStep = MESSAGE_LIST_SMOOTH_SCROLL_MAX_SPEED_PX_PER_MS * deltaMs
-  const easeDistance = Math.max(
-    viewportHeight * MESSAGE_LIST_SMOOTH_SCROLL_EASE_DISTANCE_FACTOR,
-    MESSAGE_LIST_SMOOTH_SCROLL_MIN_STEP_PX,
-  )
-  const normalizedDistance = Math.min(1, remainingDistance / easeDistance)
-  const acceleratedDistance = applyMessageListSmoothScrollAccelerationBoost(normalizedDistance)
-  const easedStep = maxStep * easeOutCubic(acceleratedDistance)
-
-  return Math.min(
-    remainingDistance,
-    Math.max(MESSAGE_LIST_SMOOTH_SCROLL_MIN_STEP_PX, easedStep),
-  )
-}
-
-
-const DEFAULT_PERMISSION_TOGGLES: PermissionToggles = {
-  location: false,
-  camera: false,
-  microphone: false,
-  notifications: false,
-}
-
-const DEFAULT_SETTINGS: AppSettings = {
-  systemPrompt: `
-1. 使用 LaTeX 输出数学公式。
-2. 以真实可靠的信息回答问题：
-   - 对于需要最新信息或超出训练数据的问题，主动搜索验证，不依赖可能过时的训练数据作答。
-   - 搜索到的信息来源不够可靠时，反复搜索验证（最多 2-3 次），仍不可靠则放弃寻找并如实说明情况。
-   - 通过猜测和推测得到的信息，需明确标注为「推测」或「猜测」。
-  `.trim(),
-  topLevelTagSystemPrompt: DEFAULT_TOP_LEVEL_TAG_SYSTEM_PROMPT,
-  generalTagSystemPrompt: DEFAULT_GENERAL_TAG_SYSTEM_PROMPT,
-  readSystemPrompt: DEFAULT_READ_SYSTEM_PROMPT,
-  skillCallSystemPrompt: DEFAULT_RUN_SYSTEM_PROMPT,
-  editSystemPrompt: DEFAULT_EDIT_SYSTEM_PROMPT,
-  ...DEFAULT_INFO_PROMPT_SETTINGS,
-  deprecatedTagPrompts: '',
-  promptVersions: {},
-  themeMode: 'system',
-  defaultResponseMode: DEFAULT_RESPONSE_MODE,
-  temperature: 0.7,
-  topP: 1,
-  maxTokens: 8192,
-  presencePenalty: 0,
-  frequencyPenalty: 0,
-  showReasoning: true,
-  deleteModeHapticsEnabled: true,
-  firstTokenHapticsEnabled: true,
-  providers: [],
-  currentProviderId: '',
-  currentModel: '',
-  deleteConfirmGraceSeconds: DEFAULT_DELETE_CONFIRM_GRACE_SECONDS,
-  conversationGroupGapMinutes: DEFAULT_CONVERSATION_GROUP_GAP_MINUTES,
-  chatBlurPx: DEFAULT_CHAT_BLUR_PX,
-  autoCollapseConversations: DEFAULT_AUTO_COLLAPSE_CONVERSATIONS,
-  emptyStateStatsMinConversations: DEFAULT_EMPTY_STATE_STATS_MIN_CONVERSATIONS,
-  maxModelRetryCount: 3,
-  permissionToggles: DEFAULT_PERMISSION_TOGGLES,
-  dailyCover: DEFAULT_DAILY_COVER_SETTINGS,
-  actiNetModels: [],
-  otherProvidersEnabled: false,
-  actiNetAdvancedModelsEnabled: false,
-}
-
-const PROMPT_DEFAULTS: Record<GlobalPromptSettingKey, string> = {
-  systemPrompt: DEFAULT_SETTINGS.systemPrompt,
-  topLevelTagSystemPrompt: DEFAULT_SETTINGS.topLevelTagSystemPrompt,
-  generalTagSystemPrompt: DEFAULT_SETTINGS.generalTagSystemPrompt,
-  readSystemPrompt: DEFAULT_SETTINGS.readSystemPrompt,
-  skillCallSystemPrompt: DEFAULT_SETTINGS.skillCallSystemPrompt,
-  editSystemPrompt: DEFAULT_SETTINGS.editSystemPrompt,
-}
-
-const createDefaultSettings = (): AppSettings => ({
-  ...DEFAULT_SETTINGS,
-  providers: [],
-  permissionToggles: { ...DEFAULT_PERMISSION_TOGGLES },
-  dailyCover: { ...DEFAULT_DAILY_COVER_SETTINGS },
-})
-
-interface DeprecatedPromptBlock {
-  id: string
-  title: string
-  content: string
-}
-
-const LEGACY_GLOBAL_TAG_PROMPT_BLOCK_ID = 'legacy-global-tag-system-prompt'
-const LEGACY_GLOBAL_TAG_PROMPT_BLOCK_TITLE = '旧版全局标签提示词'
-
-const buildDeprecatedPromptBlockText = ({ id, title, content }: DeprecatedPromptBlock): string =>
-  [
-    `===== ${title} | ${id} =====`,
-    content.trim(),
-    `===== END ${id} =====`,
-  ].join('\n')
-
-const upsertDeprecatedPromptBlock = (raw: string, block: DeprecatedPromptBlock): string => {
-  const normalizedContent = block.content.trim()
-  if (!normalizedContent) {
-    return raw
-  }
-
-  const normalizedRaw = raw.trim()
-  const startMarker = `===== ${block.title} | ${block.id} =====`
-  const endMarker = `===== END ${block.id} =====`
-  if (normalizedRaw.includes(startMarker) || normalizedRaw.includes(endMarker)) {
-    return raw
-  }
-
-  const nextBlock = buildDeprecatedPromptBlockText({
-    ...block,
-    content: normalizedContent,
-  })
-  return normalizedRaw ? `${normalizedRaw}\n\n${nextBlock}` : nextBlock
-}
-
-const NUMERIC_SETTING_DEFAULTS: Record<NumericSettingKey, number> = {
-  temperature: DEFAULT_SETTINGS.temperature,
-  topP: DEFAULT_SETTINGS.topP,
-  maxTokens: DEFAULT_SETTINGS.maxTokens,
-  presencePenalty: DEFAULT_SETTINGS.presencePenalty,
-  frequencyPenalty: DEFAULT_SETTINGS.frequencyPenalty,
-  deleteConfirmGraceSeconds: DEFAULT_SETTINGS.deleteConfirmGraceSeconds,
-  conversationGroupGapMinutes: DEFAULT_SETTINGS.conversationGroupGapMinutes,
-  chatBlurPx: DEFAULT_SETTINGS.chatBlurPx,
-  emptyStateStatsMinConversations: DEFAULT_SETTINGS.emptyStateStatsMinConversations,
-  maxModelRetryCount: DEFAULT_SETTINGS.maxModelRetryCount,
-}
-
-const PROVIDER_NUMERIC_LIMITS: Record<
-  ProviderNumericSettingKey,
-  { minimum: number; maximum: number; integer?: boolean }
-> = {
-  temperature: { minimum: 0, maximum: 2 },
-  topP: { minimum: 0, maximum: 1 },
-  maxTokens: { minimum: 1, maximum: 8192, integer: true },
-  presencePenalty: { minimum: -2, maximum: 2 },
-  frequencyPenalty: { minimum: -2, maximum: 2 },
-  maxModelRetryCount: { minimum: 0, maximum: 10, integer: true },
-}
-
-const normalizeNumericSettingDraft = (key: NumericSettingKey, value: number): string =>
-  value === NUMERIC_SETTING_DEFAULTS[key] ? '' : String(value)
-
-const createNumericSettingDrafts = (settings: AppSettings): NumericSettingDrafts => ({
-  temperature: normalizeNumericSettingDraft('temperature', settings.temperature),
-  topP: normalizeNumericSettingDraft('topP', settings.topP),
-  maxTokens: normalizeNumericSettingDraft('maxTokens', settings.maxTokens),
-  presencePenalty: normalizeNumericSettingDraft('presencePenalty', settings.presencePenalty),
-  frequencyPenalty: normalizeNumericSettingDraft('frequencyPenalty', settings.frequencyPenalty),
-  deleteConfirmGraceSeconds: normalizeNumericSettingDraft(
-    'deleteConfirmGraceSeconds',
-    settings.deleteConfirmGraceSeconds,
-  ),
-  conversationGroupGapMinutes: normalizeNumericSettingDraft(
-    'conversationGroupGapMinutes',
-    settings.conversationGroupGapMinutes,
-  ),
-  chatBlurPx: normalizeNumericSettingDraft('chatBlurPx', settings.chatBlurPx),
-  emptyStateStatsMinConversations: normalizeNumericSettingDraft(
-    'emptyStateStatsMinConversations',
-    settings.emptyStateStatsMinConversations,
-  ),
-  maxModelRetryCount: normalizeNumericSettingDraft(
-    'maxModelRetryCount',
-    settings.maxModelRetryCount,
-  ),
-})
-
-const createProviderNumericSettingDrafts = (
-  provider?: ProviderConfig | null,
-): ProviderNumericSettingDrafts => ({
-  temperature: provider?.temperature === undefined ? '' : String(provider.temperature),
-  topP: provider?.topP === undefined ? '' : String(provider.topP),
-  maxTokens: provider?.maxTokens === undefined ? '' : String(provider.maxTokens),
-  presencePenalty: provider?.presencePenalty === undefined ? '' : String(provider.presencePenalty),
-  frequencyPenalty: provider?.frequencyPenalty === undefined ? '' : String(provider.frequencyPenalty),
-  maxModelRetryCount:
-    provider?.maxModelRetryCount === undefined ? '' : String(provider.maxModelRetryCount),
-})
-
-
-const createProviderNameCandidate = (providers: ProviderConfig[]): string => {
-  const usedNames = new Set(providers.map((provider) => provider.name.trim()).filter(Boolean))
-  let index = 1
-  while (true) {
-    const candidate = `服务商 ${index}`
-    if (!usedNames.has(candidate)) {
-      return candidate
-    }
-    index += 1
-  }
-}
-
-const createProviderConfig = (name = '服务商'): ProviderConfig => ({
-  id: createId(),
-  name,
-  apiBaseUrl: '',
-  apiKey: '',
-  models: [],
-})
-
-const normalizeProviderPromptOverride = (value: unknown): string | undefined => {
-  if (typeof value !== 'string') {
-    return undefined
-  }
-  return value.trim().length > 0 ? value : undefined
-}
-
-const normalizeProviderNumericOverride = (
-  key: ProviderNumericSettingKey,
-  value: unknown,
-): number | undefined => {
-  const parsed = toFiniteNumber(value)
-  if (parsed === undefined) {
-    return undefined
-  }
-
-  const limits = PROVIDER_NUMERIC_LIMITS[key]
-  const clamped = clamp(parsed, limits.minimum, limits.maximum)
-  return limits.integer ? Math.round(clamped) : clamped
-}
-
-const normalizeProviderModel = (value: unknown): ProviderModel | undefined => {
-  if (typeof value === 'string') {
-    const id = value.trim()
-    return id ? { id, enabled: false } : undefined
-  }
-
-  if (!isRecord(value) || typeof value.id !== 'string') {
-    return undefined
-  }
-
-  const id = value.id.trim()
-  if (!id) {
-    return undefined
-  }
-
-  return {
-    id,
-    enabled: value.enabled === true,
-  }
-}
-
-const normalizeThemeMode = (value: unknown): ThemeMode => {
-  if (value === 'dark' || value === 'system' || value === 'light') {
-    return value
-  }
-  return DEFAULT_SETTINGS.themeMode
-}
-
-// ThemeToggle extracted to src/components/ThemeToggle.tsx
-
-const normalizeProviderModels = (value: unknown): ProviderModel[] => {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  const models: ProviderModel[] = []
-  const seen = new Set<string>()
-  for (const item of value) {
-    const normalized = normalizeProviderModel(item)
-    if (!normalized || seen.has(normalized.id)) {
-      continue
-    }
-    seen.add(normalized.id)
-    models.push(normalized)
-  }
-  return models
-}
-
-const normalizeDailyCoverSettings = (value: unknown): DailyCoverSettings => {
-  if (!isRecord(value)) {
-    return { ...DEFAULT_DAILY_COVER_SETTINGS }
-  }
-
-  return {
-    enabled:
-      typeof value.enabled === 'boolean' ? value.enabled : DEFAULT_DAILY_COVER_SETTINGS.enabled,
-    useApi:
-      typeof value.useApi === 'boolean' ? value.useApi : DEFAULT_DAILY_COVER_SETTINGS.useApi,
-    apiEndpoint:
-      typeof value.apiEndpoint === 'string'
-        ? value.apiEndpoint
-        : DEFAULT_DAILY_COVER_SETTINGS.apiEndpoint,
-    apiMethod:
-      value.apiMethod === 'POST' ? 'POST' : DEFAULT_DAILY_COVER_SETTINGS.apiMethod,
-    apiAuthHeader:
-      typeof value.apiAuthHeader === 'string'
-        ? value.apiAuthHeader
-        : DEFAULT_DAILY_COVER_SETTINGS.apiAuthHeader,
-    apiImagePath:
-      typeof value.apiImagePath === 'string'
-        ? value.apiImagePath
-        : DEFAULT_DAILY_COVER_SETTINGS.apiImagePath,
-    apiTitlePath:
-      typeof value.apiTitlePath === 'string'
-        ? value.apiTitlePath
-        : DEFAULT_DAILY_COVER_SETTINGS.apiTitlePath,
-    apiCreditPath:
-      typeof value.apiCreditPath === 'string'
-        ? value.apiCreditPath
-        : DEFAULT_DAILY_COVER_SETTINGS.apiCreditPath,
-    apiLinkPath:
-      typeof value.apiLinkPath === 'string'
-        ? value.apiLinkPath
-        : DEFAULT_DAILY_COVER_SETTINGS.apiLinkPath,
-  }
-}
-
-const resolveProviderTagPromptOverrides = (
-  value: Record<string, unknown>,
-  migrateLegacyPrompts: boolean,
-): Pick<ProviderConfig, TagPromptSettingKey> => {
-  const hasAnyTagPromptOverride =
-    typeof value.topLevelTagSystemPrompt === 'string' ||
-    typeof value.generalTagSystemPrompt === 'string' ||
-    typeof value.readSystemPrompt === 'string' ||
-    typeof value.skillCallSystemPrompt === 'string' ||
-    typeof value.editSystemPrompt === 'string'
-
-  if (!hasAnyTagPromptOverride) {
-    return {
-      topLevelTagSystemPrompt: undefined,
-      generalTagSystemPrompt: undefined,
-      readSystemPrompt: undefined,
-      skillCallSystemPrompt: undefined,
-      editSystemPrompt: undefined,
-    }
-  }
-
-  if (!migrateLegacyPrompts) {
-    return {
-      topLevelTagSystemPrompt: normalizeProviderPromptOverride(value.topLevelTagSystemPrompt),
-      generalTagSystemPrompt: normalizeProviderPromptOverride(value.generalTagSystemPrompt),
-      readSystemPrompt: normalizeProviderPromptOverride(value.readSystemPrompt),
-      skillCallSystemPrompt: normalizeProviderPromptOverride(value.skillCallSystemPrompt),
-      editSystemPrompt: normalizeProviderPromptOverride(value.editSystemPrompt),
-    }
-  }
-
-  const migrated = migrateLegacyTagSystemPrompts(value)
-  return {
-    topLevelTagSystemPrompt: normalizeProviderPromptOverride(value.topLevelTagSystemPrompt),
-    generalTagSystemPrompt: normalizeProviderPromptOverride(migrated.generalTagSystemPrompt),
-    readSystemPrompt: normalizeProviderPromptOverride(migrated.readSystemPrompt),
-    skillCallSystemPrompt: normalizeProviderPromptOverride(migrated.skillCallSystemPrompt),
-    editSystemPrompt: normalizeProviderPromptOverride(migrated.editSystemPrompt),
-  }
-}
-
-const resolveProviderInfoPromptOverrides = (
-  value: Record<string, unknown>,
-): Pick<ProviderConfig, InfoPromptSettingKey> => ({
-  deviceInfoPromptEnabled: normalizeInfoPromptOverride(value.deviceInfoPromptEnabled),
-  workspaceInfoPromptEnabled: normalizeInfoPromptOverride(value.workspaceInfoPromptEnabled),
-})
-
-const normalizeProviderConfig = (
-  value: unknown,
-  migrateLegacyPrompts = false,
-): ProviderConfig | undefined => {
-  if (!isRecord(value)) {
-    return undefined
-  }
-
-  const id = typeof value.id === 'string' && value.id.trim() ? value.id.trim() : createId()
-  const name = typeof value.name === 'string' && value.name.trim() ? value.name.trim() : '未命名服务商'
-  const tagPromptOverrides = resolveProviderTagPromptOverrides(value, migrateLegacyPrompts)
-  const infoPromptOverrides = resolveProviderInfoPromptOverrides(value)
-
-  return {
-    id,
-    name,
-    apiBaseUrl: typeof value.apiBaseUrl === 'string' ? value.apiBaseUrl : '',
-    apiKey: typeof value.apiKey === 'string' ? value.apiKey : '',
-    models: normalizeProviderModels(value.models),
-    systemPrompt: normalizeProviderPromptOverride(value.systemPrompt),
-    topLevelTagSystemPrompt: tagPromptOverrides.topLevelTagSystemPrompt,
-    generalTagSystemPrompt: tagPromptOverrides.generalTagSystemPrompt,
-    readSystemPrompt: tagPromptOverrides.readSystemPrompt,
-    skillCallSystemPrompt: tagPromptOverrides.skillCallSystemPrompt,
-    editSystemPrompt: tagPromptOverrides.editSystemPrompt,
-    deviceInfoPromptEnabled: infoPromptOverrides.deviceInfoPromptEnabled,
-    workspaceInfoPromptEnabled: infoPromptOverrides.workspaceInfoPromptEnabled,
-    temperature: normalizeProviderNumericOverride('temperature', value.temperature),
-    topP: normalizeProviderNumericOverride('topP', value.topP),
-    maxTokens: normalizeProviderNumericOverride('maxTokens', value.maxTokens),
-    presencePenalty: normalizeProviderNumericOverride('presencePenalty', value.presencePenalty),
-    frequencyPenalty: normalizeProviderNumericOverride('frequencyPenalty', value.frequencyPenalty),
-    maxModelRetryCount: normalizeProviderNumericOverride(
-      'maxModelRetryCount',
-      value.maxModelRetryCount,
-    ),
-  }
-}
-
-const ACTINET_PROVIDER_ID = '__actinet__'
-const ACTINET_PROVIDER_NAME = 'ActiNet'
-
-const getEnabledModelOptions = (
-  providers: ProviderConfig[],
-  isActiNetLoggedIn: boolean,
-  otherProvidersEnabled: boolean,
-): EnabledModelOption[] => {
-  const providerOptions = otherProvidersEnabled
-    ? providers.flatMap((provider) =>
-        provider.models
-          .filter((model) => model.enabled)
-          .map((model) => ({
-            providerId: provider.id,
-            providerName: provider.name,
-            modelId: model.id,
-          })),
-      )
-    : []
-
-  if (isActiNetLoggedIn) {
-    const activeModels = getEffectiveActiNetModels()
-    const actiNetOptions = activeModels
-      .filter((model) => model.enabled)
-      .map((model) => ({
-        providerId: ACTINET_PROVIDER_ID,
-        providerName: ACTINET_PROVIDER_NAME,
-        modelId: model.id,
-      }))
-    return [...providerOptions, ...actiNetOptions]
-  }
-
-  return providerOptions
-}
-
-const ensureValidCurrentModelSelection = (settings: AppSettings): AppSettings => {
-  // Check ActiNet selection first
-  if (settings.currentProviderId === ACTINET_PROVIDER_ID) {
-    const effective = getEffectiveActiNetModels()
-    const hasActiNetSelection = effective.some(
-      (model) => model.id === settings.currentModel && model.enabled,
-    )
-    if (hasActiNetSelection) return settings
-  } else if (settings.otherProvidersEnabled) {
-    const hasCurrentSelection = settings.providers.some(
-      (provider) =>
-        provider.id === settings.currentProviderId &&
-        provider.models.some((model) => model.id === settings.currentModel && model.enabled),
-    )
-    if (hasCurrentSelection) return settings
-  }
-
-  const fallback = getEnabledModelOptions(settings.providers, isCloudLoggedIn(), settings.otherProvidersEnabled)[0]
-  return {
-    ...settings,
-    currentProviderId: fallback?.providerId ?? '',
-    currentModel: fallback?.modelId ?? '',
-  }
-}
-
-const resolveProviderRequestSettings = (settings: AppSettings): ActiveProviderRequestSettings | null => {
-  // Handle ActiNet virtual provider
-  if (settings.currentProviderId === ACTINET_PROVIDER_ID) {
-    const cloudAuth = getStoredCloudAuth()
-    if (!cloudAuth || !cloudAuth.apiKey) return null
-
-    const effective = getEffectiveActiNetModels()
-    const model = effective.find((m) => m.id === settings.currentModel && m.enabled)
-    if (!model) return null
-
-    return {
-      providerId: ACTINET_PROVIDER_ID,
-      providerName: ACTINET_PROVIDER_NAME,
-      apiBaseUrl: getCloudServerUrl(),
-      apiKey: cloudAuth.apiKey,
-      currentModel: model.id,
-      systemPrompt: settings.systemPrompt,
-      topLevelTagSystemPrompt: settings.topLevelTagSystemPrompt,
-      generalTagSystemPrompt: settings.generalTagSystemPrompt,
-      readSystemPrompt: settings.readSystemPrompt,
-      skillCallSystemPrompt: settings.skillCallSystemPrompt,
-      editSystemPrompt: settings.editSystemPrompt,
-      deviceInfoPromptEnabled: settings.deviceInfoPromptEnabled,
-      workspaceInfoPromptEnabled: settings.workspaceInfoPromptEnabled,
-      temperature: settings.temperature,
-      topP: settings.topP,
-      maxTokens: settings.maxTokens,
-      presencePenalty: settings.presencePenalty,
-      frequencyPenalty: settings.frequencyPenalty,
-      maxModelRetryCount: settings.maxModelRetryCount,
-    }
-  }
-
-  const provider = settings.providers.find((item) => item.id === settings.currentProviderId)
-  if (!provider) {
-    return null
-  }
-
-  const model = provider.models.find((item) => item.id === settings.currentModel && item.enabled)
-  if (!model) {
-    return null
-  }
-
-  return {
-    providerId: provider.id,
-    providerName: provider.name,
-    apiBaseUrl: provider.apiBaseUrl,
-    apiKey: provider.apiKey,
-    currentModel: model.id,
-    systemPrompt: provider.systemPrompt ?? settings.systemPrompt,
-    topLevelTagSystemPrompt: provider.topLevelTagSystemPrompt ?? settings.topLevelTagSystemPrompt,
-    generalTagSystemPrompt: provider.generalTagSystemPrompt ?? settings.generalTagSystemPrompt,
-    readSystemPrompt: provider.readSystemPrompt ?? settings.readSystemPrompt,
-    skillCallSystemPrompt: provider.skillCallSystemPrompt ?? settings.skillCallSystemPrompt,
-    editSystemPrompt: provider.editSystemPrompt ?? settings.editSystemPrompt,
-    deviceInfoPromptEnabled: provider.deviceInfoPromptEnabled ?? settings.deviceInfoPromptEnabled,
-    workspaceInfoPromptEnabled:
-      provider.workspaceInfoPromptEnabled ?? settings.workspaceInfoPromptEnabled,
-    temperature: provider.temperature ?? settings.temperature,
-    topP: provider.topP ?? settings.topP,
-    maxTokens: provider.maxTokens ?? settings.maxTokens,
-    presencePenalty: provider.presencePenalty ?? settings.presencePenalty,
-    frequencyPenalty: provider.frequencyPenalty ?? settings.frequencyPenalty,
-    maxModelRetryCount: provider.maxModelRetryCount ?? settings.maxModelRetryCount,
-  }
-}
-
-
-const snapshotRect = (element: Element | null): RectSnapshot | null => {
-  if (!element) {
-    return null
-  }
-
-  const { left, top, width, height } = element.getBoundingClientRect()
-  return { left, top, width, height }
-}
-
-const shiftRect = (rect: RectSnapshot, x: number, y: number): RectSnapshot => ({
-  left: rect.left + x,
-  top: rect.top + y,
-  width: rect.width,
-  height: rect.height,
-})
-
-const getTravelOffset = (
-  fromRect: RectSnapshot,
-  toRect: RectSnapshot,
-): { x: number; y: number } => {
-  const fromCenterX = fromRect.left + fromRect.width / 2
-  const fromCenterY = fromRect.top + fromRect.height / 2
-  const toCenterX = toRect.left + toRect.width / 2
-  const toCenterY = toRect.top + toRect.height / 2
-  const deltaX = toCenterX - fromCenterX
-  const deltaY = toCenterY - fromCenterY
-  const distance = Math.hypot(deltaX, deltaY)
-
-  if (distance < 0.001) {
-    return { x: 0, y: 0 }
-  }
-
-  const travel = clamp(
-    distance * TITLE_EDIT_TRANSITION_TRAVEL_FACTOR,
-    TITLE_EDIT_TRANSITION_TRAVEL_MIN_PX,
-    TITLE_EDIT_TRANSITION_TRAVEL_MAX_PX,
-  )
-
-  return {
-    x: (deltaX / distance) * travel,
-    y: (deltaY / distance) * travel,
-  }
-}
-
-const extractThinkBlocks = (text: string): { cleanedText: string; reasoning: string } => {
-  const reasoningChunks: string[] = []
-  const cleaned = text.replace(/<think>([\s\S]*?)<\/think>/gi, (_, captured: string) => {
-    const value = captured.trim()
-    if (value.length > 0) {
-      reasoningChunks.push(value)
-    }
-    return ''
-  })
-  return {
-    cleanedText: cleaned.trim(),
-    reasoning: reasoningChunks.join('\n\n').trim(),
-  }
-}
-
-const vibrateInteraction = (): void => {
-  void Haptics.vibrate({ duration: 10 }).catch(() => {
-    void Haptics.impact({ style: ImpactStyle.Heavy }).catch(() => {
-      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-        navigator.vibrate(10)
-      }
-    })
-  })
-}
-
-const toHydratedConversation = (
-  conversation: ConversationData,
-  draftText = '',
-): Conversation => ({
-  ...conversation,
-  storageLoadState: 'hydrated',
-  storedSummary: buildConversationSummary(conversation, draftText),
-  storageLoadError: undefined,
-})
-
-const createSummaryConversation = (
-  summary: ChatStorageConversationSummary,
-): Conversation => ({
-  id: summary.id,
-  title: summary.title,
-  titleManuallyEdited: summary.titleManuallyEdited,
-  createdAt: summary.createdAt,
-  updatedAt: summary.updatedAt,
-  preferences: summary.preferences,
-  transcript: [],
-  storageLoadState: 'summary',
-  storedSummary: summary,
-})
-
-const createConversation = (
-  transcript: TranscriptEvent[] = [],
-  responseMode: ConversationResponseMode = DEFAULT_RESPONSE_MODE,
-): Conversation =>
-  toHydratedConversation(
-    createConversationFromTranscript(createId(), transcript, {
-      preferences: {
-        responseMode,
-      },
-    }),
-  )
-
-const toConversationSummary = (
-  conversation: Conversation,
-  draftText: string,
-): ChatStorageConversationSummary =>
-  conversation.storageLoadState === 'hydrated'
-    ? buildConversationSummary(conversation, draftText)
-    : {
-        ...conversation.storedSummary,
-        title: conversation.title,
-        titleManuallyEdited: conversation.titleManuallyEdited,
-        createdAt: conversation.createdAt,
-        updatedAt: conversation.updatedAt,
-        preferences: conversation.preferences,
-      }
-
-const isPersistedConversationSummary = (
-  summary: ChatStorageConversationSummary,
-): boolean =>
-  summary.messageCount > 0 ||
-  summary.titleManuallyEdited ||
-  summary.draftTextLength > 0 ||
-  summary.draftAttachmentCount > 0
-
-const withConversationRecordTranscript = (
-  conversation: Conversation,
-  transcript: TranscriptEvent[],
-  draftText: string,
-  options?: {
-    keepUpdatedAt?: boolean
-  },
-): Conversation =>
-  toHydratedConversation(
-    withConversationTranscript(conversation, transcript, options),
-    draftText,
-  )
-
-const withConversationRecordResponseMode = (
-  conversation: Conversation,
-  responseMode: ConversationResponseMode,
-  draftText: string,
-  options?: {
-    keepUpdatedAt?: boolean
-  },
-): Conversation =>
-  toHydratedConversation(
-    withConversationResponseMode(conversation, responseMode, options),
-    draftText,
-  )
-
-
-const normalizePermissionToggles = (value: unknown): PermissionToggles => {
-  if (!isRecord(value)) {
-    return DEFAULT_PERMISSION_TOGGLES
-  }
-  return {
-    location:
-      typeof value.location === 'boolean' ? value.location : DEFAULT_PERMISSION_TOGGLES.location,
-    camera: typeof value.camera === 'boolean' ? value.camera : DEFAULT_PERMISSION_TOGGLES.camera,
-    microphone:
-      typeof value.microphone === 'boolean'
-        ? value.microphone
-        : DEFAULT_PERMISSION_TOGGLES.microphone,
-    notifications:
-      typeof value.notifications === 'boolean'
-        ? value.notifications
-        : DEFAULT_PERMISSION_TOGGLES.notifications,
-  }
-}
-
-const queryPermissionState = async (name: string): Promise<PermissionState | null> => {
-  if (typeof navigator === 'undefined' || !navigator.permissions?.query) {
-    return null
-  }
-  try {
-    const status = await navigator.permissions.query({
-      name: name as PermissionName,
-    })
-    return status.state
-  } catch {
-    return null
-  }
-}
-
-const requestLocationPermission = async (): Promise<boolean> => {
-  if (Capacitor.isNativePlatform()) {
-    try {
-      const status = await Geolocation.checkPermissions()
-      if (status.location === 'granted' || status.coarseLocation === 'granted') {
-        return true
-      }
-      const requested = await Geolocation.requestPermissions()
-      return requested.location !== 'denied' || requested.coarseLocation !== 'denied'
-    } catch {
-      return false
-    }
-  }
-  if (typeof navigator === 'undefined' || !navigator.geolocation) {
-    return false
-  }
-  const stateBefore = await queryPermissionState('geolocation')
-  if (stateBefore === 'granted') {
-    return true
-  }
-  const requestResult = await new Promise<'granted' | 'denied' | 'unknown'>((resolve) => {
-    navigator.geolocation.getCurrentPosition(
-      () => resolve('granted'),
-      (error) => resolve(error.code === 1 ? 'denied' : 'unknown'),
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 0 },
-    )
-  })
-  if (requestResult === 'granted') {
-    return true
-  }
-  if (requestResult === 'denied') {
-    return false
-  }
-  return true
-}
-
-const requestMediaPermission = async (kind: 'camera' | 'microphone'): Promise<boolean> => {
-  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-    return false
-  }
-  const stateBefore = await queryPermissionState(kind)
-  if (stateBefore === 'granted') {
-    return true
-  }
-  try {
-    const constraints: MediaStreamConstraints = kind === 'camera' ? { video: true } : { audio: true }
-    const stream = await navigator.mediaDevices.getUserMedia(constraints)
-    for (const track of stream.getTracks()) {
-      track.stop()
-    }
-    return true
-  } catch {
-    const stateAfter = await queryPermissionState(kind)
-    return stateAfter === 'granted'
-  }
-}
-
-const requestNotificationPermission = async (): Promise<boolean> => {
-  if (typeof Notification === 'undefined') {
-    return false
-  }
-  if (Notification.permission === 'granted') {
-    return true
-  }
-  if (Notification.permission === 'denied') {
-    return false
-  }
-  try {
-    const result = await Notification.requestPermission()
-    return result === 'granted'
-  } catch {
-    return false
-  }
-}
-
-const loadSettings = (): AppSettings => {
-  try {
-    if (typeof localStorage === 'undefined') {
-      return createDefaultSettings()
-    }
-
-    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY)
-    if (!raw) {
-      return createDefaultSettings()
-    }
-
-    const parsed = JSON.parse(raw) as unknown
-    if (!isRecord(parsed)) {
-      return createDefaultSettings()
-    }
-
-    const shouldMigrateLegacyTagPrompts = typeof parsed.generalTagSystemPrompt !== 'string'
-    const parsedProviders = Array.isArray(parsed.providers)
-      ? parsed.providers
-          .map((item) => normalizeProviderConfig(item, shouldMigrateLegacyTagPrompts))
-          .filter((item): item is ProviderConfig => Boolean(item))
-      : []
-    const providers = parsedProviders
-
-    const rawTemperature = toFiniteNumber(parsed.temperature)
-    const rawTopP = toFiniteNumber(parsed.topP)
-    const rawMaxTokens = toFiniteNumber(parsed.maxTokens)
-    const rawPresencePenalty = toFiniteNumber(parsed.presencePenalty)
-    const rawFrequencyPenalty = toFiniteNumber(parsed.frequencyPenalty)
-    const rawDeleteConfirmGraceSeconds = toFiniteNumber(parsed.deleteConfirmGraceSeconds)
-    const rawConversationGroupGapMinutes = toFiniteNumber(parsed.conversationGroupGapMinutes)
-    const rawChatBlurPx = toFiniteNumber(parsed.chatBlurPx)
-    const rawEmptyStateStatsMinConversations = toFiniteNumber(parsed.emptyStateStatsMinConversations)
-    const rawMaxModelRetryCount = toFiniteNumber(parsed.maxModelRetryCount)
-    const defaultResponseMode =
-      normalizeConversationResponseMode(parsed.defaultResponseMode) ??
-      (typeof parsed.skillModeEnabled === 'boolean'
-        ? parsed.skillModeEnabled
-          ? 'tool'
-          : 'text'
-        : DEFAULT_SETTINGS.defaultResponseMode)
-    const currentProviderId =
-      typeof parsed.currentProviderId === 'string' && parsed.currentProviderId.trim()
-        ? parsed.currentProviderId
-        : DEFAULT_SETTINGS.currentProviderId
-    const currentModel =
-      typeof parsed.currentModel === 'string' && parsed.currentModel.trim()
-        ? parsed.currentModel
-        : DEFAULT_SETTINGS.currentModel
-    const storedTagSystemPrompts = migrateLegacyTagSystemPrompts(parsed, {
-      legacyGlobalHandling: 'collect-deprecated',
-    })
-    const deprecatedTagPrompts =
-      typeof parsed.deprecatedTagPrompts === 'string' ? parsed.deprecatedTagPrompts : ''
-    const legacyGlobalTagSystemPrompt =
-      storedTagSystemPrompts.legacyGlobalTagSystemPrompt ??
-      (typeof parsed.generalTagSystemPrompt === 'string' &&
-      parsed.generalTagSystemPrompt.trim() === DEFAULT_RUN_SYSTEM_PROMPT
-        ? parsed.generalTagSystemPrompt
-        : undefined)
-    const nextDeprecatedTagPrompts = legacyGlobalTagSystemPrompt
-      ? upsertDeprecatedPromptBlock(deprecatedTagPrompts, {
-          id: LEGACY_GLOBAL_TAG_PROMPT_BLOCK_ID,
-          title: LEGACY_GLOBAL_TAG_PROMPT_BLOCK_TITLE,
-          content: legacyGlobalTagSystemPrompt,
-        })
-      : deprecatedTagPrompts
-
-    const assembled = ensureValidCurrentModelSelection({
-      systemPrompt:
-        typeof parsed.systemPrompt === 'string' ? parsed.systemPrompt : DEFAULT_SETTINGS.systemPrompt,
-      topLevelTagSystemPrompt:
-        typeof parsed.topLevelTagSystemPrompt === 'string'
-          ? parsed.topLevelTagSystemPrompt
-          : storedTagSystemPrompts.topLevelTagSystemPrompt,
-      generalTagSystemPrompt: storedTagSystemPrompts.generalTagSystemPrompt,
-      readSystemPrompt: storedTagSystemPrompts.readSystemPrompt,
-      skillCallSystemPrompt: storedTagSystemPrompts.skillCallSystemPrompt,
-      editSystemPrompt: storedTagSystemPrompts.editSystemPrompt,
-      deviceInfoPromptEnabled:
-        typeof parsed.deviceInfoPromptEnabled === 'boolean'
-          ? parsed.deviceInfoPromptEnabled
-          : DEFAULT_SETTINGS.deviceInfoPromptEnabled,
-      workspaceInfoPromptEnabled:
-        typeof parsed.workspaceInfoPromptEnabled === 'boolean'
-          ? parsed.workspaceInfoPromptEnabled
-          : DEFAULT_SETTINGS.workspaceInfoPromptEnabled,
-      deprecatedTagPrompts: nextDeprecatedTagPrompts,
-      promptVersions: (
-        isRecord(parsed.promptVersions)
-          ? Object.fromEntries(
-              Object.entries(parsed.promptVersions).filter(
-                ([, v]) => typeof v === 'number',
-              ),
-            )
-          : {}
-      ) as Record<string, number>,
-      themeMode: normalizeThemeMode(parsed.themeMode),
-      defaultResponseMode,
-      temperature:
-        rawTemperature !== undefined ? clamp(rawTemperature, 0, 2) : DEFAULT_SETTINGS.temperature,
-      topP: rawTopP !== undefined ? clamp(rawTopP, 0, 1) : DEFAULT_SETTINGS.topP,
-      maxTokens:
-        rawMaxTokens !== undefined
-          ? Math.round(clamp(rawMaxTokens, 1, 8192))
-          : DEFAULT_SETTINGS.maxTokens,
-      presencePenalty:
-        rawPresencePenalty !== undefined
-          ? clamp(rawPresencePenalty, -2, 2)
-          : DEFAULT_SETTINGS.presencePenalty,
-      frequencyPenalty:
-        rawFrequencyPenalty !== undefined
-          ? clamp(rawFrequencyPenalty, -2, 2)
-          : DEFAULT_SETTINGS.frequencyPenalty,
-      showReasoning:
-        typeof parsed.showReasoning === 'boolean'
-          ? parsed.showReasoning
-          : DEFAULT_SETTINGS.showReasoning,
-      deleteModeHapticsEnabled:
-        typeof parsed.deleteModeHapticsEnabled === 'boolean'
-          ? parsed.deleteModeHapticsEnabled
-          : DEFAULT_SETTINGS.deleteModeHapticsEnabled,
-      firstTokenHapticsEnabled:
-        typeof parsed.firstTokenHapticsEnabled === 'boolean'
-          ? parsed.firstTokenHapticsEnabled
-          : DEFAULT_SETTINGS.firstTokenHapticsEnabled,
-      providers,
-      currentProviderId,
-      currentModel,
-      deleteConfirmGraceSeconds:
-        rawDeleteConfirmGraceSeconds !== undefined
-          ? Math.round(clamp(rawDeleteConfirmGraceSeconds, 0, 600))
-          : DEFAULT_SETTINGS.deleteConfirmGraceSeconds,
-      conversationGroupGapMinutes:
-        rawConversationGroupGapMinutes !== undefined
-          ? Math.round(clamp(rawConversationGroupGapMinutes, 0, 120))
-          : DEFAULT_SETTINGS.conversationGroupGapMinutes,
-      chatBlurPx:
-        rawChatBlurPx !== undefined
-          ? Math.round(clamp(rawChatBlurPx, 0, 40))
-          : DEFAULT_SETTINGS.chatBlurPx,
-      autoCollapseConversations:
-        typeof parsed.autoCollapseConversations === 'boolean'
-          ? parsed.autoCollapseConversations
-          : DEFAULT_SETTINGS.autoCollapseConversations,
-      emptyStateStatsMinConversations:
-        rawEmptyStateStatsMinConversations !== undefined
-          ? Math.round(
-              clamp(rawEmptyStateStatsMinConversations, 0, MAX_EMPTY_STATE_STATS_MIN_CONVERSATIONS),
-            )
-          : DEFAULT_SETTINGS.emptyStateStatsMinConversations,
-      maxModelRetryCount:
-        rawMaxModelRetryCount !== undefined
-          ? Math.round(clamp(rawMaxModelRetryCount, 0, 10))
-          : DEFAULT_SETTINGS.maxModelRetryCount,
-      permissionToggles: normalizePermissionToggles(parsed.permissionToggles),
-      dailyCover: normalizeDailyCoverSettings(parsed.dailyCover),
-      actiNetModels: Array.isArray(parsed.actiNetModels) ? parsed.actiNetModels as ProviderModel[] : DEFAULT_SETTINGS.actiNetModels,
-      otherProvidersEnabled:
-        typeof parsed.otherProvidersEnabled === 'boolean'
-          ? parsed.otherProvidersEnabled
-          : false,
-      actiNetAdvancedModelsEnabled:
-        typeof parsed.actiNetAdvancedModelsEnabled === 'boolean'
-          ? parsed.actiNetAdvancedModelsEnabled
-          : false,
-    })
-    const migrated = migratePromptVersions(
-      assembled as unknown as Record<string, unknown>,
-      PROMPT_DEFAULTS,
-    )
-    return migrated.settings as unknown as AppSettings
-  } catch {
-    return createDefaultSettings()
-  }
-}
-
-const createInitialChatState = (defaultResponseMode: ConversationResponseMode): LoadedChatState => {
-  const fallbackConversation = createConversation([], defaultResponseMode)
-  return {
-    conversations: [fallbackConversation],
-    activeConversationId: fallbackConversation.id,
-    draftsByConversation: {},
-    historyStats: EMPTY_HISTORY_STATS,
-  }
-}
-
-const buildPersistChatState = (
-  conversations: Conversation[],
-  draftsByConversation: Record<string, string>,
-  activeConversationId: string,
-): ChatStoragePersistState => ({
-  conversations: conversations.map((conversation) =>
-    conversation.storageLoadState === 'hydrated'
-      ? {
-          kind: 'hydrated',
-          conversation,
-          draftText: draftsByConversation[conversation.id] ?? '',
-        }
-      : {
-          kind: 'summary',
-          summary: toConversationSummary(conversation, draftsByConversation[conversation.id] ?? ''),
-        },
-  ),
-  activeConversationId,
-})
-
+import {
+  createConversation,
+  createInitialChatState,
+  createProviderConfig,
+  createProviderNameCandidate,
+  createProviderNumericSettingDrafts,
+  createSummaryConversation,
+  DEFAULT_SETTINGS,
+  ensureValidCurrentModelSelection,
+  extractThinkBlocks,
+  getEnabledModelOptions,
+  getTravelOffset,
+  isPersistedConversationSummary,
+  loadSettings,
+  ACTINET_PROVIDER_ID,
+  ACTINET_PROVIDER_NAME,
+  hasConversationStarted,
+  MAX_EMPTY_STATE_STATS_MIN_CONVERSATIONS,
+  MESSAGE_LIST_AUTO_SCROLL_MAX_MS,
+  MESSAGE_LIST_BOTTOM_THRESHOLD_PX,
+  MESSAGE_LIST_INTERACTION_IDLE_MS,
+  MESSAGE_LIST_SCROLL_BUTTON_DISTANCE_FACTOR,
+  buildPersistChatState,
+  createNumericSettingDrafts,
+  normalizeNumericSettingDraft,
+  NUMERIC_SETTING_DEFAULTS,
+  PROVIDER_NUMERIC_LIMITS,
+  PROMPT_DEFAULTS,
+  resolveConversationResponseMode,
+  resolveMessageListSmoothScrollStep,
+  resolveProviderRequestSettings,
+  shiftRect,
+  snapshotRect,
+  TITLE_EDIT_TRANSITION_MS,
+  toConversationSummary,
+  toHydratedConversation,
+  vibrateInteraction,
+  withConversationRecordResponseMode,
+  withConversationRecordTranscript,
+  normalizeProviderPromptOverride,
+} from './utils/app-module'
 function App() {
   const initialSettingsRef = useRef<AppSettings | null>(null)
   if (!initialSettingsRef.current) {
@@ -1338,69 +285,18 @@ function App() {
   const setPendingImages = useChatStore((s) => s.setPendingImages)
   const pendingImageCompressionTaskIdRef = useRef<Record<string, number>>({})
 
-  // ── UI store: animated visibility ──
-  const settingsMounted = useUIStore((s) => s.settingsMounted)
-  const settingsVisible = useUIStore((s) => s.settingsVisible)
-  const openSettings = useCallback((): void => {
-    useUIStore.getState().setSettingsVisibility(true, true)
-  }, [])
-  const closeSettings = useCallback((): void => {
-    useUIStore.getState().setSettingsVisibility(false, false)
-  }, [])
-  const drawerMounted = useUIStore((s) => s.drawerMounted)
-  const drawerVisible = useUIStore((s) => s.drawerVisible)
-  const openDrawer = useCallback((): void => {
-    useUIStore.getState().setDrawerVisibility(true, false)
-    if (drawerAnimationFrameRef.current !== null) {
-      window.cancelAnimationFrame(drawerAnimationFrameRef.current)
-    }
-    drawerAnimationFrameRef.current = window.requestAnimationFrame(() => {
-      drawerAnimationFrameRef.current = null
-      useUIStore.getState().setDrawerVisibility(true, true)
-    })
-  }, [])
-  const closeDrawer = useCallback((): void => {
-    if (drawerAnimationFrameRef.current !== null) {
-      window.cancelAnimationFrame(drawerAnimationFrameRef.current)
-      drawerAnimationFrameRef.current = null
-    }
-    useUIStore.getState().setDrawerVisibility(true, false)
-  }, [])
-  const modelMenuMounted = useUIStore((s) => s.modelMenuMounted)
-  const modelMenuVisible = useUIStore((s) => s.modelMenuVisible)
-  const openModelMenu = useCallback((): void => {
-    useUIStore.getState().setModelMenuVisibility(true, false)
-    if (modelMenuAnimationFrameRef.current !== null) {
-      window.cancelAnimationFrame(modelMenuAnimationFrameRef.current)
-    }
-    modelMenuAnimationFrameRef.current = window.requestAnimationFrame(() => {
-      modelMenuAnimationFrameRef.current = null
-      useUIStore.getState().setModelMenuVisibility(true, true)
-    })
-  }, [])
-  const closeModelMenu = useCallback((): void => {
-    if (modelMenuAnimationFrameRef.current !== null) {
-      window.cancelAnimationFrame(modelMenuAnimationFrameRef.current)
-      modelMenuAnimationFrameRef.current = null
-    }
-    useUIStore.getState().setModelMenuVisibility(true, false)
-  }, [])
-  const imageViewerMounted = useUIStore((s) => s.imageViewerMounted)
-  const imageViewerVisible = useUIStore((s) => s.imageViewerVisible)
-  const showImageViewerOverlay = useCallback((): void => {
-    useUIStore.getState().setImageViewerVisibility(true, true)
-  }, [])
-  const hideImageViewerOverlay = useCallback((): void => {
-    useUIStore.getState().setImageViewerVisibility(false, false)
-  }, [])
-  const scrollToBottomButtonMounted = useUIStore((s) => s.scrollToBottomButtonMounted)
-  const scrollToBottomButtonVisible = useUIStore((s) => s.scrollToBottomButtonVisible)
-  const showScrollToBottomButton = useCallback((): void => {
-    useUIStore.getState().setScrollToBottomButtonVisibility(true, true)
-  }, [])
-  const hideScrollToBottomButton = useCallback((): void => {
-    useUIStore.getState().setScrollToBottomButtonVisibility(false, false)
-  }, [])
+  // ── Chat UI (delegated to useChatUI hook) ──
+  const {
+    openDrawer, closeDrawer, drawerMounted, drawerVisible,
+    openModelMenu, closeModelMenu, modelMenuMounted, modelMenuVisible,
+    openSettings, closeSettings, settingsMounted, settingsVisible,
+    openImageViewer, closeImageViewer, imageViewerMounted, imageViewerVisible,
+    showScrollToBottomButton, hideScrollToBottomButton,
+    scrollToBottomButtonMounted, scrollToBottomButtonVisible,
+    copyTextToClipboard,
+    openDeleteDialog,
+  } = useChatUI()
+  void copyTextToClipboard;
 
   // ── UI store: settings navigation ──
   const settingsView = useUIStore((s) => s.settingsView)
@@ -1468,8 +364,6 @@ function App() {
   const homepageSendTransition = useUIStore((s) => s.homepageSendTransition)
 
   // ── UI store: permissions ──
-  const requestingPermissionByKey = useUIStore((s) => s.requestingPermissionByKey)
-  const setRequestingPermissionByKey = useUIStore((s) => s.setRequestingPermissionByKey)
 
   // ── Extensions store ──
   const skillRecords = useExtensionsStore((s) => s.skillRecords)
@@ -1504,56 +398,10 @@ function App() {
   const [abortController, setAbortController] = useState<AbortController | null>(null)
   void abortController; void setAbortController;
 
-  const [pendingUpdate, setPendingUpdate] = useState<UpdateInfo | null>(null)
-  const [showUpdateDialog, setShowUpdateDialog] = useState(false)
-  const [updatingNow, setUpdatingNow] = useState(false) // eslint-disable-line @typescript-eslint/no-unused-vars
+	// ── Updates (delegated to useUpdates hook) ──
+	const updates = useUpdates()
 
-  const handleInstallUpdate = useCallback(async (blob: Blob, fileName: string) => {
-    setUpdatingNow(true)
-    try {
-      // Try native install path (Android/Capacitor)
-      const bridge = (window as any).SkillRuntimePlugin
-      if (bridge?.installApk) {
-        // Save the blob to a file path that the native side can access
-        const arrayBuffer = await blob.arrayBuffer()
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
-        await bridge.installApk({ apkData: base64, fileName })
-      } else {
-        // Fallback: trigger browser download
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = fileName
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
-      }
-      setShowUpdateDialog(false)
-    } catch (err) {
-      console.error('[update] Install failed', err)
-    } finally {
-      setUpdatingNow(false)
-    }
-  }, [])
-
-  const handleManualUpdateCheck = useCallback(async () => {
-    if (!isCloudLoggedIn()) return
-    const update = await checkForUpdate(getCloudServerUrl())
-    if (update) {
-      setPendingUpdate(update)
-      setShowUpdateDialog(true)
-    } else {
-      // No update available — could show a notice
-      console.log('[update] No update available')
-    }
-  }, [])
-  // Startup auth logic extracted to useCloudAuth hook
-
-  // Delete dialog helpers (unified store interface)
-  const openDeleteDialog = useCallback((dialog: DeleteDialogState): void => {
-    useUIStore.getState().openDeleteDialog(dialog)
-  }, [])
+	// Startup auth logic extracted to useCloudAuth hook
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const cameraInputRef = useRef<HTMLInputElement | null>(null)
@@ -1617,8 +465,6 @@ function App() {
     longPressTimerId: number | null
   } | null>(null)
   const ignoreNextConversationClickRef = useRef<string | null>(null)
-  const drawerAnimationFrameRef = useRef<number | null>(null)
-  const modelMenuAnimationFrameRef = useRef<number | null>(null)
   const openSettingsAfterDrawerTimerRef = useRef<number | null>(null)
   const queuedAssistantStreamDeltaRef = useRef<{
     conversationId: string
@@ -1633,10 +479,6 @@ function App() {
   const queuedTurnExecutionsRef = useRef<TurnExecutionJob[]>([])
   const processingTurnQueueRef = useRef(false)
   void processingTurnQueueRef;
-
-  const closeImageViewer = useCallback((): void => {
-    hideImageViewerOverlay()
-  }, [hideImageViewerOverlay])
 
   const appendSkillRoundLog = useCallback(
     (payload: Record<string, unknown>, dedupeKey?: string): void => {
@@ -1771,8 +613,7 @@ function App() {
     hasOtherProviders: hasProviders && settings.otherProvidersEnabled,
     isHomepageEmptyState,
     onUpdateFound: (update: UpdateInfo) => {
-      setPendingUpdate(update)
-      setShowUpdateDialog(true)
+      updates.onUpdateFound(update)
     },
   })
   // showCloudAuthOnHomepage & isCloudAuthRegisterMode now from useCloudAuth hook
@@ -1789,10 +630,6 @@ function App() {
     ...(homepageBackgroundStyle ?? {}),
   } as CSSProperties
   const draft = activeConversation ? draftsByConversation[activeConversation.id] ?? '' : ''
-  const imageViewerItems = useMemo(
-    () => collectConversationImageViewerItems(activeMessages, pendingImages),
-    [activeMessages, pendingImages],
-  )
   const visibleConversations = useMemo(
     () =>
       conversations.filter(
@@ -1836,25 +673,6 @@ function App() {
       id: group.conversations.map((conversation) => conversation.id).join('|'),
     }))
   }, [sortedConversations, settings.conversationGroupGapMinutes])
-
-  const openImageViewer = useCallback(
-    (viewerKey: string, image: Pick<ImageAttachment, 'name' | 'dataUrl'>): void => {
-      const fallbackItem = toImageViewerItem(viewerKey, image)
-      if (!fallbackItem) {
-        return
-      }
-
-      const items = imageViewerItems.length > 0 ? imageViewerItems : [fallbackItem]
-      const initialIndex = items.findIndex((item) => item.key === viewerKey)
-
-      setImageViewer({
-        items,
-        initialIndex: initialIndex >= 0 ? initialIndex : 0,
-      })
-      showImageViewerOverlay()
-    },
-    [imageViewerItems, showImageViewerOverlay],
-  )
 
   const enabledModelOptions = useMemo(
     () => getEnabledModelOptions(settings.providers, cloudLoggedIn, settings.otherProvidersEnabled),
@@ -2052,6 +870,9 @@ function App() {
     setNotice({ text, type })
   }, [])
 
+  // ── Permissions (delegated to usePermissions hook) ──
+  const perms = usePermissions(pushNotice)
+
   // ── Relay ActiNetSettings custom events as pushNotice ──
   useEffect(() => {
     const handler = (e: Event) => {
@@ -2061,16 +882,6 @@ function App() {
     window.addEventListener('actinet-notice', handler)
     return () => window.removeEventListener('actinet-notice', handler)
   }, [pushNotice])
-
-  const copyTextToClipboard = useCallback(async (text: string): Promise<boolean> => {
-    try {
-      await navigator.clipboard.writeText(text)
-      return true
-    } catch {
-      return false
-    }
-  }, [])
-  void copyTextToClipboard;
 
   const applySkillConfigValue = useCallback((nextValue: JsonObjectValue): void => {
     setSkillConfigValue(nextValue)
@@ -2527,62 +1338,6 @@ function App() {
     updateSetting(key, PROMPT_DEFAULTS[key] as AppSettings[typeof key])
     pushNotice('已重置为默认提示词。', 'success')
   }
-
-  const handlePermissionToggle = useCallback(
-    async (key: AppPermissionKey, enabled: boolean): Promise<void> => {
-      if (!enabled) {
-        applySettingsUpdate((previous) => ({
-          ...previous,
-          permissionToggles: {
-            ...previous.permissionToggles,
-            [key]: false,
-          },
-        }))
-        return
-      }
-
-      setRequestingPermissionByKey((previous) => ({
-        ...previous,
-        [key]: true,
-      }))
-      try {
-        const granted =
-          key === 'location'
-            ? await requestLocationPermission()
-            : key === 'camera'
-              ? await requestMediaPermission('camera')
-              : key === 'microphone'
-                ? await requestMediaPermission('microphone')
-                : await requestNotificationPermission()
-        if (!granted) {
-          pushNotice(`${PERMISSION_LABELS[key]}权限未授予。请在系统设置中手动开启。`, 'error')
-          applySettingsUpdate((previous) => ({
-            ...previous,
-            permissionToggles: {
-              ...previous.permissionToggles,
-              [key]: false,
-            },
-          }))
-          return
-        }
-
-        applySettingsUpdate((previous) => ({
-          ...previous,
-          permissionToggles: {
-            ...previous.permissionToggles,
-            [key]: true,
-          },
-        }))
-        pushNotice(`${PERMISSION_LABELS[key]}权限已开启。`, 'success')
-      } finally {
-        setRequestingPermissionByKey((previous) => ({
-          ...previous,
-          [key]: false,
-        }))
-      }
-    },
-    [applySettingsUpdate, pushNotice],
-  )
 
   const handleNumericSettingChange = (
     key: NumericSettingKey,
@@ -3356,8 +2111,7 @@ function App() {
     conversationId: string,
     assistantId: string,
     result: CompletionResult,
-    promptMessages: ApiMessage[],
-  void promptMessages;
+    _promptMessages: ApiMessage[],
     options?: {
       resolvedText?: string
       preserveRawText?: boolean
@@ -6584,7 +5338,7 @@ function App() {
           <button
             type="button"
             className="settings-entry-button"
-            onClick={() => void handleManualUpdateCheck()}
+            onClick={() => void updates.handleManualUpdateCheck()}
           >
             <span className="settings-entry-title">检查更新</span>
             <span className="settings-entry-meta">
@@ -6641,8 +5395,8 @@ function App() {
   const renderPermissionsSettings = () => (
     <PermissionsSettings
       permissionToggles={settings.permissionToggles}
-      requestingPermissionByKey={requestingPermissionByKey}
-      onToggle={handlePermissionToggle}
+      requestingPermissionByKey={perms.requestingPermissionByKey}
+      onToggle={perms.handlePermissionToggle}
     />
   )
 
@@ -7208,11 +5962,11 @@ function App() {
         confirmDeleteRuntime={confirmDeleteRuntime}
       />
 
-      {showUpdateDialog && pendingUpdate && !updatingNow ? (
+      {updates.showUpdateDialog && updates.pendingUpdate && !updates.updatingNow ? (
         <UpdateDialog
-          update={pendingUpdate}
-          onCancel={() => setShowUpdateDialog(false)}
-          onInstall={handleInstallUpdate}
+          update={updates.pendingUpdate}
+          onCancel={() => updates.dismissUpdateDialog()}
+          onInstall={updates.handleInstallUpdate}
         />
       ) : null}
 
