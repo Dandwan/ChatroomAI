@@ -3,6 +3,8 @@
 ## 功能
 对话管理 hook。管理对话 CRUD、水合、持久化、图片水合、手势交互和标题编辑。提取自 `src/App.tsx`。
 
+**近期修复（2026-06-12）**：修复 `longPressTimerId` 空值检查导致应用白屏的问题（#560）。手势交互逻辑已由 `useConversationDrawer` 接管，此文件中的手势代码为重复死代码，待 Phase 2 步骤 8 完整去重。
+
 ## 关系
 ### 调用 / 引用
 - `src/state/chat-store.ts` — `useChatStore`（对话状态）

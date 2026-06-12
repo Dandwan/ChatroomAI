@@ -375,7 +375,7 @@ export function useConversation(
 
   const clearConversationGestureTimer = useCallback((): void => {
     const g = conversationSwipeStartRef.current
-    if (g?.longPressTimerId !== null && g) { window.clearTimeout(g.longPressTimerId!); g.longPressTimerId = null }
+    if (g && g.longPressTimerId !== null) { window.clearTimeout(g.longPressTimerId); g.longPressTimerId = null }
   }, [])
 
   const resetConversationSwipe = useCallback((): void => {
@@ -557,7 +557,7 @@ export function useConversation(
   useEffect(() => {
     if (drawerMounted) return
     const g = conversationSwipeStartRef.current
-    if (g?.longPressTimerId !== null) window.clearTimeout(g!.longPressTimerId!)
+    if (g && g.longPressTimerId !== null) window.clearTimeout(g.longPressTimerId)
     conversationSwipeStartRef.current = null
     setSwipingConversationId(null); setSwipeOffsetX(0)
     setDeleteModeEnabled2(false)
