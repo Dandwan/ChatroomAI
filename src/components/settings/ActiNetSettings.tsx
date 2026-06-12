@@ -10,6 +10,7 @@ import {
 } from '../../services/cloud-auth'
 import {
   getEffectiveActiNetModels,
+  getVisibleActiNetModels,
   saveActiNetModelPreferences,
   fetchActiNetModelsFromServer,
   mergeActiNetModels,
@@ -62,6 +63,7 @@ export default function ActiNetSettings({
   }, [isCloudLoggedIn, cloudAuth])
 
   const effectiveModels = getEffectiveActiNetModels()
+  const visibleModels = getVisibleActiNetModels(actiNetAdvancedModelsEnabled)
 
   const handleCopyApiKey = async () => {
     if (!cloudAuth?.apiKey) return
@@ -112,8 +114,8 @@ export default function ActiNetSettings({
   }
 
   const filteredModels = modelSearch.trim()
-    ? effectiveModels.filter((m) => m.id.toLowerCase().includes(modelSearch.toLowerCase()))
-    : effectiveModels
+    ? visibleModels.filter((m) => m.id.toLowerCase().includes(modelSearch.toLowerCase()))
+    : visibleModels
 
   // ── Email change handlers ──
 
@@ -387,7 +389,6 @@ export default function ActiNetSettings({
       </section>
 
       {/* ── Model management ── */}
-      {actiNetAdvancedModelsEnabled && (
       <section className="settings-section">
         <div className="conversation-group-divider settings-section-divider">
           <span className="conversation-group-label">ActiNet 模型</span>
@@ -397,18 +398,21 @@ export default function ActiNetSettings({
         <div className="settings-entry-list">
           <div className="settings-static-card">
             <div className="summary-bar">
-              <span>{effectiveModels.length} 个模型</span>
-              <span>{effectiveModels.filter((m) => m.enabled).length} 个启用</span>
+              <span>{visibleModels.length} 个模型</span>
+              <span>{visibleModels.filter((m) => m.enabled).length} 个启用</span>
             </div>
           </div>
         </div>
 
+        {actiNetAdvancedModelsEnabled && (
         <div className="model-tools">
           <button type="button" onClick={handleFetchModels} disabled={isFetchingModels}>
             {isFetchingModels ? '加载中...' : '拉取模型列表'}
           </button>
         </div>
+        )}
 
+        {actiNetAdvancedModelsEnabled && (
         <div className="model-add-row">
           <input
             type="text"
@@ -427,7 +431,9 @@ export default function ActiNetSettings({
             添加
           </button>
         </div>
+        )}
 
+        {actiNetAdvancedModelsEnabled && (
         <label className="field field-compact">
           <span>搜索模型</span>
           <input
@@ -438,9 +444,10 @@ export default function ActiNetSettings({
             placeholder="输入模型名筛选"
           />
         </label>
+        )}
 
         <div className="model-list">
-          {effectiveModels.length === 0 ? (
+          {visibleModels.length === 0 ? (
             <p className="summary-muted">暂无模型，请先拉取或手动添加。</p>
           ) : filteredModels.length === 0 ? (
             <p className="summary-muted">没有匹配的模型。</p>
@@ -465,8 +472,6 @@ export default function ActiNetSettings({
           )}
         </div>
       </section>
-
-      )}
 
       <section className="settings-section">
         <div className="model-tools">

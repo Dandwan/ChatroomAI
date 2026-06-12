@@ -29,7 +29,7 @@ import { buildConversationSummary } from '../services/chat-storage'
 
 import { isCloudLoggedIn, getStoredCloudAuth, getCloudServerUrl } from '../services/cloud-auth'
 
-import { getEffectiveActiNetModels } from '../services/actinet-models'
+import { getEffectiveActiNetModels, getVisibleActiNetModels } from '../services/actinet-models'
 
 import { DEFAULT_DAILY_COVER_SETTINGS } from '../services/daily-cover'
 
@@ -535,6 +535,7 @@ export const getEnabledModelOptions = (
   providers: ProviderConfig[],
   isActiNetLoggedIn: boolean,
   otherProvidersEnabled: boolean,
+  actiNetAdvancedModelsEnabled: boolean,
 ): EnabledModelOption[] => {
   const providerOptions = otherProvidersEnabled
     ? providers.flatMap((provider) =>
@@ -549,7 +550,7 @@ export const getEnabledModelOptions = (
     : []
 
   if (isActiNetLoggedIn) {
-    const activeModels = getEffectiveActiNetModels()
+    const activeModels = getVisibleActiNetModels(actiNetAdvancedModelsEnabled)
     const actiNetOptions = activeModels
       .filter((model) => model.enabled)
       .map((model) => ({
@@ -566,8 +567,8 @@ export const getEnabledModelOptions = (
 export const ensureValidCurrentModelSelection = (settings: AppSettings): AppSettings => {
   // Check ActiNet selection first
   if (settings.currentProviderId === ACTINET_PROVIDER_ID) {
-    const effective = getEffectiveActiNetModels()
-    const hasActiNetSelection = effective.some(
+    const visible = getVisibleActiNetModels(settings.actiNetAdvancedModelsEnabled)
+    const hasActiNetSelection = visible.some(
       (model) => model.id === settings.currentModel && model.enabled,
     )
     if (hasActiNetSelection) return settings
@@ -580,7 +581,12 @@ export const ensureValidCurrentModelSelection = (settings: AppSettings): AppSett
     if (hasCurrentSelection) return settings
   }
 
-  const fallback = getEnabledModelOptions(settings.providers, isCloudLoggedIn(), settings.otherProvidersEnabled)[0]
+  const fallback = getEnabledModelOptions(
+    settings.providers,
+    isCloudLoggedIn(),
+    settings.otherProvidersEnabled,
+    settings.actiNetAdvancedModelsEnabled,
+  )[0]
   return {
     ...settings,
     currentProviderId: fallback?.providerId ?? '',

@@ -52,6 +52,7 @@ import {
   type InfoPromptSettingKey,
 } from '../services/skills/info-system-prompts'
 import { getEffectiveActiNetModels } from '../services/actinet-models'
+import { getEnabledModelOptions, ACTINET_PROVIDER_ID, ACTINET_PROVIDER_NAME } from '../utils/app-module'
 import { isCloudLoggedIn, getStoredCloudAuth, getCloudServerUrl } from '../services/cloud-auth'
 import {
   appendAssistantFlowContent,
@@ -86,7 +87,6 @@ import type {
   CompletionResult,
   Conversation,
   ConversationResponseMode,
-  EnabledModelOption,
   ImageAttachment,
   PendingImageAttachment,
   PromptEditorKey,
@@ -109,9 +109,6 @@ import type {
 } from '../services/skills/types'
 
 // ── Constants ────────────────────────────────────────────────────────────────
-
-const ACTINET_PROVIDER_ID = '__actinet__'
-const ACTINET_PROVIDER_NAME = 'ActiNet'
 
 const TRANSCRIPT_REPLAY_SYSTEM_PROMPT = `
 历史上下文会以原始多轮转录的形式回放：
@@ -404,38 +401,6 @@ const parseActionExecutionPayload = (
 
 // ── Settings helpers ─────────────────────────────────────────────────────────
 
-const getEnabledModelOptions = (
-  providers: AppSettings['providers'],
-  isActiNetLoggedIn: boolean,
-  otherProvidersEnabled: boolean,
-): EnabledModelOption[] => {
-  const providerOptions = otherProvidersEnabled
-    ? providers.flatMap((provider) =>
-        provider.models
-          .filter((model) => model.enabled)
-          .map((model) => ({
-            providerId: provider.id,
-            providerName: provider.name,
-            modelId: model.id,
-          })),
-      )
-    : []
-
-  if (isActiNetLoggedIn) {
-    const activeModels = getEffectiveActiNetModels()
-    const actiNetOptions = activeModels
-      .filter((model) => model.enabled)
-      .map((model) => ({
-        providerId: ACTINET_PROVIDER_ID,
-        providerName: ACTINET_PROVIDER_NAME,
-        modelId: model.id,
-      }))
-    return [...providerOptions, ...actiNetOptions]
-  }
-
-  return providerOptions
-}
-
 const resolveProviderRequestSettings = (settings: AppSettings): ActiveProviderRequestSettings | null => {
   // Handle ActiNet virtual provider
   if (settings.currentProviderId === ACTINET_PROVIDER_ID) {
@@ -687,7 +652,7 @@ export function useAssistant() {
     if (!settings) {
       pushNotice('请先选择已启用模型。', 'error')
       const allSettings = useSettingsStore.getState().settings
-      const enabledModels = getEnabledModelOptions(allSettings.providers, isCloudLoggedIn(), allSettings.otherProvidersEnabled)
+      const enabledModels = getEnabledModelOptions(allSettings.providers, isCloudLoggedIn(), allSettings.otherProvidersEnabled, allSettings.actiNetAdvancedModelsEnabled)
       if (enabledModels.length === 0) {
         useUIStore.getState().setSettingsVisibility(true, true)
         useUIStore.getState().navigateSettingsView('providers')

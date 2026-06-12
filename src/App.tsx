@@ -49,7 +49,7 @@ import { useSettings } from './hooks/useSettings'
 import { usePermissions } from './hooks/usePermissions'
 import UpdateDialog from './components/UpdateDialog'
 import ThinkingPhrase from './components/ThinkingPhrase'
-import { getEffectiveActiNetModels } from './services/actinet-models'
+import { getEffectiveActiNetModels, getVisibleActiNetModels } from './services/actinet-models'
 import SettingsSectionHeading from './components/SettingsSectionHeading'
 import SettingsInfoPromptToggleCard from './components/SettingsInfoPromptToggleCard'
 import PermissionsSettings from './components/settings/PermissionsSettings'
@@ -590,8 +590,8 @@ function App() {
   }, [sortedConversations, settings.conversationGroupGapMinutes])
 
   const enabledModelOptions = useMemo(
-    () => getEnabledModelOptions(settings.providers, cloudLoggedIn, settings.otherProvidersEnabled),
-    [settings.providers, cloudLoggedIn, settings.otherProvidersEnabled],
+    () => getEnabledModelOptions(settings.providers, cloudLoggedIn, settings.otherProvidersEnabled, settings.actiNetAdvancedModelsEnabled),
+    [settings.providers, cloudLoggedIn, settings.otherProvidersEnabled, settings.actiNetAdvancedModelsEnabled],
   )
   const enabledModelsByProvider = useMemo(
     () => {
@@ -607,8 +607,8 @@ function App() {
 
       // Add ActiNet group if logged in
       if (isCloudLoggedIn()) {
-        const effective = getEffectiveActiNetModels()
-        const enabled = effective.filter((m) => m.enabled)
+        const visible = getVisibleActiNetModels(settings.actiNetAdvancedModelsEnabled)
+        const enabled = visible.filter((m) => m.enabled)
         if (enabled.length > 0) {
           groups.push({
             providerId: ACTINET_PROVIDER_ID,
@@ -620,7 +620,7 @@ function App() {
 
       return groups
     },
-    [settings.providers, settings.actiNetModels, settings.otherProvidersEnabled, cloudLoggedIn],
+    [settings.providers, settings.actiNetModels, settings.otherProvidersEnabled, cloudLoggedIn, settings.actiNetAdvancedModelsEnabled],
   )
   const isRunningInActiveConversation =
     activeConversation !== null &&

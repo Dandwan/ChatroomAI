@@ -230,7 +230,7 @@ export function SettingsPage(props: SettingsPageProps) {
 
   // ── Derived ─────────────────────────────────────────
   const nativeRuntimeAvailable = isNativeRuntimeAvailable()
-  const enabledModelOptions = getEnabledModelOptions(settings.providers, cloudLoggedIn, settings.otherProvidersEnabled)
+  const enabledModelOptions = getEnabledModelOptions(settings.providers, cloudLoggedIn, settings.otherProvidersEnabled, settings.actiNetAdvancedModelsEnabled)
   const { navigateSettingsView, handleSettingsBack, closeSettingsPanel, openProviderDetail } = navigation
 
   const providerDetailTarget =

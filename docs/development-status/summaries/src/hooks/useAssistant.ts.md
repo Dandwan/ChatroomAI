@@ -5,7 +5,9 @@
 
 提取自 `src/App.tsx` 的 `executeAssistantTurn`、`handleSend`、`handleAppend` 等核心函数（Phase 1 重构）。
 
-**近期变更（2026-06-12）**：修复 `stopGeneration` 无法中止请求的 Bug（P0），在 `processQueuedTurnExecutions` 中存储 `AbortController` 到 store，`stopGeneration` 中调用 `abort()`。
+**近期变更（2026-06-12）**：
+- 修复 `stopGeneration` 无法中止请求的 Bug（P0），在 `processQueuedTurnExecutions` 中存储 `AbortController` 到 store，`stopGeneration` 中调用 `abort()`
+- **去重**：删除本地重复的 `getEnabledModelOptions` 函数和 `ACTINET_PROVIDER_ID`/`ACTINET_PROVIDER_NAME` 常量，改为从 `src/utils/app-module.ts` 导入共享版本
 
 ## 关系
 ### 调用 / 引用
@@ -17,6 +19,7 @@
 - `src/services/skills/` — executor, protocol, action-location, info-system-prompts, types
 - `src/services/actinet-models.ts` — `getEffectiveActiNetModels`
 - `src/services/cloud-auth.ts` — `isCloudLoggedIn`, `getStoredCloudAuth`, `getCloudServerUrl`
+- `src/utils/app-module.ts` — `getEnabledModelOptions`, `ACTINET_PROVIDER_ID`, `ACTINET_PROVIDER_NAME`
 - `src/utils/assistant-flow.ts` — 助手流管理
 - `src/utils/images.ts` — 图片附件创建
 - `src/utils/app-debug.ts` — 调试日志存储
