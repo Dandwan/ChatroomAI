@@ -2,11 +2,10 @@
  * Chat UI 交互处理 hook
  * 从 src/App.tsx 提取 - 处理抽屉、菜单、图片查看器、滚动、标题编辑等 UI 交互
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import type {
   DeleteDialogState,
   ImageAttachment,
-  RectSnapshot,
 } from '../state/types'
 import { useUIStore } from '../state/ui-store'
 import { useChatStore } from '../state/chat-store'
@@ -44,20 +43,8 @@ interface UseChatUIReturn {
   showScrollToBottomButton: () => void
   hideScrollToBottomButton: () => void
 
-  // ── Clipboard ──
-  copyTextToClipboard: (text: string) => Promise<boolean>
-
   // ── Delete dialog ──
   openDeleteDialog: (dialog: DeleteDialogState) => void
-
-  // ── Title editing ──
-  renamingConversationId: string | null
-  renamingDraft: string
-  renamingTitleRect: RectSnapshot | null
-  beginRenameConversation: (conversationId: string, title: string, rect: RectSnapshot) => void
-  setRenamingDraft: (value: string) => void
-  cancelRenameConversation: () => void
-  saveRenameConversation: () => void
 }
 
 export function useChatUI(params?: { modelMenuRef?: React.MutableRefObject<HTMLDivElement | null> }): UseChatUIReturn {
@@ -77,11 +64,6 @@ export function useChatUI(params?: { modelMenuRef?: React.MutableRefObject<HTMLD
   // ── Refs ──
   const drawerAnimationFrameRef = useRef<number | null>(null)
   const modelMenuAnimationFrameRef = useRef<number | null>(null)
-
-  // ── Title editing state ──
-  const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null)
-  const [renamingDraft, setRenamingDraft] = useState('')
-  const [renamingTitleRect, setRenamingTitleRect] = useState<RectSnapshot | null>(null)
 
   // ── Drawer ──
   const openDrawer = useCallback((): void => {
@@ -199,40 +181,9 @@ export function useChatUI(params?: { modelMenuRef?: React.MutableRefObject<HTMLD
     useUIStore.getState().setScrollToBottomButtonVisibility(false, false)
   }, [])
 
-  // ── Clipboard ──
-  const copyTextToClipboard = useCallback(async (text: string): Promise<boolean> => {
-    try {
-      await navigator.clipboard.writeText(text)
-      return true
-    } catch {
-      return false
-    }
-  }, [])
-
   // ── Delete dialog ──
   const openDeleteDialog = useCallback((dialog: DeleteDialogState): void => {
     useUIStore.getState().openDeleteDialog(dialog)
-  }, [])
-
-  // ── Title editing ──
-  const beginRenameConversation = useCallback(
-    (conversationId: string, title: string, rect: RectSnapshot): void => {
-      setRenamingConversationId(conversationId)
-      setRenamingDraft(title)
-      setRenamingTitleRect(rect)
-    },
-    [],
-  )
-
-  const cancelRenameConversation = useCallback((): void => {
-    setRenamingConversationId(null)
-    setRenamingDraft('')
-    setRenamingTitleRect(null)
-  }, [])
-
-  const saveRenameConversation = useCallback((): void => {
-    // The actual save logic is in the parent component
-    // This just returns the draft for saving
   }, [])
 
   return {
@@ -256,14 +207,6 @@ export function useChatUI(params?: { modelMenuRef?: React.MutableRefObject<HTMLD
     scrollToBottomButtonVisible,
     showScrollToBottomButton,
     hideScrollToBottomButton,
-    copyTextToClipboard,
     openDeleteDialog,
-    renamingConversationId,
-    renamingDraft,
-    renamingTitleRect,
-    beginRenameConversation,
-    setRenamingDraft,
-    cancelRenameConversation,
-    saveRenameConversation,
   }
 }

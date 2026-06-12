@@ -177,7 +177,7 @@ export function useConversationDrawer(params: UseConversationDrawerParams): UseC
     if (!s || s.conversationId !== conversationId || s.pointerId !== event.pointerId) return
     if (s.longPressTriggered) return
     const dx = event.clientX - s.x, dy = event.clientY - s.y
-    if (Math.abs(dx) > LONG_PRESS_MOVE_TOLERANCE_PX || Math.abs(dy) > LONG_PRESS_MOVE_TOLERANCE_PX) clearConversationGestureTimer()
+    if (Math.abs(dx) > LONG_PRESS_MOVE_TOLERANCE_PX || Math.abs(dy) > LONG_PRESS_MOVE_TOLERANCE_PX) { clearConversationGestureTimer(); s.longPressTimerId = null }
     if (!(Math.abs(dx) > Math.abs(dy) * 1.1)) { if (swipingConversationId === conversationId) setSwipeOffsetX(0); return }
     event.preventDefault()
     const offset = clamp(dx, -SWIPE_DELETE_MAX_OFFSET_PX, SWIPE_DELETE_MAX_OFFSET_PX)

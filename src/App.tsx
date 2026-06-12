@@ -9,13 +9,10 @@ import {
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 import {
-  isTranscriptConversationWorkspacePlaceholder,
-  projectConversationMessages,
   type TranscriptContentPart,
   type UserMessageTranscriptEvent,
 } from './services/chat-transcript'
 
-import { isNativeRuntimeAvailable } from './services/skills/native-runtime'
 import ChatScrollPlaceholder from './components/ChatScrollPlaceholder'
 import DeleteConfirmationLayer from './components/DeleteConfirmationLayer'
 import AppDrawer from './components/AppDrawer'
@@ -46,20 +43,10 @@ import {
   resolveDailyCover,
   type ResolvedDailyCover,
 } from './services/daily-cover'
-import {
-  selectHomepageHighlights,
-  type HomepageHighlightStat,
-} from './services/homepage-highlights'
-import {
-  buildHistoryStatsFromSummaries,
-} from './services/chat-storage'
 import type {
   AppSettings,
-  ChatSummarySnapshot,
   ChatMessage,
-  Conversation,
   ConversationDrafts,
-  ConversationGroup,
   LoadedChatState,
   Notice,
   SettingsView,
@@ -73,7 +60,6 @@ import { useUIStore } from './state/ui-store'
 import { useExtensionsStore } from './state/extensions-store'
 import { useAssistant } from './hooks/useAssistant'
 import { createStaticAssistantEvent, buildUserTranscriptContent } from './hooks/useAssistant'
-import { useAssistantStream } from './hooks/useAssistantStream'
 import { useTitleTransition } from './hooks/useTitleTransition'
 import { useMessageListScroll } from './hooks/useMessageListScroll'
 import { useSettingsNavigation } from './hooks/useSettingsNavigation'
@@ -87,8 +73,6 @@ import './styles/app-editorial-redesign.css'
 
 import {
   numberFormatter,
-  createId,
-  formatCompactCount,
   getResponseModeLabel,
 } from './utils/app-formatting'
 
@@ -97,15 +81,11 @@ import {
   createInitialChatState,
   createProviderNumericSettingDrafts,
   getEnabledModelOptions,
-  isPersistedConversationSummary,
   loadSettings,
   ACTINET_PROVIDER_ID,
   ACTINET_PROVIDER_NAME,
-  hasConversationStarted,
   MESSAGE_LIST_SCROLL_BUTTON_DISTANCE_FACTOR,
   createNumericSettingDrafts,
-  resolveConversationResponseMode,
-  toConversationSummary,
 } from './utils/app-module'
 function App() {
   const initialSettingsRef = useRef<AppSettings | null>(null)
@@ -142,14 +122,11 @@ function App() {
 
   // ── Chat store ──
   const conversations = useChatStore((s) => s.conversations)
-  const setConversations = useChatStore((s) => s.setConversations)
   const activeConversationId = useChatStore((s) => s.activeConversationId)
   const setActiveConversationId = useChatStore((s) => s.setActiveConversationId)
   const draftsByConversation = useChatStore((s) => s.draftsByConversation)
   const setDraftsByConversation = useChatStore((s) => s.setDraftsByConversation)
-  const historyStats = useChatStore((s) => s.historyStats)
   const chatStateLoadError = useChatStore((s) => s.chatStateLoadError)
-  const chatStateLoaded = useChatStore((s) => s.chatStateLoaded)
   const pendingImages = useChatStore((s) => s.pendingImages)
   const setPendingImages = useChatStore((s) => s.setPendingImages)
   const pendingImageCompressionTaskIdRef = useRef<Record<string, number>>({})
@@ -164,24 +141,14 @@ function App() {
     openImageViewer, closeImageViewer, imageViewerMounted, imageViewerVisible,
     showScrollToBottomButton, hideScrollToBottomButton,
     scrollToBottomButtonMounted, scrollToBottomButtonVisible,
-    copyTextToClipboard,
     openDeleteDialog,
   } = useChatUI({ modelMenuRef })
 
   // ── UI store: settings navigation ──
-  const settingsView = useUIStore((s) => s.settingsView)
-  const providerDetailTargetId = useUIStore((s) => s.providerDetailTargetId)
-  const manualModelDraft = useUIStore((s) => s.manualModelDraft)
-  const providerModelSearch = useUIStore((s) => s.providerModelSearch)
-  const isFetchingModelsByProviderId = useUIStore((s) => s.isFetchingModelsByProviderId)
-  const setIsFetchingModelsByProviderId = useUIStore((s) => s.setIsFetchingModelsByProviderId)
 
   // ── UI store: prompt editors ──
-  const openPromptEditors = useUIStore((s) => s.openPromptEditors)
-  const openProviderPromptEditors = useUIStore((s) => s.openProviderPromptEditors)
 
   // ── UI store: delete / edit / notice / sending ──
-  const setDeleteModeEnabled = useUIStore((s) => s.setDeleteModeEnabled)
   const deleteDialog = useUIStore((s) => s.deleteDialog)
   const deleteDialogConversationId = deleteDialog?.type === 'conversation' ? deleteDialog.targetId : null
   const deleteDialogProviderId = deleteDialog?.type === 'provider' ? deleteDialog.targetId : null
@@ -197,20 +164,28 @@ function App() {
   const notice = useUIStore((s) => s.notice)
   const setNotice = useUIStore((s) => s.setNotice)
   const isSending = useUIStore((s) => s.isSending)
-  const setIsSending = useUIStore((s) => s.setIsSending)
-  const setActiveRequestConversationId = useUIStore((s) => s.setActiveRequestConversationId)
 
   // ── UI store: drawer ──
-  const setCollapsedConversationGroups = useUIStore((s) => s.setCollapsedConversationGroups)
-  const setSwipingConversationId = useUIStore((s) => s.setSwipingConversation)
-  const setSwipeOffsetX = useUIStore((s) => s.setSwipeOffsetX)
 
   // ── UI store: scroll ──
   const messageListScrollMetrics = useUIStore((s) => s.messageListScrollMetrics)
-  const activeChatScrollInsets = useUIStore((s) => s.activeChatScrollInsets); void activeChatScrollInsets
-
   // ── UI store: transitions ──
   const homepageSendTransition = useUIStore((s) => s.homepageSendTransition)
+
+  // ── pushNotice (defined early — used by hooks and computed values) ──
+  const pushNotice = useCallback((text: string, type: Notice['type'] = 'info'): void => {
+    setNotice({ text, type })
+  }, [])
+
+  // ── useConversation + destructure (defined early — computed values depend on it) ──
+  const conv = useConversation(initialStateRef, pushNotice)
+  const {
+    activeConversation, activeConversationResponseMode, activeConversationModeLocked,
+    activeMessages, hasActiveMessages, isHomepageEmptyState,
+    displayConversationTitle, shouldShowTitleRenameButton, draft,
+    conversationGroups, chatSummarySnapshot, homepageHighlightStats,
+    setConversationsState,
+  } = conv
 
   // ── UI store: permissions ──
 
@@ -220,10 +195,7 @@ function App() {
   const [resolvedDailyCover, setResolvedDailyCover] = useState<ResolvedDailyCover | null>(() =>
     resolveBundledDailyCover(getLocalDateKey()),
   )
-  const [abortController, setAbortController] = useState<AbortController | null>(null)
-  void abortController; void setAbortController;
-
-	// ── Updates (delegated to useUpdates hook) ──
+  // ── Updates (delegated to useUpdates hook) ──
 	const updates = useUpdates()
 
 	// Startup auth logic extracted to useCloudAuth hook
@@ -263,49 +235,8 @@ function App() {
     'daily-cover': 0,
   })
   const drawerScrollTopRef = useRef(0)
-  const hasAutoCollapsedConversationGroupsRef = useRef(false)
   const conversationGroupElementRefs = useRef<Record<string, HTMLElement | null>>({})
   const deleteConfirmBypassUntilRef = useRef(0)
-  const conversationSwipeStartRef = useRef<{
-    conversationId: string
-    pointerId: number
-    x: number
-    y: number
-    thresholdReached: boolean
-    longPressTriggered: boolean
-    longPressTimerId: number | null
-  } | null>(null)
-  const processingTurnQueueRef = useRef(false)
-
-  const activeConversation = useMemo(
-    () =>
-      conversations.find((conversation) => conversation.id === activeConversationId) ??
-      conversations[0] ??
-      null,
-    [conversations, activeConversationId],
-  )
-  const activeConversationResponseMode = useMemo(
-    () => resolveConversationResponseMode(activeConversation, settings.defaultResponseMode),
-    [activeConversation, settings.defaultResponseMode],
-  )
-  const activeConversationModeLocked = useMemo(
-    () => (activeConversation ? hasConversationStarted(activeConversation) : false),
-    [activeConversation],
-  )
-  const setConversationsState = useCallback(
-    (
-      nextState:
-        | Conversation[]
-        | ((previous: Conversation[]) => Conversation[]),
-    ): void => {
-      const next =
-        typeof nextState === 'function'
-          ? (nextState as (previous: Conversation[]) => Conversation[])(useChatStore.getState().conversations)
-          : nextState
-      setConversations(next)
-    },
-    [],
-  )
 
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId
@@ -315,44 +246,9 @@ function App() {
     draftsByConversationRef.current = draftsByConversation
   }, [draftsByConversation])
 
-  const nativeRuntimeAvailable = isNativeRuntimeAvailable()
-
-  const projectedMessagesByConversationId = useMemo(
-    () =>
-      new Map(
-        conversations.map((conversation) => [conversation.id, projectConversationMessages(conversation)]),
-      ),
-    [conversations],
-  )
-  const activeMessages = useMemo(
-    () => (activeConversation ? projectedMessagesByConversationId.get(activeConversation.id) ?? [] : []),
-    [activeConversation, projectedMessagesByConversationId],
-  )
-  const conversationSummariesById = useMemo(
-    () =>
-      new Map(
-        conversations.map((conversation) => [
-          conversation.id,
-          toConversationSummary(conversation, draftsByConversation[conversation.id] ?? ''),
-        ]),
-      ),
-    [conversations, draftsByConversation],
-  )
-  const currentHistoryStats = useMemo(
-    () =>
-      buildHistoryStatsFromSummaries(
-        Array.from(conversationSummariesById.values()).filter((summary) => isPersistedConversationSummary(summary)),
-      ),
-    [conversationSummariesById],
-  )
-  const effectiveHistoryStats = chatStateLoaded ? currentHistoryStats : historyStats
-  const hasActiveMessages = activeMessages.length > 0
   const isActiveConversationLoading =
     activeConversation?.storageLoadState === 'summary' || activeConversation?.storageLoadState === 'hydrating'
   const isActiveConversationLoadError = activeConversation?.storageLoadState === 'error'
-  const isHomepageEmptyState =
-    activeConversation?.storageLoadState === 'hydrated' &&
-    activeMessages.length === 0
   const hasProviders = settings.providers.length > 0
 
   // ── Cloud auth (extracted to useCloudAuth hook) ──
@@ -370,8 +266,6 @@ function App() {
     },
   })
   // showCloudAuthOnHomepage & isCloudAuthRegisterMode now from useCloudAuth hook
-  const displayConversationTitle = activeConversation?.title ?? '新对话'
-  const shouldShowTitleRenameButton = activeConversation !== null && !isHomepageEmptyState
   const shouldShowHomepageBackground = isHomepageEmptyState && resolvedDailyCover !== null
   const homepageBackgroundStyle = shouldShowHomepageBackground && resolvedDailyCover
     ? ({ '--homepage-cover-image': `url("${resolvedDailyCover.imageUrl}")` } as CSSProperties)
@@ -382,50 +276,6 @@ function App() {
     '--homepage-send-transition-easing': 'cubic-bezier(0.22, 1, 0.36, 1)',
     ...(homepageBackgroundStyle ?? {}),
   } as CSSProperties
-  const draft = activeConversation ? draftsByConversation[activeConversation.id] ?? '' : ''
-  const visibleConversations = useMemo(
-    () =>
-      conversations.filter(
-        (conversation) =>
-          conversation.storageLoadState !== 'hydrated' ||
-          !isTranscriptConversationWorkspacePlaceholder(conversation, draftsByConversation[conversation.id] ?? ''),
-      ),
-    [conversations, draftsByConversation],
-  )
-
-  const sortedConversations = useMemo(
-    () => [...visibleConversations].sort((left, right) => right.updatedAt - left.updatedAt),
-    [visibleConversations],
-  )
-  const conversationGroups = useMemo<ConversationGroup[]>(() => {
-    const conversationGroupGapMs = Math.max(0, settings.conversationGroupGapMinutes) * 60 * 1000
-    const groups: ConversationGroup[] = []
-
-    for (const conversation of sortedConversations) {
-      const previousGroup = groups[groups.length - 1]
-      const previousConversation = previousGroup?.conversations[previousGroup.conversations.length - 1]
-      const shouldCreateGroup =
-        !previousGroup ||
-        !previousConversation ||
-        previousConversation.updatedAt - conversation.updatedAt > conversationGroupGapMs
-
-      if (shouldCreateGroup) {
-        groups.push({
-          id: conversation.id,
-          labelTime: conversation.updatedAt,
-          conversations: [conversation],
-        })
-        continue
-      }
-
-      previousGroup.conversations.push(conversation)
-    }
-
-    return groups.map((group) => ({
-      ...group,
-      id: group.conversations.map((conversation) => conversation.id).join('|'),
-    }))
-  }, [sortedConversations, settings.conversationGroupGapMinutes])
 
   const enabledModelOptions = useMemo(
     () => getEnabledModelOptions(settings.providers, cloudLoggedIn, settings.otherProvidersEnabled),
@@ -460,117 +310,6 @@ function App() {
     },
     [settings.providers, settings.actiNetModels, settings.otherProvidersEnabled, cloudLoggedIn],
   )
-  const providerDetailTarget = useMemo(
-    () => settings.providers.find((provider) => provider.id === providerDetailTargetId) ?? null,
-    [providerDetailTargetId, settings.providers],
-  )
-  const filteredProviderModels = useMemo(() => {
-    const provider = providerDetailTarget
-    if (!provider) {
-      return []
-    }
-
-    const keyword = providerModelSearch.trim().toLowerCase()
-    if (!keyword) {
-      return provider.models
-    }
-
-    return provider.models.filter((model) => model.id.toLowerCase().includes(keyword))
-  }, [providerDetailTarget, providerModelSearch])
-
-  const tokenSummary = useMemo(() => {
-    let promptTokens = 0
-    let completionTokens = 0
-    let totalTokens = 0
-    let estimatedCount = 0
-
-    for (const message of activeMessages) {
-      if (message.role !== 'assistant' || !message.usage) {
-        continue
-      }
-      promptTokens += message.usage.promptTokens
-      completionTokens += message.usage.completionTokens
-      totalTokens += message.usage.totalTokens
-      if (message.usageEstimated) {
-        estimatedCount += 1
-      }
-    }
-
-    return { promptTokens, completionTokens, totalTokens, estimatedCount }
-  }, [activeMessages])
-
-  const rounds = useMemo(
-    () => activeMessages.filter((message) => message.role === 'user').length,
-    [activeMessages],
-  )
-  const chatSummarySnapshot = useMemo<ChatSummarySnapshot>(
-    () => ({
-      rounds,
-      promptTokens: tokenSummary.promptTokens,
-      completionTokens: tokenSummary.completionTokens,
-      totalTokens: tokenSummary.totalTokens,
-      estimatedCount: tokenSummary.estimatedCount,
-    }),
-    [rounds, tokenSummary],
-  )
-
-  const emptyStateStats = useMemo(() => {
-    return {
-      totalConversationCount: effectiveHistoryStats.totalConversationCount,
-      totalPhotoCount: effectiveHistoryStats.totalPhotoCount,
-      totalMessageCount: effectiveHistoryStats.totalMessageCount,
-      totalTokenCount: effectiveHistoryStats.totalTokenCount,
-      totalToolCallCount: effectiveHistoryStats.totalToolCallCount,
-    }
-  }, [effectiveHistoryStats])
-
-  const homepageHighlightStats = useMemo<HomepageHighlightStat[]>(
-    () =>
-      selectHomepageHighlights([
-        {
-          id: 'tokenUsage',
-          label: 'Total token use',
-          value: formatCompactCount(emptyStateStats.totalTokenCount),
-          meta: '词元消耗',
-          count: emptyStateStats.totalTokenCount,
-          priority: 'primary',
-        },
-        {
-          id: 'conversationHistory',
-          label: 'Conversation archive',
-          value: numberFormatter.format(emptyStateStats.totalConversationCount),
-          meta: '历史会话',
-          count: emptyStateStats.totalConversationCount,
-          priority: 'primary',
-        },
-        {
-          id: 'toolCalls',
-          label: 'Tool calls',
-          value: numberFormatter.format(emptyStateStats.totalToolCallCount),
-          meta: '工具调用',
-          count: emptyStateStats.totalToolCallCount,
-          priority: 'primary',
-        },
-        {
-          id: 'imagesSent',
-          label: 'Images sent',
-          value: numberFormatter.format(emptyStateStats.totalPhotoCount),
-          meta: '发送图片',
-          count: emptyStateStats.totalPhotoCount,
-          priority: 'backup',
-        },
-        {
-          id: 'messageCount',
-          label: 'Messages sent',
-          value: numberFormatter.format(emptyStateStats.totalMessageCount),
-          meta: '消息数量',
-          count: emptyStateStats.totalMessageCount,
-          priority: 'backup',
-        },
-      ]),
-    [emptyStateStats],
-  )
-
     activeMessages.length > 0 &&
     messageListScrollMetrics.viewportHeight > 0 &&
     messageListScrollMetrics.bottomOffset >
@@ -599,13 +338,8 @@ function App() {
     }
   }, [settings.dailyCover])
 
-  const pushNotice = useCallback((text: string, type: Notice['type'] = 'info'): void => {
-    setNotice({ text, type })
-  }, [])
-
   // ── Permissions (delegated to usePermissions hook) ──
   const perms = usePermissions(pushNotice)
-  const conv = useConversation(initialStateRef, pushNotice)
   const {
     skillRecords,
     runtimeRecords,
@@ -618,7 +352,6 @@ function App() {
     skillConfigRawError,
     isLoadingSkillConfig,
     isSavingSkillConfig,
-    modelHealth,
     skillConfigTarget,
     handleSkillArchiveSelect,
     handleRuntimeArchiveSelect,
@@ -636,10 +369,8 @@ function App() {
     requestDeleteSkill,
     requestDeleteRuntime,
     refreshExtensions,
-    setModelHealth,
   } = useExtensions(pushNotice, openDeleteDialog)
   const {
-    applySettingsUpdate,
     handleNumericSettingChange,
     finalizeNumericSettingDraft,
     handleProviderNumericSettingChange,
@@ -664,7 +395,6 @@ function App() {
     testProviderModel,
     activeProviderRequestSettings,
   } = useSettings(pushNotice, openDeleteDialog)
-  void applySettingsUpdate; void updateProviderById;
 
   // ── Relay ActiNetSettings custom events as pushNotice ──
   useEffect(() => {
@@ -675,8 +405,6 @@ function App() {
     window.addEventListener('actinet-notice', handler)
     return () => window.removeEventListener('actinet-notice', handler)
   }, [pushNotice])
-
-  const assistantStream = useAssistantStream({ updateAssistantEvent: conv.updateAssistantEvent })
 
   const titleHook = useTitleTransition({
     titleTextRef,
@@ -754,7 +482,6 @@ function App() {
 
   // ── Delegated to useAssistant hook ──
   const {
-    executeAssistantTurn,
     handleSend,
     handleAppend,
     handleImageSelect,

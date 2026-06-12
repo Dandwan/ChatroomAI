@@ -2,10 +2,10 @@
 
 Last updated: 2026-06-11
 
-> **当前重构**：App.tsx 从 7,576 行减至 2,684 行（−64.6%）。11 个 hooks + 5 个 views 组件全部就位，tsc 零错误。
-> Phase 2 全部完成（6 个新 hooks + useChatUI 扩展 + conv 去重）。14 hooks + 5 views 就位。
-> 详见 `31-app-modular-refactor-status.md`，handoff-updates/080。
-> **下一步**：完整死代码清理（移除 ~500 行 void 标记代码），目标 ~900 行。
+> **当前重构**：App.tsx 从 9,875 行减至 1,115 行（−88.7%）。14 个 hooks + 5 个 views 组件全部就位，tsc 零错误。
+> 重构残留清理完成（−426 行：useConversation 去重、useChatUI 清理、App.tsx 重复计算消除）。
+> 详见 `31-app-modular-refactor-status.md`，handoff-updates/082。
+> **下一步**：多文件重复定义统一、npm run build 修复（预存问题）。
 
 This directory is the repo-tracked handoff state for **ActiChat** (`动话`, formerly `ChatroomAI`). Any agent taking over development in this repository should read these files before changing code and update them after finishing work.
 

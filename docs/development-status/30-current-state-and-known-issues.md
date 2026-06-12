@@ -62,11 +62,12 @@ See `20-run-and-skill-runtime.md` for full architecture.
 8. **Emulator system bar**: White status-bar background visible above WebView — not yet matching prototype appearance.
 9. **预存的 tsc 错误**：~~8 个 TS2304/TS2552 错误~~ → **已在 076 全部修复** ✅
 
-## App.tsx 模块化重构（2026-06-11）
+## App.tsx 模块化重构（2026-06-12）
 
-**当前状态**：Phase 1（E1-E5+F）已完成 + Phase 2 步骤 1-3+7 完成。App.tsx 从 7,576 降至 2,684 行（−4,892 行，−64.6%），tsc 零错误。
-3 个新 hooks 已创建：useAssistantStream（422 行）、useTitleTransition（261 行）、useMessageListScroll（498 行）。useChatUI 已扩展（模型菜单外部点击关闭）。
-**待完成**：步骤 4-6（剩余 3 个 hooks）、步骤 8（与 useConversation 去重）、步骤 9（完整死代码清理，旧代码标记 void 待移除）。
+**当前状态**：Phase 1+2 全部完成 + 重构残留清理完成。App.tsx 从 9,875 降至 1,115 行（−8,760 行，−88.7%），tsc 零错误。
+14 个 hooks + 5 个 views 组件全部就位。useConversation.ts 去重完成（−147 行），useChatUI.ts 清理完成（−58 行），App.tsx 重复计算消除完成（−220 行）。
+**总计删除**：−426 行（本次清理）+ −8,760 行（重构累计）。
+**待完成**：多文件重复定义统一、npm run build 修复（预存问题）。
 
 **已完成全部阶段**：
 - **阶段 A** 导入清理 + 死代码移除（−348 行）
