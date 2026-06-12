@@ -10,6 +10,8 @@ Last updated: 2026-06-12
 > 发现 2 个 P0 严重 Bug（stopGeneration 失效、ActiNet 模型选择失效）、1 个 P1 问题（modelHealth 清理缺失）、1 段孤儿代码、3 处死代码。
 > **P0 Bug 已修复（083）**：stopGeneration 恢复 abort 调用、ActiNet 模型选择恢复正确 ID 比对。P1 modelHealth 清理已补充。dead code 已移除（useAssistantStream.ts 删除、chatSummarySnapshot 从两个 store 移除）。
 > **剩余**：P4 跨模块重复函数统一（已知技术债务）。
+>
+> **🔵 白屏修复（084）**：useConversation.ts 未提交变更重新引入了 #081 相同的空值检查崩溃。`g?.longPressTimerId !== null` → `g && g.longPressTimerId !== null`（两处修复）。tsc/build/tests 全部通过。
 
 This directory is the repo-tracked handoff state for **ActiChat** (`动话`, formerly `ChatroomAI`). Any agent taking over development in this repository should read these files before changing code and update them after finishing work.
 

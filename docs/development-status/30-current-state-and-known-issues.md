@@ -96,7 +96,7 @@ See `20-run-and-skill-runtime.md` for full architecture.
 
 **注意**：App.tsx 未达到原计划的 ~400 行目标（当前 3,191 行）。剩余代码为仍在使用中的 hooks 调用、计算属性、事件处理函数等，需要进一步系统性地迁移到现有 hooks 中。但已建立了完备的模块化架构（8 hooks + 5 views）。
 
-**最新交接**：`handoff-updates/083-audit-bug-fixes-and-dead-code-cleanup.md`
+**最新交接**：`handoff-updates/084-fix-blue-screen-null-check-crash.md`
 
 ## 重构审计 Bug 修复（2026-06-12）
 

@@ -1,11 +1,11 @@
-# 084 — 修复蓝屏崩溃：空值检查导致初始化时 crash
+# 084 — 修复白屏崩溃：空值检查导致初始化时 crash
 
 **日期**：2026-06-12
 **类型**：Bug fix（小修复）
 
 ## 问题
 
-ActiChat 打开蓝屏。React 错误边界捕获 `TypeError: Cannot read properties of null`。
+ActiChat 打开白屏。React 错误边界捕获 `TypeError: Cannot read properties of null`。
 
 ## 根因
 
@@ -27,7 +27,7 @@ useEffect(() => {
 - `undefined !== null` → `true`
 - `g!.longPressTimerId!` → TypeError（`null.longPressTimerId`）
 
-→ React 错误边界捕获 → 卸载组件树 → 蓝屏。
+→ React 错误边界捕获 → 卸载组件树 → 白屏。
 
 ## 修复
 
