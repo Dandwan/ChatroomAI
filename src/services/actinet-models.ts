@@ -122,5 +122,8 @@ export function getVisibleActiNetModels(
 ): ProviderModel[] {
   const allModels = getEffectiveActiNetModels()
   if (advancedMode) return allModels
-  return allModels.filter((m) => CORE_ACTINET_MODEL_IDS.includes(m.id))
+  // 非高级模式：仅显示核心模型，且强制启用
+  return allModels
+    .filter((m) => CORE_ACTINET_MODEL_IDS.includes(m.id))
+    .map((m) => (m.enabled ? m : { ...m, enabled: true }))
 }

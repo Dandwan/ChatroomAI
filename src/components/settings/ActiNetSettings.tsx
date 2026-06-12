@@ -459,13 +459,17 @@ export default function ActiNetSettings({
               >
                 <span className="model-row-label">{model.id}</span>
                 <div className="model-row-actions">
-                  <button
-                    type="button"
-                    className={`model-toggle-button ${model.enabled ? 'is-enabled' : ''}`}
-                    onClick={() => toggleModel(model.id, !model.enabled)}
-                  >
-                    {model.enabled ? '已启用' : '启用'}
-                  </button>
+                  {actiNetAdvancedModelsEnabled ? (
+                    <button
+                      type="button"
+                      className={`model-toggle-button ${model.enabled ? 'is-enabled' : ''}`}
+                      onClick={() => toggleModel(model.id, !model.enabled)}
+                    >
+                      {model.enabled ? '已启用' : '启用'}
+                    </button>
+                  ) : (
+                    <span className="model-row-label" style={{ opacity: 0.5 }}>始终启用</span>
+                  )}
                 </div>
               </div>
             ))

@@ -13,7 +13,7 @@ ActiNet 云服务模型管理服务层。提供默认模型常量（快速、专
 - `saveActiNetModelPreferences(models)` — 保存模型启用偏好
 - `CORE_ACTINET_MODEL_IDS` — 核心模型 ID 常量（`['快速', '专家']`）
 - `getEffectiveActiNetModels()` — 获取实际生效的模型列表（用户配置优先，否则用默认）
-- `getVisibleActiNetModels(advancedMode)` — 根据高级模式开关获取可见模型（关闭时仅核心模型）
+- `getVisibleActiNetModels(advancedMode)` — 根据高级模式开关获取可见模型（关闭时仅核心模型，且强制 enabled: true）
 - `fetchActiNetModelsFromServer(serverUrl, apiKey)` — 从 cloud-server 拉取模型列表
 - `mergeActiNetModels(remoteModels, storedModels)` — 合并远程列表与本地偏好
 
