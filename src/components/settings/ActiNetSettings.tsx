@@ -22,6 +22,8 @@ interface ActiNetSettingsProps {
   onCloudLogout: () => void
   actiNetModels: ProviderModel[]
   onUpdateActiNetModels: (models: ProviderModel[]) => void
+  actiNetAdvancedModelsEnabled: boolean
+  onToggleAdvancedModels: (enabled: boolean) => void
 }
 
 export default function ActiNetSettings({
@@ -31,6 +33,8 @@ export default function ActiNetSettings({
   onCloudLogout,
   actiNetModels,
   onUpdateActiNetModels,
+  actiNetAdvancedModelsEnabled,
+  onToggleAdvancedModels,
 }: ActiNetSettingsProps) {
   const [apiKeyVisible, setApiKeyVisible] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -365,7 +369,25 @@ export default function ActiNetSettings({
         </div>
       </section>
 
+
+      {/* ── 高级模型开关 ── */}
+      <section className="settings-section">
+        <label className="toggle-row">
+          <span>高级模型</span>
+          <input
+            className="toggle-switch"
+            type="checkbox"
+            checked={actiNetAdvancedModelsEnabled}
+            onChange={(event) => onToggleAdvancedModels(event.target.checked)}
+          />
+        </label>
+        <span className="settings-entry-meta">
+          开启后可添加和管理更多 ActiNet 模型
+        </span>
+      </section>
+
       {/* ── Model management ── */}
+      {actiNetAdvancedModelsEnabled && (
       <section className="settings-section">
         <div className="conversation-group-divider settings-section-divider">
           <span className="conversation-group-label">ActiNet 模型</span>
@@ -443,6 +465,8 @@ export default function ActiNetSettings({
           )}
         </div>
       </section>
+
+      )}
 
       <section className="settings-section">
         <div className="model-tools">

@@ -195,6 +195,7 @@ export interface AppSettings {
   dailyCover: DailyCoverSettings
   actiNetModels: ProviderModel[]
   otherProvidersEnabled: boolean
+  actiNetAdvancedModelsEnabled: boolean
 }
 
 // ── Numeric settings ──

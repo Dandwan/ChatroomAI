@@ -7,6 +7,9 @@ export const DEFAULT_ACTINET_MODELS: ProviderModel[] = [
   { id: '专家', enabled: true },
 ]
 
+/** 核心模型 ID — 快速/专家始终存在于模型列表中，不可被删除 */
+export const CORE_ACTINET_MODEL_IDS = ['快速', '专家']
+
 interface ActiNetModelPreferences {
   models: ProviderModel[]
   lastFetchedAt: number
@@ -32,11 +35,31 @@ export function saveActiNetModelPreferences(models: ProviderModel[]): void {
   )
 }
 
-/** 获取实际生效的 ActiNet 模型：用户已配置则用配置，否则用默认 */
+/** 获取实际生效的 ActiNet 模型：确保快速/专家始终存在，然后合并用户偏好 */
 export function getEffectiveActiNetModels(): ProviderModel[] {
   const stored = getStoredActiNetModels()
-  if (stored.length > 0) return stored
-  return DEFAULT_ACTINET_MODELS
+
+  // 以核心模型为基础，确保快速/专家始终存在
+  const coreMap = new Map<string, boolean>(
+    DEFAULT_ACTINET_MODELS.map((m) => [m.id, m.enabled]),
+  )
+
+  // 用存储的偏好覆盖核心模型的启用状态
+  for (const m of stored) {
+    if (coreMap.has(m.id)) {
+      coreMap.set(m.id, m.enabled)
+    }
+  }
+
+  // 构建最终列表：先是核心模型，再追加存储中的非核心模型
+  const coreModels: ProviderModel[] = DEFAULT_ACTINET_MODELS.map((m) => ({
+    id: m.id,
+    enabled: coreMap.get(m.id) ?? m.enabled,
+  }))
+
+  const extraModels = stored.filter((m) => !CORE_ACTINET_MODEL_IDS.includes(m.id))
+
+  return [...coreModels, ...extraModels]
 }
 
 /**
@@ -68,14 +91,36 @@ export async function fetchActiNetModelsFromServer(
 /**
  * 合并远程模型列表与用户本地启用偏好。
  * 远程新增的模型默认 disabled，远程已删除的模型从偏好中移除。
+ * 快速/专家始终保留，即使远程不返回它们。
  */
 export function mergeActiNetModels(
   remoteModels: string[],
   storedModels: ProviderModel[],
 ): ProviderModel[] {
   const storedMap = new Map(storedModels.map((m) => [m.id, m.enabled]))
-  return remoteModels.map((id) => ({
-    id,
-    enabled: storedMap.get(id) ?? false,
+
+  // 以快速/专家为核心基础
+  const coreModels = DEFAULT_ACTINET_MODELS.map((m) => ({
+    id: m.id,
+    enabled: storedMap.get(m.id) ?? m.enabled,
   }))
+
+  // 仅追加远程中存在的非核心模型
+  const extraModels = remoteModels
+    .filter((id) => !CORE_ACTINET_MODEL_IDS.includes(id))
+    .map((id) => ({
+      id,
+      enabled: storedMap.get(id) ?? false,
+    }))
+
+  return [...coreModels, ...extraModels]
+}
+
+/** 获取在模型菜单中应显示的 ActiNet 模型（根据高级模式过滤） */
+export function getVisibleActiNetModels(
+  advancedMode: boolean,
+): ProviderModel[] {
+  const allModels = getEffectiveActiNetModels()
+  if (advancedMode) return allModels
+  return allModels.filter((m) => CORE_ACTINET_MODEL_IDS.includes(m.id))
 }

@@ -7,6 +7,7 @@
 import {
   startTransition,
   useCallback,
+  type PointerEvent,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -28,6 +29,10 @@ import type {
 } from '../state/types'
 import {
   CHAT_STATE_PERSIST_DEBOUNCE_MS,
+  SWIPE_DELETE_TOGGLE_THRESHOLD_PX,
+  SWIPE_DELETE_MAX_OFFSET_PX,
+  LONG_PRESS_DELETE_MODE_MS,
+  LONG_PRESS_MOVE_TOLERANCE_PX,
 } from '../state/types'
 import { useUIStore } from '../state/ui-store'
 import { useChatStore } from '../state/chat-store'
@@ -59,6 +64,7 @@ import {
   withConversationRecordTranscript,
   hasConversationStarted,
   isPersistedConversationSummary,
+  vibrateInteraction,
 } from '../utils/app-module'
 
 export function useConversation(
@@ -83,6 +89,7 @@ export function useConversation(
 
   const settings = useSettingsStore((s) => s.settings)
 
+  const drawerMounted = useUIStore((s) => s.drawerMounted)
   const drawerVisible = useUIStore((s) => s.drawerVisible)
   const isSending = useUIStore((s) => s.isSending)
   const activeRequestConversationId = useUIStore((s) => s.activeRequestConversationId)
@@ -352,9 +359,91 @@ export function useConversation(
     setPendingImages([])
   }, [conversations, draftsByConversation, setConversationsState, setActiveConversationId, setPendingImages])
 
+  // ── Gesture refs ──
+  const conversationSwipeStartRef = useRef<{
+    conversationId: string; pointerId: number; x: number; y: number
+    thresholdReached: boolean; longPressTriggered: boolean; longPressTimerId: number | null
+  } | null>(null)
+  const ignoreNextConversationClickRef = useRef<string | null>(null)
   const hasAutoCollapsedConversationGroupsRef = useRef(false)
   const conversationGroupElementRefs = useRef<Record<string, HTMLElement | null>>({})
   const conversationListRef = useRef<HTMLDivElement | null>(null)
+
+  const setSwipingConversationId = useUIStore((s) => s.setSwipingConversation)
+  const setSwipeOffsetX = useUIStore((s) => s.setSwipeOffsetX)
+  const setDeleteModeEnabled2 = useUIStore((s) => s.setDeleteModeEnabled)
+
+  const clearConversationGestureTimer = useCallback((): void => {
+    const g = conversationSwipeStartRef.current
+    if (g && g.longPressTimerId !== null) { window.clearTimeout(g.longPressTimerId); g.longPressTimerId = null }
+  }, [])
+
+  const resetConversationSwipe = useCallback((): void => {
+    clearConversationGestureTimer()
+    conversationSwipeStartRef.current = null
+    setSwipingConversationId(null)
+    setSwipeOffsetX(0)
+  }, [clearConversationGestureTimer, setSwipingConversationId, setSwipeOffsetX])
+
+  const toggleDeleteMode = useCallback((): void => {
+    setDeleteModeEnabled2((prev: boolean) => !prev)
+  }, [setDeleteModeEnabled2])
+
+  const handleConversationPointerDown = useCallback((
+    conversationId: string, event: PointerEvent<HTMLButtonElement>,
+  ): void => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    resetConversationSwipe()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    const pid = event.pointerId
+    const tid = window.setTimeout(() => {
+      const g = conversationSwipeStartRef.current
+      if (!g || g.conversationId !== conversationId || g.pointerId !== pid) return
+      g.longPressTriggered = true; g.thresholdReached = false
+      clearConversationGestureTimer()
+      ignoreNextConversationClickRef.current = conversationId
+      setSwipingConversationId(null); setSwipeOffsetX(0)
+      if ((settings as any).deleteModeHapticsEnabled) vibrateInteraction()
+      toggleDeleteMode()
+    }, LONG_PRESS_DELETE_MODE_MS)
+    conversationSwipeStartRef.current = { conversationId, pointerId: pid, x: event.clientX, y: event.clientY, thresholdReached: false, longPressTriggered: false, longPressTimerId: tid }
+  }, [settings, toggleDeleteMode, resetConversationSwipe, clearConversationGestureTimer, setSwipingConversationId, setSwipeOffsetX])
+
+  const handleConversationPointerMove = useCallback((
+    conversationId: string, event: PointerEvent<HTMLButtonElement>,
+  ): void => {
+    const g = conversationSwipeStartRef.current
+    if (!g || g.conversationId !== conversationId || g.pointerId !== event.pointerId) return
+    if (g.longPressTriggered) return
+    const dx = event.clientX - g.x; const dy = event.clientY - g.y
+    if (Math.abs(dy) > LONG_PRESS_MOVE_TOLERANCE_PX && !g.thresholdReached) { clearConversationGestureTimer(); g.longPressTimerId = null; return }
+    if (dx > SWIPE_DELETE_TOGGLE_THRESHOLD_PX && !g.thresholdReached) { g.thresholdReached = true; clearConversationGestureTimer(); setSwipingConversationId(conversationId); ignoreNextConversationClickRef.current = conversationId }
+    if (g.thresholdReached && dx > 0) setSwipeOffsetX(Math.min(dx, SWIPE_DELETE_MAX_OFFSET_PX))
+  }, [clearConversationGestureTimer, setSwipingConversationId, setSwipeOffsetX])
+
+  const handleConversationPointerUp = useCallback((
+    conversationId: string, event: PointerEvent<HTMLButtonElement>,
+  ): void => {
+    const g = conversationSwipeStartRef.current
+    if (!g || g.conversationId !== conversationId) return
+    event.currentTarget.releasePointerCapture(event.pointerId)
+    const dx = event.clientX - g.x
+    clearConversationGestureTimer(); conversationSwipeStartRef.current = null
+    if (g.thresholdReached && dx > SWIPE_DELETE_TOGGLE_THRESHOLD_PX) { setSwipingConversationId(null); setSwipeOffsetX(0); return }
+    if (g.longPressTriggered) { ignoreNextConversationClickRef.current = conversationId; setSwipingConversationId(null); setSwipeOffsetX(0); return }
+    setSwipingConversationId(null); setSwipeOffsetX(0)
+  }, [clearConversationGestureTimer, setSwipingConversationId, setSwipeOffsetX])
+
+  const handleConversationPointerCancel = useCallback((): void => { resetConversationSwipe() }, [resetConversationSwipe])
+
+  const handleConversationClick = useCallback((conversationId: string): void => {
+    if (ignoreNextConversationClickRef.current === conversationId) { ignoreNextConversationClickRef.current = null; return }
+    switchConversation(conversationId)
+  }, [switchConversation])
+
+  const toggleConversationGroup = useCallback((groupId: string): void => {
+    useUIStore.getState().toggleConversationGroup(groupId)
+  }, [])
 
   // ── Effects ──
   const setCollapsedConversationGroups = useUIStore((s) => s.setCollapsedConversationGroups)
@@ -466,6 +555,16 @@ export function useConversation(
   }, [activeConversationId, setPendingImages])
 
   useEffect(() => {
+    if (drawerMounted) return
+    const g = conversationSwipeStartRef.current
+    if (g && g.longPressTimerId !== null) { window.clearTimeout(g.longPressTimerId); g.longPressTimerId = null }
+    conversationSwipeStartRef.current = null
+    setSwipingConversationId(null); setSwipeOffsetX(0)
+    setDeleteModeEnabled2(false)
+    useUIStore.getState().closeDeleteDialog()
+  }, [drawerMounted, setSwipingConversationId, setSwipeOffsetX, setDeleteModeEnabled2])
+
+  useEffect(() => {
     setCollapsedConversationGroups((prev) => {
       const next: Record<string, boolean> = {}
       for (const g of conversationGroups) next[g.id] = prev[g.id] ?? false
@@ -501,6 +600,49 @@ export function useConversation(
     })
     return () => { window.cancelAnimationFrame(ff); if (sf) window.cancelAnimationFrame(sf) }
   }, [drawerVisible, settings.autoCollapseConversations, conversationGroups, setCollapsedConversationGroups])
+
+  // ── Title editing ──
+  const isEditingTitle = useUIStore((s) => s.isEditingTitle)
+  const titleDraft = useUIStore((s) => s.titleDraft)
+  const titleTransition = useUIStore((s) => s.titleTransition)
+  const setTitleTransition = useUIStore((s) => s.setTitleTransition)
+  const setTitleDraft = useUIStore((s) => s.setTitleDraft)
+  const setIsEditingTitle = useUIStore((s) => s.setIsEditingTitle)
+  const titleTransitionPrepRef = useRef<any>(null)
+  const titleTransitionAnimationFrameRef = useRef<number | null>(null)
+  const titleTransitionTimerRef = useRef<number | null>(null)
+
+  const clearTitleTransitionTimers = useCallback((): void => {
+    if (titleTransitionAnimationFrameRef.current !== null) { window.cancelAnimationFrame(titleTransitionAnimationFrameRef.current); titleTransitionAnimationFrameRef.current = null }
+    if (titleTransitionTimerRef.current !== null) { window.clearTimeout(titleTransitionTimerRef.current); titleTransitionTimerRef.current = null }
+  }, [])
+
+  const stopRenameConversationImmediately = useCallback((): void => {
+    titleTransitionPrepRef.current = null
+    clearTitleTransitionTimers()
+    setTitleTransition(null)
+    setIsEditingTitle(false)
+    setTitleDraft('')
+  }, [clearTitleTransitionTimers, setTitleTransition, setIsEditingTitle, setTitleDraft])
+
+  const beginRenameConversation = useCallback((): void => {
+    if (!activeConversation || titleTransition || titleTransitionPrepRef.current) return
+    setTitleDraft(activeConversation.title)
+    setIsEditingTitle(true)
+  }, [activeConversation, titleTransition, setTitleDraft, setIsEditingTitle])
+
+  const cancelRenameConversation = useCallback((): void => {
+    if (!isEditingTitle || titleTransition || titleTransitionPrepRef.current) return
+    setIsEditingTitle(false); setTitleDraft('')
+  }, [isEditingTitle, titleTransition, setIsEditingTitle, setTitleDraft])
+
+  const saveRenameConversation = useCallback((): void => {
+    if (!activeConversation || titleTransition || titleTransitionPrepRef.current) return
+    const nextTitle = titleDraft.trim()
+    if (!nextTitle) return
+    updateConversationTitle(activeConversation.id, nextTitle, true)
+    setIsEditingTitle(false); setTitleDraft('')
+  }, [activeConversation, titleTransition, titleDraft, updateConversationTitle, setIsEditingTitle, setTitleDraft])
 
   const displayConversationTitle = activeConversation?.title ?? '新对话'
   const shouldShowTitleRenameButton = activeConversation !== null && !isHomepageEmptyState
@@ -561,6 +703,11 @@ export function useConversation(
     updateConversationDraft, updateConversationTranscript, updateConversationResponseMode,
     appendConversationTranscriptEvents, updateAssistantEvent, updateConversationTitle,
     createNewConversation, switchConversation, deleteConversation: deleteConversation_,
+    handleConversationPointerDown, handleConversationPointerMove,
+    handleConversationPointerUp, handleConversationPointerCancel,
+    handleConversationClick, toggleConversationGroup, toggleDeleteMode,
+    beginRenameConversation, cancelRenameConversation, saveRenameConversation,
+    stopRenameConversationImmediately,
     conversationListRef, conversationGroupElementRefs,
     removePendingImage,
     updatePendingImageCompression,
