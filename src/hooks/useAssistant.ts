@@ -1484,6 +1484,7 @@ export function useAssistant() {
         if (!historyTranscript) { queuedTurnExecutionsRef.current = []; break }
         useUIStore.getState().setActiveRequestConversationId(job.conversationId)
         const controller = new AbortController()
+        useChatStore.getState().setAbortController(controller)
         const outcome = await executeAssistantTurn(job.conversationId, historyTranscript, job.turnId, job.responseMode, controller)
         if (outcome !== 'completed') { queuedTurnExecutionsRef.current = []; break }
       }
@@ -1508,7 +1509,7 @@ export function useAssistant() {
 
   const stopGeneration = useCallback((): void => {
     clearQueuedTurnExecutions()
-    // Note: abort controller is managed externally via processQueuedTurnExecutions
+    useChatStore.getState().abortController?.abort()
   }, [clearQueuedTurnExecutions])
 
   // ── Handler functions ──────────────────────────────────────────────────

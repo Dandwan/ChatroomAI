@@ -96,7 +96,20 @@ See `20-run-and-skill-runtime.md` for full architecture.
 
 **注意**：App.tsx 未达到原计划的 ~400 行目标（当前 3,191 行）。剩余代码为仍在使用中的 hooks 调用、计算属性、事件处理函数等，需要进一步系统性地迁移到现有 hooks 中。但已建立了完备的模块化架构（8 hooks + 5 views）。
 
-**最新交接**：`handoff-updates/078-app-modular-refactor-e2-e5-complete.md`
+**最新交接**：`handoff-updates/083-audit-bug-fixes-and-dead-code-cleanup.md`
+
+## 重构审计 Bug 修复（2026-06-12）
+
+| # | 优先级 | 问题 | 状态 |
+|---|--------|------|------|
+| 1 | P0 | `stopGeneration` 无法中止请求 | ✅ 已修复（083） |
+| 7 | P0 | ActiNet 模型选择静默失败 | ✅ 已修复（083） |
+| 8 | P1 | `deleteProvider` 缺少 modelHealth 清理 | ✅ 已修复（083） |
+| 2 | P2 | App.tsx 孤儿表达式 | ✅ 已在 082 清理 |
+| 3 | P3 | `useAssistantStream.ts` 死文件 | ✅ 已删除（083） |
+| 4 | P3 | `abortController` store 字段死代码 | ✅ 已激活（083，Bug #1 修复后使用） |
+| 5 | P3 | `chatSummarySnapshot` 双 store 死字段 | ✅ 已移除（083） |
+| 6 | P4 | 跨模块重复函数统一 | 待处理（已知技术债务） |
 
 ## Cloud Server (`cloud-server/`)
 

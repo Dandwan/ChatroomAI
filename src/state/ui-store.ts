@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 import type {
-  ChatSummarySnapshot,
   DeleteDialogState,
   HomepageSendTransitionState,
   ImageViewerState,
@@ -82,9 +81,6 @@ interface UIStore {
   // ── Homepage transition ──
   homepageSendTransition: HomepageSendTransitionState | null
 
-  // ── Chat summary snapshot (for transition) ──
-  chatSummarySnapshot: ChatSummarySnapshot | null
-
   // ── Actions ──
   setSettingsVisibility: (mounted: boolean, visible: boolean) => void
   setDrawerVisibility: (mounted: boolean, visible: boolean) => void
@@ -128,7 +124,6 @@ interface UIStore {
   setRequestingPermission: (key: string, requesting: boolean) => void
   setRequestingPermissionByKey: (updater: Record<string, boolean> | ((prev: Record<string, boolean>) => Record<string, boolean>)) => void
   setHomepageSendTransition: (transition: HomepageSendTransitionState | null) => void
-  setChatSummarySnapshot: (snapshot: ChatSummarySnapshot | null) => void
 }
 
 export const useUIStore = create<UIStore>((set) => ({
@@ -217,9 +212,6 @@ export const useUIStore = create<UIStore>((set) => ({
 
   // ── Homepage transition ──
   homepageSendTransition: null,
-
-  // ── Chat summary snapshot ──
-  chatSummarySnapshot: null,
 
   // ── Actions ──
   setSettingsVisibility: (mounted, visible) => set({ settingsMounted: mounted, settingsVisible: visible }),
@@ -341,5 +333,4 @@ export const useUIStore = create<UIStore>((set) => ({
     })),
 
   setHomepageSendTransition: (transition) => set({ homepageSendTransition: transition }),
-  setChatSummarySnapshot: (snapshot) => set({ chatSummarySnapshot: snapshot }),
 }))

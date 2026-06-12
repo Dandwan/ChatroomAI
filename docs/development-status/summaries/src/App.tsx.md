@@ -8,6 +8,7 @@ ActiChat 应用的主 shell 组件。通过 14 个 hooks + 5 个 views 组件完
 - 移除 `useChatUI.ts` 中未使用的标题编辑和 `copyTextToClipboard`（−58 行）
 - App.tsx 重复计算替换为 `conv.*` 解构，移除冗余 import 和 store 选择器（−220 行）
 - 修复 `useConversationDrawer.ts` 中 `longPressTimerId` 未清空问题
+- 移除 `copyTextToClipboard` 解构和 `void` 引用（预存问题，修复 tsc 报错）
 - App.tsx: 1,335 → 1,115 行（−16.5%）
 
 **Phase 2 重构（2026-06-11）：6 个新 hooks 创建，App.tsx 从 7,576 → 2,684 行**

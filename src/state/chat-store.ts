@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import type {
   ChatStorageHistoryStats,
-  ChatSummarySnapshot,
   Conversation,
   ConversationDrafts,
   PendingImageAttachment,
@@ -18,7 +17,6 @@ interface ChatStore {
   chatStateLoaded: boolean
   pendingImages: PendingImageAttachment[]
   abortController: AbortController | null
-  chatSummarySnapshot: ChatSummarySnapshot | null
 
   // Derived
   activeConversation: Conversation | undefined
@@ -33,7 +31,6 @@ interface ChatStore {
   setChatStateLoaded: (loaded: boolean) => void
   setPendingImages: (images: PendingImageAttachment[] | ((prev: PendingImageAttachment[]) => PendingImageAttachment[])) => void
   setAbortController: (controller: AbortController | null) => void
-  setChatSummarySnapshot: (snapshot: ChatSummarySnapshot | null) => void
   updateConversation: (id: string, updates: Partial<Conversation>) => void
   removePendingImage: (dataUrl: string) => void
 }
@@ -47,7 +44,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   chatStateLoaded: false,
   pendingImages: [],
   abortController: null,
-  chatSummarySnapshot: null,
 
   get activeConversation() {
     const { conversations, activeConversationId } = get()
@@ -78,7 +74,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       pendingImages: typeof images === 'function' ? images(state.pendingImages) : images,
     })),
   setAbortController: (controller) => set({ abortController: controller }),
-  setChatSummarySnapshot: (snapshot) => set({ chatSummarySnapshot: snapshot }),
   updateConversation: (id, updates) =>
     set((state) => ({
       conversations: state.conversations.map((c) => (c.id === id ? { ...c, ...updates } : c)),

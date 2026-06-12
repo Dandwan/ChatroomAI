@@ -19,7 +19,9 @@ import {
   createProviderNumericSettingDrafts,
   resolveProviderRequestSettings,
   PROMPT_DEFAULTS,
+  ACTINET_PROVIDER_ID,
 } from '../utils/app-module'
+import { getEffectiveActiNetModels } from '../services/actinet-models'
 
 export interface UseSettingsReturn {
   // Settings state
@@ -251,6 +253,16 @@ export function useSettings(
         useUIStore.getState().navigateSettingsView('providers')
       }
       pushNotice(`已删除服务商：${label}`, 'success')
+      // Clean up modelHealth entries for deleted provider
+      const setModelHealth = useExtensionsStore.getState().setModelHealth
+      setModelHealth((previous) => {
+        const next: Record<string, any> = {}
+        const prefix = `${providerId}::`
+        for (const key of Object.keys(previous)) {
+          if (!key.startsWith(prefix)) next[key] = previous[key]
+        }
+        return next
+      })
     },
     [applySettingsUpdate, providerDetailTargetId, pushNotice, settings.providers],
   )
@@ -267,8 +279,9 @@ export function useSettings(
     (providerId: string, modelId: string): void => {
       applySettingsUpdate((prev) => {
         // ActiNet virtual provider handling
-        if (providerId === 'actinet') {
-          const model = (prev as any).actiNetModels?.find((m: any) => m.id === modelId)
+        if (providerId === ACTINET_PROVIDER_ID) {
+          const effective = getEffectiveActiNetModels()
+          const model = effective.find((m) => m.id === modelId && m.enabled)
           if (!model) return prev
           return { ...prev, currentProviderId: providerId, currentModel: modelId }
         }
