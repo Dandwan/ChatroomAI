@@ -3,14 +3,13 @@
 ## 功能
 ActiChat 应用的主 shell 组件。通过 14 个 hooks + 5 个 views 组件完成渲染和交互。
 
-**近期变更（2026-06-12）：重构残留清理**
+**近期变更（2026-06-12）：重构残留清理 + #085 修复恢复**
 - 移除 `useConversation.ts` 中重复的手势和标题编辑死代码（−147 行）
 - 移除 `useChatUI.ts` 中未使用的标题编辑和 `copyTextToClipboard`（−58 行）
 - App.tsx 重复计算替换为 `conv.*` 解构，移除冗余 import 和 store 选择器（−220 行）
 - 修复 `useConversationDrawer.ts` 中 `longPressTimerId` 未清空问题
-- 移除 `copyTextToClipboard` 解构和 `void` 引用（预存问题，修复 tsc 报错）
-- **ActiNet 模型可见性修复**：`enabledModelOptions` 和 `enabledModelsByProvider` memo 追加 `settings.actiNetAdvancedModelsEnabled` 依赖项，改用 `getVisibleActiNetModels()` 过滤模型列表
-- App.tsx: 1,335 → 1,115 行（−16.5%）
+- **ActiNet 模型可见性修复（086 恢复）**：`enabledModelOptions` 和 `enabledModelsByProvider` memo 追加 `settings.actiNetAdvancedModelsEnabled` 依赖项，改用 `getVisibleActiNetModels()` 过滤模型列表（#083 意外回退整个文件后重新应用 #085 修复）
+- App.tsx: 1,115 行（−88.7% 从 9,875 行）
 
 **Phase 2 重构（2026-06-11）：6 个新 hooks 创建，App.tsx 从 7,576 → 2,684 行**
 **Phase 1 重构（2026-06-11）：8 hooks + 5 views 提取，App.tsx 从 7,576 → 3,191 行**

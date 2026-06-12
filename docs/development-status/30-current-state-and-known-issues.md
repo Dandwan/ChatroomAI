@@ -96,7 +96,11 @@ See `20-run-and-skill-runtime.md` for full architecture.
 
 **注意**：App.tsx 未达到原计划的 ~400 行目标（当前 3,191 行）。剩余代码为仍在使用中的 hooks 调用、计算属性、事件处理函数等，需要进一步系统性地迁移到现有 hooks 中。但已建立了完备的模块化架构（8 hooks + 5 views）。
 
-**最新交接**：`handoff-updates/085-fix-actinet-core-model-visibility.md`
+**最新交接**：`handoff-updates/086-recover-app-refactor-from-accidental-revert.md`
+
+> **2026-06-12 重构恢复**：#083 意外将 App.tsx 回退到 5,097 行、useConversation.ts 恢复重复代码。#086 已恢复 App.tsx 至 1,115 行、useConversation.ts 至 569 行干净版本。tsc 0 错误，39 tests passed。
+
+**最新交接**（功能）：`handoff-updates/085-fix-actinet-core-model-visibility.md`
 
 ## 重构审计 Bug 修复（2026-06-12）
 

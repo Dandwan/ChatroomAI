@@ -5,7 +5,7 @@
 
 **近期清理（2026-06-12）**：移除重复的手势交互代码（已由 `useConversationDrawer` 接管）和重复的标题编辑代码（已由 `useTitleTransition` 接管）。移除导致 #081 白屏崩溃的死 effect。
 
-**2026-06-12 白屏修复**：未提交的变更重新添加了手势交互代码和标题编辑代码（与 `useConversationDrawer.ts` / `useTitleTransition.ts` 重复）。修复了两处 `g?.longPressTimerId !== null` 空值检查——当 `g` 为 `null` 时 `g?.longPressTimerId` 返回 `undefined`，`undefined !== null` 为 `true`，导致在 `null` 上访问 `longPressTimerId` 崩溃。改为 `g && g.longPressTimerId !== null`。
+**2026-06-12（086 恢复）**：#083 提交意外重新引入了 147 行已删除的手势/标题编辑重复代码。通过 git checkout 恢复到 #082 清理后的干净版本（569 行）。
 
 ## 关系
 ### 调用 / 引用

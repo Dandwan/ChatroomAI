@@ -14,6 +14,8 @@ Last updated: 2026-06-12
 > **🔵 白屏修复（084）**：useConversation.ts 未提交变更重新引入了 #081 相同的空值检查崩溃。`g?.longPressTimerId !== null` → `g && g.longPressTimerId !== null`（两处修复）。tsc/build/tests 全部通过。
 >
 > **🔧 ActiNet 模型可见性修复（085）**：未开启高级模型时找不到快速/专家模型。`getVisibleActiNetModels()` 函数已定义但从未被调用。5 个文件修改：接入 `getVisibleActiNetModels` 到所有模型可见性路径，重构 ActiNetSettings UI 始终显示核心模型，删除 useAssistant.ts 重复代码。
+>
+> **🔧 重构恢复（086）**：#083 提交意外将 App.tsx 从 1,115 行回退到 5,097 行。已恢复干净版本并重新应用 #085 修复。useConversation.ts 也已恢复干净（移除 #083 意外恢复的 147 行重复代码）。tsc 0 错误，vitest 39 passed。
 
 This directory is the repo-tracked handoff state for **ActiChat** (`动话`, formerly `ChatroomAI`). Any agent taking over development in this repository should read these files before changing code and update them after finishing work.
 
